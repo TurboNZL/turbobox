@@ -31,6 +31,9 @@ final class Prefs {
     static void setBufferMinutes(Context c, int v) { sp(c).edit().putInt("bufferMinutes", v).apply(); }
     static int bufferQuality(Context c) { return sp(c).getInt("bufferQuality", 1); }
     static void setBufferQuality(Context c, int v) { sp(c).edit().putInt("bufferQuality", v).apply(); }
+    /** Start the recording buffer by itself whenever a page opens (a pin can override it either way). On by default. */
+    static boolean recordByDefault(Context c) { return sp(c).getBoolean("recordByDefault", true); }
+    static void setRecordByDefault(Context c, boolean v) { sp(c).edit().putBoolean("recordByDefault", v).apply(); }
     /** What to do when a recording reaches its length: false = keep recording and drop the oldest, true = stop. */
     static boolean bufferStopAtLimit(Context c) { return sp(c).getBoolean("bufferStop", false); }
     static void setBufferStopAtLimit(Context c, boolean v) { sp(c).edit().putBoolean("bufferStop", v).apply(); }

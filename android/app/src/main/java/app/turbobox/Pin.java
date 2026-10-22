@@ -15,7 +15,7 @@ final class Pin {
     String url;
     float zoom = 1f;        // 0.5..3, this page's layout width is 1280 / zoom
     float volume = 1f;      // 0..2, gain on the page's audio
-    boolean autoRecord;     // start the recording buffer as soon as the page opens
+    int recordMode;         // recording when the page opens: 0 = follow the default in Settings, 1 = always, 2 = never
     boolean allowMic = true;      // privacy: may the page use the microphone (what it hears of you)
     boolean allowCamera;          // privacy: may the page use the camera (off until you allow it)
 
@@ -32,7 +32,7 @@ final class Pin {
     JSONObject toJson() {
         try {
             return new JSONObject().put("id", id).put("name", name).put("url", url)
-                    .put("zoom", zoom).put("volume", volume).put("autoRecord", autoRecord)
+                    .put("zoom", zoom).put("volume", volume).put("recordMode", recordMode)
                     .put("allowMic", allowMic).put("allowCamera", allowCamera);
         } catch (JSONException e) {
             throw new IllegalStateException(e);
@@ -43,7 +43,8 @@ final class Pin {
         Pin p = new Pin(o.optString("id"), o.optString("name"), o.optString("url"));
         p.zoom = (float) o.optDouble("zoom", 1.0);
         p.volume = (float) o.optDouble("volume", 1.0);
-        p.autoRecord = o.optBoolean("autoRecord", false);
+        // Pins saved before recording was on by default only had a yes/no box: yes still means always.
+        p.recordMode = o.has("recordMode") ? o.optInt("recordMode") : o.optBoolean("autoRecord", false) ? 1 : 0;
         p.allowMic = o.optBoolean("allowMic", true);
         p.allowCamera = o.optBoolean("allowCamera", false);
         return p;
@@ -56,6 +57,16 @@ final class Pin {
         } catch (URISyntaxException e) {
             return url;
         }
+    }
+
+    /** Does this page start recording by itself when it opens? */
+    boolean recordsOnOpen(boolean defaultOn) {
+        return recordMode == 1 || (recordMode == 0 && defaultOn);
+    }
+
+    static String recordModeText(int mode, boolean defaultOn) {
+        return mode == 1 ? "Always record this page" : mode == 2 ? "Never record this page"
+                : "Follow the default (" + (defaultOn ? "record" : "do not record") + ")";
     }
 
     /** One letter for the tile. */

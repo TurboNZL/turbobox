@@ -235,6 +235,17 @@ final class WorkflowRunner {
                     session.stopRecording();
                     next();
                     break;
+                case STEP_AWAY:
+                    if (!session.stepAway()) {
+                        finish(false, "step " + (index + 1) + " (" + s.raw + "): the recording could not start");
+                        return;
+                    }
+                    next();
+                    break;
+                case STEP_BACK:
+                    session.stepBack();
+                    next();
+                    break;
                 case TRANSCRIBE_ON:
                     session.setTranscribing(true);
                     next();

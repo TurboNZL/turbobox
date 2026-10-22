@@ -50,13 +50,15 @@ public class WorkflowParserTest {
                 + "hangup 1h30m\n"
                 + "record start\n"
                 + "transcribe on\n"
+                + "step away\n"
+                + "step back\n"
                 + "mark Lecture starts\n"
                 + "waitfor Leave\n"
                 + "js document.title\n"
                 + "record stop\n"
                 + "close\n";
         List<WorkflowParser.Step> s = WorkflowParser.parse(src);
-        assertEquals(17, s.size());
+        assertEquals(19, s.size());
         assertEquals(WorkflowParser.Kind.OPEN, s.get(0).kind);
         assertEquals(5, s.get(1).seconds);
         assertTrue(s.get(2).optional);
@@ -72,16 +74,18 @@ public class WorkflowParserTest {
         assertEquals(80, s.get(8).number);
         assertEquals(5400, s.get(9).seconds);
         assertEquals(WorkflowParser.Kind.TRANSCRIBE_ON, s.get(11).kind);
-        assertEquals("Lecture starts", s.get(12).text);
-        assertEquals(60_000, s.get(13).withinMs);
-        assertEquals("document.title", s.get(14).text);
-        assertEquals(WorkflowParser.Kind.CLOSE, s.get(16).kind);
+        assertEquals(WorkflowParser.Kind.STEP_AWAY, s.get(12).kind);
+        assertEquals(WorkflowParser.Kind.STEP_BACK, s.get(13).kind);
+        assertEquals("Lecture starts", s.get(14).text);
+        assertEquals(60_000, s.get(15).withinMs);
+        assertEquals("document.title", s.get(16).text);
+        assertEquals(WorkflowParser.Kind.CLOSE, s.get(18).kind);
         assertEquals(5, s.get(3).line); // the source's line number, comments included
     }
 
     @Test
     public void errorsNameTheLine() {
-        String[] bad = {"dance", "wait soon", "click", "type css:#a", "scroll sideways", "volume 300", "record", "key", "js", "transcribe maybe"};
+        String[] bad = {"dance", "wait soon", "click", "type css:#a", "scroll sideways", "volume 300", "record", "key", "js", "transcribe maybe", "step sideways"};
         for (String line : bad) {
             try {
                 WorkflowParser.parse("open\n" + line);

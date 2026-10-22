@@ -102,6 +102,14 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         buffer.addView(Ui.text(this, "Recording buffer", 17f, Ui.TEXT, "sans-serif-medium"));
         buffer.addView(Ui.hint(this, "What a page shows and plays is kept in short pieces in this phone's cache so you can watch what "
                 + "you missed."), Ui.lp(this, 4, 8));
+        Switch auto = new Switch(this);
+        auto.setText("Record every page when it opens");
+        auto.setTextColor(Ui.TEXT);
+        auto.setChecked(Prefs.recordByDefault(this));
+        auto.setOnCheckedChangeListener((b, on) -> Prefs.setRecordByDefault(this, on));
+        buffer.addView(auto, Ui.lp(this, 0, 2));
+        buffer.addView(Ui.hint(this, "On by default: the page's picture and sound are kept as soon as it opens, so Step away always has "
+                + "something to replay. A pinned page can override this (long-press it > Edit)."), Ui.lp(this, 0, 8));
         buffer.addView(choiceRow("Record up to", minutesText(Prefs.bufferMinutes(this)), this::chooseMinutes));
         buffer.addView(choiceRow("When that is reached", Prefs.bufferStopAtLimit(this) ? "Stop recording" : "Keep recording, drop the oldest",
                 this::chooseAtLimit));

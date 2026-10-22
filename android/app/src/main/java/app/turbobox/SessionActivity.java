@@ -457,11 +457,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         Session s = front();
         if (s == null) return;
         if (s.awayAtWall == 0) {
-            if (!s.isRecording()) s.startRecording();
-            if (!s.isRecording()) return;
-            s.mark("Stepped away");
-            s.awayAtWall = System.currentTimeMillis();
-            s.setFrozen(true);   // this phone stops showing and playing the page; the recording goes on
+            if (!s.stepAway()) return;   // this phone stops showing and playing the page; the recording goes on
             Toast.makeText(this, "The page is frozen and silent here, and still being recorded. Tap Back when you return.", Toast.LENGTH_LONG).show();
         } else {
             long from = s.awayAtWall;
