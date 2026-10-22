@@ -142,8 +142,8 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
                 + "phone's cache: the newest " + Prefs.bufferMinutes(this) + " minutes of each recording, and the last "
                 + Prefs.keepRuns(this) + " recordings. Android may clear a cache when storage runs low."));
         if (runs.isEmpty()) {
-            listBody.addView(Ui.text(this, "Nothing recorded yet. Tap Rec on a page, or Step away, or pin the page with "
-                    + "\"Start the recording buffer when it opens\".", 15f, Ui.DIM, "sans-serif"), Ui.lp(this, 18, 0));
+            listBody.addView(Ui.text(this, "Nothing recorded yet. Pages record when they open unless you turned that off "
+                    + "(Settings > Recording buffer); Rec on a page starts it by hand.", 15f, Ui.DIM, "sans-serif"), Ui.lp(this, 18, 0));
             return;
         }
         for (BufferStore.Run r : runs) listBody.addView(runCard(r), Ui.lp(this, 10, 0));
@@ -206,7 +206,7 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
         });
         row.addView(del, Ui.weight(this, 8));
         File vtt = new File(r.dir, "transcript.vtt");
-        if (vtt.exists() && vtt.length() > Vtt.HEADER.length()) {
+        {
             TextView caps = Ui.pill(this, "Captions", 0);
             caps.setOnClickListener(v -> showCaptions(r, vtt));
             row.addView(caps, Ui.weight(this, 8));
@@ -218,9 +218,14 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
     /** The captions of a recording as readable text, with a button that sends the .vtt file. */
     private void showCaptions(BufferStore.Run r, File vtt) {
         List<Vtt.Cue> list = loadCues(r);
+        boolean none = list.isEmpty();
         StringBuilder sb = new StringBuilder();
         for (Vtt.Cue c : list) sb.append(Vtt.timestamp(c.startMs), 0, 8).append("   ").append(c.text).append("\n\n");
-        TextView t = Ui.text(this, sb.length() == 0 ? "No speech was recognised yet." : sb.toString(), 15f, Ui.TEXT, "sans-serif");
+        TextView t = Ui.text(this, none
+                ? "No captions were recorded for this recording.\n\nLive captions are off unless you turn them on before or during a recording: "
+                + "tap CC on the page, or switch on Settings > Live transcription > Transcribe the next recording, or use the "
+                + "workflow step \"transcribe on\". They need Android 13 or newer."
+                : sb.toString(), 15f, Ui.TEXT, "sans-serif");
         t.setTextIsSelectable(true);
         t.setPadding(Ui.dp(this, 20), Ui.dp(this, 12), Ui.dp(this, 20), Ui.dp(this, 12));
         android.widget.ScrollView sv = new android.widget.ScrollView(this);
@@ -228,8 +233,10 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
         new AlertDialog.Builder(this)
                 .setTitle("Captions - " + (r.name.isEmpty() ? "recording" : r.name))
                 .setView(sv)
-                .setPositiveButton("Share .vtt file", (d, w) -> shareCaptions(r, vtt))
-                .setNegativeButton("Close", null)
+                .setPositiveButton(none ? "OK" : "Share .vtt file", (d, w) -> {
+                    if (!none) shareCaptions(r, vtt);
+                })
+                .setNegativeButton(none ? null : "Close", null)
                 .show();
     }
 

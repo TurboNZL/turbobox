@@ -24,6 +24,7 @@ import java.util.regex.Pattern;
  * volume 80                  0-200 (%), the page's audio
  * hangup 1h30m               hang up after that long (hangup off to cancel)
  * record start | record stop the screen buffer
+ * step away | step back      freeze and silence the page here while it records / let go (no replay)
  * transcribe on | off        live captions (speech to text) saved as WebVTT with the recording
  * mark Lecture starts        a bookmark in the buffer
  * js document.title          run a script on the page
@@ -37,7 +38,7 @@ final class WorkflowParser {
     private WorkflowParser() {
     }
 
-    enum Kind { OPEN, WAIT, WAITFOR, CLICK, TYPE, KEY, SCROLL, MUTE, UNMUTE, VOLUME, HANGUP, RECORD_START, RECORD_STOP, TRANSCRIBE_ON, TRANSCRIBE_OFF, MARK, JS, CLOSE }
+    enum Kind { OPEN, WAIT, WAITFOR, CLICK, TYPE, KEY, SCROLL, MUTE, UNMUTE, VOLUME, HANGUP, RECORD_START, RECORD_STOP, TRANSCRIBE_ON, TRANSCRIBE_OFF, STEP_AWAY, STEP_BACK, MARK, JS, CLOSE }
 
     static final class Step {
         Kind kind;
@@ -169,6 +170,11 @@ final class WorkflowParser {
                 if (rest.equalsIgnoreCase("start")) s.kind = Kind.RECORD_START;
                 else if (rest.equalsIgnoreCase("stop")) s.kind = Kind.RECORD_STOP;
                 else throw new ParseError(no, "record start or record stop");
+                break;
+            case "step":
+                if (rest.equalsIgnoreCase("away")) s.kind = Kind.STEP_AWAY;
+                else if (rest.equalsIgnoreCase("back")) s.kind = Kind.STEP_BACK;
+                else throw new ParseError(no, "step away or step back");
                 break;
             case "transcribe":
                 if (rest.equalsIgnoreCase("on")) s.kind = Kind.TRANSCRIBE_ON;

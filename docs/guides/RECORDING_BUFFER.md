@@ -5,10 +5,11 @@ You are in a lecture stream and someone starts talking to you. Tap **Step away**
 ## How it works
 While the buffer is on, TurboBox takes a picture of the page a few times a second and records the sound the page plays (the lecturer, the other people in the call), and writes both into 30-second video pieces in the phone's cache. Only the newest N minutes are kept (Settings > Recording buffer, 15 minutes to 4 hours, 60 by default), so it is a rolling window, not an ever-growing file. Nothing leaves the phone.
 
-Turn it on for a page in four ways:
+**It is on by default**: every page records from the moment it opens, so Step away always has something to replay. Settings > Recording buffer > *Record every page when it opens* turns that off for all pages, and a pinned page can override it (long-press it > Edit > Recording: follow the default / always / never).
+
+You can also start or stop it by hand:
 - **Rec** on the page's bar (tap again for a menu: add a mark, play the recording, stop).
 - **Step away**, which starts it if it is not already running (it cannot record the time before you tapped).
-- Tick **Start the recording buffer when it opens** on the pinned page: best for lectures.
 - A workflow step, `record start` ([WORKFLOWS](WORKFLOWS.md)).
 
 ## Step away and Back
@@ -27,6 +28,7 @@ Turn it on for a page in four ways:
 - Two pages can be recorded at once; each has its own recording.
 - **Resolution and frame rate are separate settings** (Settings > Recording buffer): 480, 640, 960, 1280 or 1920 px wide, and 1, 2, 4, 6, 10, 15, 24 or 30 frames per second (fps). Settings shows the rough size per minute for the pair you chose. Slides need 1-4 per second and compress to almost nothing; a lecturer's video wants 15 or more.
 - **Length:** *Record up to* 15 minutes to 12 hours. *When that is reached*: keep recording and drop the oldest (a rolling window), or stop recording.
+- Sound a page makes itself with Web Audio (some call apps play the other side that way instead of through a normal audio element) is not recorded yet.
 - It is stored in the app's **cache**: Android may clear it when storage runs low, and clearing the app's cache deletes it.
 
 Step away freezes the page and silences it everywhere it can play sound: media elements (also ones the page keeps out of sight), Web Audio, and pages inside frames. A page cannot un-mute itself during it. What the recording hears is unchanged.

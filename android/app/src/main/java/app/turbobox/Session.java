@@ -514,7 +514,7 @@ final class Session {
         SessionService.ensure(app);
         wv.loadUrl(page.url);
         keepRunning();
-        if (page.autoRecord) startRecording();
+        if (page.recordsOnOpen(Prefs.recordByDefault(app))) startRecording();
     }
 
     /** Load the pinned address again (a workflow's "open" step). */
@@ -657,6 +657,29 @@ final class Session {
         r.stop();
         for (Listener l : listeners) l.onRecording(this, false, "");
         SessionService.refresh();
+    }
+
+    // ---- stepping away -----------------------------------------------------------------------------
+
+    /**
+     * Step away: make sure the page is recording, mark the moment, and freeze and silence the live page on this phone
+     * (the recording goes on). False when it could not start recording.
+     */
+    boolean stepAway() {
+        if (!active || awayAtWall != 0) return active;
+        if (!isRecording()) startRecording();
+        if (!isRecording()) return false;
+        mark("Stepped away");
+        awayAtWall = System.currentTimeMillis();
+        setFrozen(true);
+        return true;
+    }
+
+    /** Back without a replay (a workflow's "step back"): the live page is shown and heard again. */
+    void stepBack() {
+        awayAtWall = 0;
+        catchingUp = false;
+        setFrozen(false);
     }
 
     /** A bookmark in the buffer (the moment you stepped away, a topic starting). */

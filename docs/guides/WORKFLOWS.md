@@ -20,6 +20,7 @@ One per line. Blank lines and lines starting with `#` are ignored.
 | `volume 80` | The page's volume, 0 to 200 (%). |
 | `hangup 1h30m` | Closes the page after that long (`hangup off` cancels). |
 | `record start` / `record stop` | The [recording buffer](RECORDING_BUFFER.md). |
+| `step away` / `step back` | Like the Step away button: freezes and silences the page on the phone while it keeps recording (it starts the recording if needed). `step back` lets go, without opening the replay. |
 | `transcribe on` / `transcribe off` | Live captions saved as WebVTT with the recording ([RECORDING_BUFFER](RECORDING_BUFFER.md)). |
 | `mark Lecture starts` | A bookmark in the recording. |
 | `js document.title` | Runs a script on the page. |

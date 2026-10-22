@@ -291,16 +291,20 @@ public class MainActivity extends Activity {
         url.setHint("Address (meet.example.com/room)");
         url.setSingleLine(true);
         url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-        CheckBox auto = new CheckBox(this);
-        auto.setText("Start the recording buffer when it opens");
+        final int[] mode = {existing == null ? 0 : existing.recordMode};
+        final boolean defaultOn = Prefs.recordByDefault(this);
+        TextView recording = Ui.pill(this, "Recording: " + Pin.recordModeText(mode[0], defaultOn), 0);
+        recording.setOnClickListener(v -> {
+            mode[0] = (mode[0] + 1) % 3;
+            recording.setText("Recording: " + Pin.recordModeText(mode[0], defaultOn));
+        });
         if (existing != null) {
             name.setText(existing.name);
             url.setText(existing.url);
-            auto.setChecked(existing.autoRecord);
         }
         form.addView(name);
         form.addView(url);
-        form.addView(auto);
+        form.addView(recording, Ui.lp(this, 12, 0));
         AlertDialog d = new AlertDialog.Builder(this)
                 .setTitle(existing == null ? "Pin a page" : "Edit " + existing.name)
                 .setView(form)
@@ -318,7 +322,7 @@ public class MainActivity extends Activity {
             Pin pin = existing != null ? existing : Pin.create(label, address);
             pin.name = label;
             pin.url = address;
-            pin.autoRecord = auto.isChecked();
+            pin.recordMode = mode[0];
             if (!PinStore.put(this, pin)) {
                 Toast.makeText(this, "You can pin up to " + PinStore.MAX + " pages.", Toast.LENGTH_LONG).show();
                 return;
