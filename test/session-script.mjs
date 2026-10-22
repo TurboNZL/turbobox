@@ -142,6 +142,21 @@ wposts.length = 0;
 await pw.waitForTimeout(1500);
 const both = peakOf(wposts);
 check('with both kinds of sound present they are not added together', both > 8000 && both < 17000, both);
+// an element playing a MediaStream that is not a call (Twitch plays its live stream like this) is recorded
+await pw.evaluate(() => { window.__turbobox.setTap(false); });
+wposts.length = 0;
+await pw.evaluate(() => {
+  const ac = new AudioContext(), dest = ac.createMediaStreamDestination(), o = ac.createOscillator(), g = ac.createGain();
+  g.gain.value = 0.4; o.frequency.value = 440; o.connect(g); g.connect(dest); o.start();
+  const v = document.createElement('video'); v.srcObject = dest.stream; document.body.appendChild(v); v.play();
+  window.__turbobox.setLocalMute(false); window.__turbobox.setTap(true);
+});
+await pw.waitForTimeout(3500);
+wposts.length = 0;
+await pw.waitForTimeout(1500);
+const streamPeak = peakOf(wposts);
+check('an element playing a plain MediaStream is recorded', streamPeak > 3000, streamPeak);
+
 // Page info lists what makes sound
 const rep = await pw.evaluate(() => { let r; window.TurboBoxBridge.post = (t, d) => { if (t === 'info') r = d; }; window.__turbobox.info(); return r; });
 const repAudio = typeof rep === 'string' ? JSON.parse(rep).audio : rep && rep.audio;
