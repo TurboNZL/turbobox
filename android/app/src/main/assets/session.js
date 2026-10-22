@@ -65,6 +65,7 @@
       var AC = window.AudioContext || window.webkitAudioContext;
       // 48 kHz so the natively captured frames need no resampling (and so no seams between them).
       try { ctx = new AC({ sampleRate: 48000 }); } catch (e) { ctx = new AC(); }
+      ctx.__tbOwn = true;   // ours: the page-audio tap below must not listen to it
       gain = ctx.createGain();
       gain.connect(ctx.destination);
     }
@@ -527,6 +528,50 @@
     for (var k = 0; k < out.length; k += 8192) bin += String.fromCharCode.apply(null, out.subarray(k, k + 8192));
     post('audio', btoa(bin));
   }
+  // Two ways to hear the page, never both at once (that would play everything twice in the recording):
+  //  A  tracks and media elements (above): exact, but blind to sound a page makes with its own Web Audio graph (a call
+  //     app that plays the other side through Web Audio, a player that routes its video through a processor).
+  //  B  the page's own audio contexts, tapped just before their output (and before local mute).
+  // A is used while it has sound; when A has been silent for a few seconds and B has sound, B is used.
+  var liveCtxs = [], loud = { A: 0, B: 0 };
+  function deliver(which, i16, rms) {
+    var now = Date.now();
+    if (rms > 0.003) loud[which] = now;
+    var useB = now - loud.A > 3000 && now - loud.B < 3000;
+    if ((which === 'B') !== useB) return;
+    tap.pend.push(i16); tap.pendLen += i16.length;
+    tapFlush(false);
+  }
+  function attachPageTap(c) {
+    if (!tap.on || c.__tbOwn || c.__tbB || !c.__tbPre) return;
+    try {
+      var sp = c.createScriptProcessor(4096, 1, 1), q = c.createGain(), st = { pos: 0 };
+      q.gain.value = 0;
+      origConnect.call(c.__tbPre, sp);
+      origConnect.call(sp, q);
+      origConnect.call(q, c.destination);
+      sp.onaudioprocess = function (e) {
+        var inp = e.inputBuffer.getChannelData(0), ratio = c.sampleRate / 24000, out = [], pos = st.pos, sq = 0;
+        while (pos < inp.length - 1) {
+          var k = Math.max(0, Math.floor(pos)), f = Math.max(0, pos - k), v = inp[k] * (1 - f) + inp[k + 1] * f;
+          v = Math.max(-1, Math.min(1, v));
+          sq += v * v;
+          out.push(v < 0 ? v * 32768 : v * 32767);
+          pos += ratio;
+        }
+        st.pos = pos - inp.length;
+        deliver('B', Int16Array.from(out), Math.sqrt(sq / Math.max(1, out.length)));
+      };
+      c.__tbB = { sp: sp, q: q };
+    } catch (e) { /* a closed context */ }
+  }
+  function detachPageTap(c) {
+    var b = c.__tbB;
+    if (!b) return;
+    c.__tbB = null;
+    b.sp.onaudioprocess = null;
+    try { origDisconnect.call(c.__tbPre, b.sp); origDisconnect.call(b.sp); origDisconnect.call(b.q); } catch (e) { /* gone */ }
+  }
   T.setTap = function (on) {
     on = !!on;
     if (on === tap.on) return;
@@ -540,16 +585,17 @@
       tap.quiet.connect(c.destination);
       var step = Math.max(1, Math.round(c.sampleRate / 24000));
       tap.sp.onaudioprocess = function (e) {
-        var inp = e.inputBuffer.getChannelData(0), n = Math.floor(inp.length / step), i16 = new Int16Array(n);
+        var inp = e.inputBuffer.getChannelData(0), n = Math.floor(inp.length / step), i16 = new Int16Array(n), sq = 0;
         for (var i = 0; i < n; i++) {
           var sum = 0;
           for (var j = 0; j < step; j++) sum += inp[i * step + j];
           var v = Math.max(-1, Math.min(1, sum / step));
+          sq += v * v;
           i16[i] = v < 0 ? v * 32768 : v * 32767;
         }
-        tap.pend.push(i16); tap.pendLen += n;
-        tapFlush(false);
+        deliver('A', i16, Math.sqrt(sq / Math.max(1, n)));
       };
+      liveCtxs.forEach(attachPageTap);
       tapSweep();
       tap.timer = setInterval(tapSweep, 1000);
     } else {
@@ -559,6 +605,7 @@
       tap.nodes = [];
       if (tap.sp) { tap.sp.onaudioprocess = null; try { tap.sp.disconnect(); tap.quiet.disconnect(); } catch (e) { /* gone */ } }
       tap.sp = null; tap.quiet = null;
+      liveCtxs.forEach(detachPageTap);
     }
   };
 
@@ -738,24 +785,31 @@
   var masters = [], origConnect = AudioNode.prototype.connect, origDisconnect = AudioNode.prototype.disconnect;
   var LiveContext = window.AudioContext || window.webkitAudioContext;
   function isLiveDestination(d) { return window.AudioDestinationNode && d instanceof AudioDestinationNode && LiveContext && d.context instanceof LiveContext; }
-  function masterFor(ctx) {
-    if (!ctx.__tbMaster) {
-      var g = ctx.createGain();
-      g.gain.value = cfg.localMute ? 0 : 1;
-      origConnect.call(g, ctx.destination);
-      ctx.__tbMaster = g;
-      masters.push(g);
+  // Everything a page sends to a context's destination goes: page nodes -> pre (the recorder listens here) -> master
+  // (local mute closes it) -> destination.
+  function preFor(ctx) {
+    if (!ctx.__tbPre) {
+      var m = ctx.createGain();
+      m.gain.value = cfg.localMute ? 0 : 1;
+      origConnect.call(m, ctx.destination);
+      var pre = ctx.createGain();
+      origConnect.call(pre, m);
+      ctx.__tbMaster = m;
+      ctx.__tbPre = pre;
+      masters.push(m);
+      liveCtxs.push(ctx);
+      attachPageTap(ctx);
     }
-    return ctx.__tbMaster;
+    return ctx.__tbPre;
   }
   AudioNode.prototype.connect = function (dest) {
     if (!isLiveDestination(dest)) return origConnect.apply(this, arguments);
-    origConnect.apply(this, [masterFor(dest.context)].concat(Array.prototype.slice.call(arguments, 1)));
+    origConnect.apply(this, [preFor(dest.context)].concat(Array.prototype.slice.call(arguments, 1)));
     return dest;
   };
   AudioNode.prototype.disconnect = function (dest) {
     if (!isLiveDestination(dest)) return origDisconnect.apply(this, arguments);
-    return origDisconnect.apply(this, [masterFor(dest.context)].concat(Array.prototype.slice.call(arguments, 1)));
+    return origDisconnect.apply(this, [preFor(dest.context)].concat(Array.prototype.slice.call(arguments, 1)));
   };
   // Why elements are not simply muted: in some browser versions an element's muted state also silences what
   // captureStream() hands the recorder. So an element that can be, is moved into Web Audio once (createMediaElementSource):
@@ -781,15 +835,17 @@
       node.connect(c.destination);           // goes through the master gain
       el.__tbSrc = node;
       if (tap.on && tap.sp) { node.connect(tap.sp); el.__tbTapSp = tap.sp; }
-    } catch (e) { el.__tbSrc = null; }       // already routed by the page, or not allowed
+    } catch (e) { el.__tbSrc = null; el.__tbPageRouted = true; }  // the page already routed it through its own Web Audio graph (which ends at our master gain), or it is not allowed
   }
   function applyLocalMute(el) {
     noteMedia(el);
     if (cfg.localMute) routeElement(el);
-    var routed = !!el.__tbSrc;
-    mutedDesc.set.call(el, routed ? !!el.__tbWant : (cfg.localMute ? true : !!el.__tbWant));
+    // Routed by us, or by the page into a graph that ends at our master gain: the speaker is silent without muting the element,
+    // which (in some browser versions) would also silence what the recorder hears.
+    var silentByRoute = !!el.__tbSrc || !!el.__tbPageRouted;
+    mutedDesc.set.call(el, silentByRoute ? !!el.__tbWant : (cfg.localMute ? true : !!el.__tbWant));
   }
-  T.isSilenced = function (el) { return !!el.__tbSrc || mutedDesc.get.call(el); }; // for the tests
+  T.isSilenced = function (el) { return !!el.__tbSrc || !!el.__tbPageRouted || mutedDesc.get.call(el); }; // for the tests
   function localMuteSweep() {
     var all = media.slice();
     docsOf(document, []).forEach(function (d) {
