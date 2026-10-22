@@ -1,0 +1,81 @@
+package app.turbobox;
+
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.Locale;
+import java.util.UUID;
+
+/** A page pinned to the main screen: one tap opens it in a session. */
+final class Pin {
+    final String id;
+    String name;
+    String url;
+    float zoom = 1f;        // 0.5..3, this page's layout width is 1280 / zoom
+    float volume = 1f;      // 0..2, gain on the page's audio
+    boolean autoRecord;     // start the recording buffer as soon as the page opens
+
+    Pin(String id, String name, String url) {
+        this.id = id;
+        this.name = name;
+        this.url = url;
+    }
+
+    static Pin create(String name, String url) {
+        return new Pin(UUID.randomUUID().toString().substring(0, 8), name, url);
+    }
+
+    JSONObject toJson() {
+        try {
+            return new JSONObject().put("id", id).put("name", name).put("url", url)
+                    .put("zoom", zoom).put("volume", volume).put("autoRecord", autoRecord);
+        } catch (JSONException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    static Pin fromJson(JSONObject o) {
+        Pin p = new Pin(o.optString("id"), o.optString("name"), o.optString("url"));
+        p.zoom = (float) o.optDouble("zoom", 1.0);
+        p.volume = (float) o.optDouble("volume", 1.0);
+        p.autoRecord = o.optBoolean("autoRecord", false);
+        return p;
+    }
+
+    String host() {
+        try {
+            String h = new URI(url).getHost();
+            return h == null ? url : h;
+        } catch (URISyntaxException e) {
+            return url;
+        }
+    }
+
+    /** One letter for the tile. */
+    String initial() {
+        String n = name == null ? "" : name.trim();
+        return n.isEmpty() ? "?" : n.substring(0, 1).toUpperCase(Locale.ROOT);
+    }
+
+    /**
+     * What the user typed, as an address a WebView can open: "meet.example.com/room" becomes
+     * "https://meet.example.com/room". Null when it is not an http(s) address with a host.
+     */
+    static String normalizeUrl(String raw) {
+        if (raw == null) return null;
+        String s = raw.trim();
+        if (s.isEmpty() || s.contains(" ")) return null;
+        if (!s.contains("://")) s = "https://" + s;
+        try {
+            URI u = new URI(s);
+            String scheme = u.getScheme() == null ? "" : u.getScheme().toLowerCase(Locale.ROOT);
+            if (!scheme.equals("http") && !scheme.equals("https")) return null;
+            if (u.getHost() == null || u.getHost().isEmpty()) return null;
+            return s;
+        } catch (URISyntaxException e) {
+            return null;
+        }
+    }
+}

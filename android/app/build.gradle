@@ -1,0 +1,87 @@
+plugins {
+    id 'com.android.application'
+}
+
+// The release workflow passes the tag as -PappVersion=2026.10.3 (vYYYY.M.N without the v).
+def appVersion = (project.findProperty('appVersion') ?: '0.0.0-dev').toString()
+// 2026.10.3 -> 2026100003: always rises with the tag, so every release installs over the last one.
+def versionCodeFor = { String v ->
+    def p = v.tokenize('.')
+    if (p.size() >= 3 && p.every { it ==~ /\d+/ }) {
+        return p[0].toInteger() * 1000000 + p[1].toInteger() * 10000 + Math.min(p[2].toInteger(), 9999)
+    }
+    return Integer.parseInt(System.getenv('GITHUB_RUN_NUMBER') ?: '1')
+}
+
+android {
+    namespace 'app.turbobox'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'app.turbobox'
+        minSdk 26
+        targetSdk 34
+        versionCode versionCodeFor(appVersion)
+        versionName appVersion
+        buildConfigField 'String', 'REPO_OWNER', '"TurboNZL"'
+        buildConfigField 'String', 'REPO_NAME', '"turbobox"'
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    // One committed keystore on purpose: Android only installs an update signed with the same key as the
+    // installed app. CI can override it with the ANDROID_* variables (public repository: prefer secrets).
+    signingConfigs {
+        shared {
+            def external = System.getenv('ANDROID_KEYSTORE_PATH')
+            if (external && file(external).exists()) {
+                storeFile file(external)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+            } else {
+                storeFile file('debug.keystore')
+                storePassword 'android'
+                keyAlias 'androiddebugkey'
+                keyPassword 'android'
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.shared
+        }
+        release {
+            signingConfig signingConfigs.shared
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        // docs/guides/*.md are the in-app guides (Settings > Guides), copied in at build time.
+        main.assets.srcDir layout.buildDirectory.dir('generated/guides')
+    }
+}
+
+tasks.register('copyGuides', Copy) {
+    from rootProject.file('../docs/guides')
+    include '*.md'
+    into layout.buildDirectory.dir('generated/guides/guides')
+}
+tasks.matching { it.name == 'preBuild' }.configureEach { dependsOn 'copyGuides' }
+
+dependencies {
+    implementation 'androidx.core:core:1.13.1'
+    implementation 'androidx.webkit:webkit:1.12.1'
+
+    testImplementation 'junit:junit:4.13.2'
+    // android.jar's org.json is a stub in unit tests; the real one lets the pure classes run on the JVM.
+    testImplementation 'org.json:json:20240303'
+}

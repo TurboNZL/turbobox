@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="tb_bg">#0B0B0E</color>
+    <style name="Theme.TurboBox" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/tb_bg</item>
+        <item name="android:statusBarColor">@color/tb_bg</item>
+        <item name="android:navigationBarColor">@color/tb_bg</item>
+    </style>
+</resources>

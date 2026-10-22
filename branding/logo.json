@@ -1,0 +1,12 @@
+{
+  "name": "TurboBox",
+  "emblem": "box",
+  "emblemColor": "#a6e22e",
+  "out": {
+    "svg": "branding/icon.svg",
+    "mono": "branding/icon-mono.svg",
+    "png": [["branding/icon-512.png", 512]],
+    "symbolSvg": "branding/symbol.svg",
+    "android": { "res": "android/app/src/main/res", "stat": "ic_stat_box" }
+  }
+}
