@@ -94,6 +94,37 @@ await page.evaluate(() => window.__turbobox.setLocalMute(false));
 check('local mute restores the element', (await page.evaluate(() => document.getElementById('a').muted)) === false);
 await page.evaluate(() => window.__turbobox.setTap(false));
 
+// sound a page makes with its own Web Audio graph is recorded too (the page-audio tap), including while stepped away,
+// and never on top of the track/element tap (that would double everything)
+const peakOf = (arr) => { let k = 0; for (const [t, d] of arr) if (t === 'audio') { const bf = Buffer.from(d, 'base64'); for (let i = 0; i + 1 < bf.length; i += 2) k = Math.max(k, Math.abs(bf.readInt16LE(i))); } return k; };
+const pw = await b.newPage();
+const wposts = [];
+await pw.exposeFunction('__post', (t, d) => wposts.push([t, d]));
+await pw.setContent('<!doctype html><html><body><audio id="e" loop></audio></body></html>');
+await pw.addScriptTag({ content: 'window.TurboBoxBridge = { post: function (t, d) { window.__post(t, d); } };' });
+await pw.addScriptTag({ content: script });
+await pw.evaluate(() => {
+  window.__ac = new AudioContext(); window.__g = window.__ac.createGain(); window.__g.gain.value = 0.4;
+  const o = window.__ac.createOscillator(); o.frequency.value = 330; o.connect(window.__g); window.__g.connect(window.__ac.destination); o.start();
+  window.__turbobox.setTap(true);
+});
+await pw.waitForTimeout(5500);   // A has nothing, so after its 3 s of silence the page's own audio is used
+const wBefore = peakOf(wposts.slice(-8)); wposts.length = 0;
+await pw.evaluate(() => window.__turbobox.setLocalMute(true));
+await pw.waitForTimeout(2500);
+const wAway = peakOf(wposts);
+check('a page that makes sound with Web Audio is recorded', wBefore > 8000 && wBefore < 15000, wBefore);
+check('and still while stepped away (the speaker is silent, the recording is not)', wAway > 8000 && wAway < 15000, wAway);
+// now the track/element tap has sound as well: only one of the two is used, so the level stays one tone's, not two added
+wposts.length = 0;
+await pw.evaluate((w) => { const e = document.getElementById('e'); e.src = 'data:audio/wav;base64,' + w; e.play(); }, wav);
+await pw.waitForTimeout(3500);
+wposts.length = 0;
+await pw.waitForTimeout(1500);
+const both = peakOf(wposts);
+check('with both kinds of sound present they are not added together', both > 8000 && both < 17000, both);
+await pw.close();
+
 // microphone privacy switch (needs a secure origin for navigator.mediaDevices, so a page of its own on localhost)
 const p2 = await b.newPage();
 await p2.route('http://localhost/', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><body></body></html>' }));
