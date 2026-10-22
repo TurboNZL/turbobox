@@ -486,26 +486,40 @@
   var media; // every media element that has played (filled by the local mute code below)
   var tap = { on: false, sp: null, quiet: null, nodes: [], pend: [], pendLen: 0, timer: 0 };
   function tapKnown(t) { return tap.nodes.some(function (n) { return n.track === t; }); }
-  function tapAdd(track) {
+  // What the page makes audible: an element it muted or turned to volume 0 (Twitch keeps an ad's element silent while the
+  // stream plays, and captureStream / a media source node ignore that) is not part of what the listener hears.
+  function elAudible(el) {
+    var muted = el.__tbWant !== undefined ? el.__tbWant : mutedDesc.get.call(el);
+    return !muted && el.volume > 0;
+  }
+  // el: the element a track came from (null for a call's track)
+  function tapAdd(track, el) {
     try {
-      var src = ensureCtx().createMediaStreamSource(new MediaStream([track]));
-      src.connect(tap.sp);
-      tap.nodes.push({ track: track, src: src });
+      var c = ensureCtx(), src = c.createMediaStreamSource(new MediaStream([track])), g = c.createGain();
+      src.connect(g); g.connect(tap.sp);
+      tap.nodes.push({ track: track, src: src, g: g, el: el });
     } catch (e) { /* this track cannot be captured */ }
   }
   function tapSweep() {
     if (!tap.on || !tap.sp) return;
     tap.nodes = tap.nodes.filter(function (n) {
       if (n.track.readyState !== 'ended') return true;
-      try { n.src.disconnect(); } catch (e) { /* gone */ }
+      try { n.src.disconnect(); n.g.disconnect(); } catch (e) { /* gone */ }
       return false;
     });
+    tap.nodes.forEach(function (n) { if (n.el) n.g.gain.value = elAudible(n.el) ? 1 : 0; });
     remoteTracks().forEach(function (t) { if (!tapKnown(t)) tapAdd(t); });
     var els = Array.prototype.slice.call(document.querySelectorAll('audio,video'));
     (media || []).forEach(function (el) { if (els.indexOf(el) < 0) els.push(el); });  // also ones never added to the page
     els.forEach(function (el) {
       if (el.__tbSrc) { // routed through Web Audio by local mute: tapped from its source node, not from the element
-        if (el.__tbTapSp !== tap.sp) { try { el.__tbSrc.connect(tap.sp); el.__tbTapSp = tap.sp; } catch (e) { /* already connected */ } }
+        if (el.__tbTapSp !== tap.sp) {
+          try {
+            el.__tbTapG = ensureCtx().createGain();
+            el.__tbSrc.connect(el.__tbTapG); el.__tbTapG.connect(tap.sp); el.__tbTapSp = tap.sp;
+          } catch (e) { /* already connected */ }
+        }
+        if (el.__tbTapG) el.__tbTapG.gain.value = elAudible(el) ? 1 : 0;
         return;
       }
       if (el.srcObject) return; // a stream from a call: already tapped above
@@ -514,7 +528,7 @@
         try { cap = el.__tbCap = (el.captureStream || el.mozCaptureStream).call(el); } catch (e) { cap = el.__tbCap = null; }
       }
       if (!cap) return;
-      cap.getAudioTracks().forEach(function (t) { if (t.readyState === 'live' && !tapKnown(t)) tapAdd(t); });
+      cap.getAudioTracks().forEach(function (t) { if (t.readyState === 'live' && !tapKnown(t)) tapAdd(t, el); });
     });
   }
   function tapFlush(force) {
@@ -601,7 +615,7 @@
     } else {
       clearInterval(tap.timer);
       tapFlush(true);
-      tap.nodes.forEach(function (n) { try { n.src.disconnect(); } catch (e) { /* gone */ } });
+      tap.nodes.forEach(function (n) { try { n.src.disconnect(); n.g.disconnect(); } catch (e) { /* gone */ } });
       tap.nodes = [];
       if (tap.sp) { tap.sp.onaudioprocess = null; try { tap.sp.disconnect(); tap.quiet.disconnect(); } catch (e) { /* gone */ } }
       tap.sp = null; tap.quiet = null;
@@ -834,7 +848,10 @@
       var node = c.createMediaElementSource(el);
       node.connect(c.destination);           // goes through the master gain
       el.__tbSrc = node;
-      if (tap.on && tap.sp) { node.connect(tap.sp); el.__tbTapSp = tap.sp; }
+      if (tap.on && tap.sp) {
+        el.__tbTapG = c.createGain(); el.__tbTapG.gain.value = elAudible(el) ? 1 : 0;
+        node.connect(el.__tbTapG); el.__tbTapG.connect(tap.sp); el.__tbTapSp = tap.sp;
+      }
     } catch (e) { el.__tbSrc = null; el.__tbPageRouted = true; }  // the page already routed it through its own Web Audio graph (which ends at our master gain), or it is not allowed
   }
   function applyLocalMute(el) {
