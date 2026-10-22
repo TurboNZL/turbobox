@@ -1,0 +1,19 @@
+{
+  "engine": {
+    "repo": "TurboNZL/turboengine",
+    "ref": "afcb3b25ece0bb9aa42f597ceafedbdfb138a88d"
+  },
+  "modules": [
+    "release-pipeline",
+    "updaters",
+    "guides-and-docs",
+    "logos"
+  ],
+  "themes": "off",
+  "moved": {
+    "apps/android/app/src/main/kotlin/app/turbomusic/android/update/AppUpdater.kt": "android/app/src/main/java/app/turbobox/AppUpdater.java",
+    "apps/android/app/src/main/kotlin/app/turbomusic/android/update/Releases.kt": "android/app/src/main/java/app/turbobox/Releases.java",
+    "scripts/logo/emblems/box.json": "branding/emblems/box.json"
+  },
+  "notes": "Native Android app with no web client, so: themes are OFF and `appearance` is not taken (the turbothemes engine themes web pages; the app draws its own dark UI from plain Views in Ui.java, colours: the engine neutrals, the engine red for Close, the emblem lime as accent). The engine does own a TurboBox palette pair (themes/turbobox) in case a web surface is ever added. `updaters` is taken as a Java port of the Kotlin AppUpdater/Releases (this app has no Kotlin; same behaviour, same rules, with JVM tests). `guides-and-docs`: docs/guides are bundled as assets (Gradle copyGuides) and shown by HelpActivity, not a React tab. The workflows differ from the engine's: check.yml also runs on pull requests (this app had never been through Gradle when it was written) and release.yml builds only the APK. No server, so no port and none of self-hosted-server. Emblem `box`, colour #a6e22e (lime; the engine's logos module lists it and carries box.json). engine-diff will list the other modules' web files and the other apps' emblems as 'missing in app' on purpose. Android code derives from Tether's web session (TurboNZL/tether at 40b287e): Session = WebSession, session.js, VirtualMic, InputRoute, MicTester, MicPreview, LevelMeterView."
+}

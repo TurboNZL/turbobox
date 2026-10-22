@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="161.02 161.02 189.95 189.95" width="512" height="512" role="img" aria-label="TurboBox">
+  <defs><linearGradient id="turbobox-sym" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c3ee83"/><stop offset="1" stop-color="#6a9515"/></linearGradient></defs>
+  <path d="M171.2,226.32L192.4,188.16L340.8,188.16L319.6,226.32ZM183.92,243.28L328.08,243.28L328.08,323.84L183.92,323.84Z" fill="url(#turbobox-sym)"/>
+</svg>
