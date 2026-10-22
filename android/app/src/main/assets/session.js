@@ -508,9 +508,15 @@
       return false;
     });
     tap.nodes.forEach(function (n) { if (n.el) n.g.gain.value = elAudible(n.el) ? 1 : 0; });
-    remoteTracks().forEach(function (t) { if (!tapKnown(t)) tapAdd(t); });
+    var rt = remoteTracks();
+    rt.forEach(function (t) { if (!tapKnown(t)) tapAdd(t); });
     var els = Array.prototype.slice.call(document.querySelectorAll('audio,video'));
     (media || []).forEach(function (el) { if (els.indexOf(el) < 0) els.push(el); });  // also ones never added to the page
+    // B is for pages with no audible element or call at all; one that has them is heard through A, even when A is quiet
+    // for a moment (Twitch plays an ad through Web Audio while the stream element is what the listener hears).
+    tap.hasA = rt.some(function (t) { return t.readyState === 'live'; }) || els.some(function (el) {
+      return !el.paused && !el.ended && el.readyState >= 2 && elAudible(el);
+    });
     els.forEach(function (el) {
       if (el.__tbSrc) { // routed through Web Audio by local mute: tapped from its source node, not from the element
         if (el.__tbTapSp !== tap.sp) {
@@ -546,12 +552,12 @@
   //  A  tracks and media elements (above): exact, but blind to sound a page makes with its own Web Audio graph (a call
   //     app that plays the other side through Web Audio, a player that routes its video through a processor).
   //  B  the page's own audio contexts, tapped just before their output (and before local mute).
-  // A is used while it has sound; when A has been silent for a few seconds and B has sound, B is used.
+  // A is used while it has sound; B only when the page has no audible element or call track and A has been silent for a few seconds.
   var liveCtxs = [], loud = { A: 0, B: 0 };
   function deliver(which, i16, rms) {
     var now = Date.now();
     if (rms > 0.003) loud[which] = now;
-    var useB = now - loud.A > 3000 && now - loud.B < 3000;
+    var useB = !tap.hasA && now - loud.A > 3000 && now - loud.B < 3000;
     if ((which === 'B') !== useB) return;
     tap.pend.push(i16); tap.pendLen += i16.length;
     tapFlush(false);
