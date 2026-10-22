@@ -84,7 +84,7 @@ check('audio tap carries the actual sound (peak well above silence)', peak > 300
 posts.length = 0;
 await page.evaluate(() => { const a = document.getElementById('a'); a.muted = false; a.play(); window.__turbobox.setLocalMute(true); window.__turbobox.setTap(true); });
 await page.waitForTimeout(2500);
-const mutedNow = await page.evaluate(() => window.__turbobox.realMuted(document.getElementById('a')));
+const mutedNow = await page.evaluate(() => window.__turbobox.isSilenced(document.getElementById('a')));
 const audio2 = posts.filter(p => p[0] === 'audio');
 let peak2 = 0;
 for (const [, d] of audio2) { const buf = Buffer.from(d, 'base64'); for (let i = 0; i + 1 < buf.length; i += 2) peak2 = Math.max(peak2, Math.abs(buf.readInt16LE(i))); }
@@ -118,7 +118,7 @@ await page.evaluate(() => { document.getElementById('a').muted = false; window._
 await page.waitForTimeout(100);
 const lm = await page.evaluate(() => ({
   master: window.__turbobox.state().masters,
-  real: [document.getElementById('a'), window.__na].map(e => window.__turbobox.realMuted(e)),
+  real: [document.getElementById('a'), window.__na].map(e => window.__turbobox.isSilenced(e)),
   seen: [document.getElementById('a'), window.__na].map(e => e.muted),
 }));
 check('Web Audio goes through a master gain that local mute closes', lm.master.length > 0 && lm.master.every(g => g === 0), lm.master);

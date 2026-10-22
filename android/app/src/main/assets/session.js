@@ -482,6 +482,7 @@
   // source are mixed and sent to the app as 24 kHz mono 16-bit PCM. Nothing is routed to the speaker by this
   // path (the processor is wired to a silent gain), so playback is not touched. Not covered: audio that a page
   // draws itself with Web Audio, and protected (DRM) media, which the browser will not hand out.
+  var media; // every media element that has played (filled by the local mute code below)
   var tap = { on: false, sp: null, quiet: null, nodes: [], pend: [], pendLen: 0, timer: 0 };
   function tapKnown(t) { return tap.nodes.some(function (n) { return n.track === t; }); }
   function tapAdd(track) {
@@ -499,7 +500,13 @@
       return false;
     });
     remoteTracks().forEach(function (t) { if (!tapKnown(t)) tapAdd(t); });
-    document.querySelectorAll('audio,video').forEach(function (el) {
+    var els = Array.prototype.slice.call(document.querySelectorAll('audio,video'));
+    (media || []).forEach(function (el) { if (els.indexOf(el) < 0) els.push(el); });  // also ones never added to the page
+    els.forEach(function (el) {
+      if (el.__tbSrc) { // routed through Web Audio by local mute: tapped from its source node, not from the element
+        if (el.__tbTapSp !== tap.sp) { try { el.__tbSrc.connect(tap.sp); el.__tbTapSp = tap.sp; } catch (e) { /* already connected */ } }
+        return;
+      }
       if (el.srcObject) return; // a stream from a call: already tapped above
       var cap = el.__tbCap;
       if (!cap) {
@@ -712,7 +719,7 @@
   //  2. Web Audio: every connection to a context's destination goes through one master gain, which local mute sets to 0.
   //  3. other frames (a call can live in an iframe): the state is passed to them with postMessage.
   var mutedDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'muted');
-  var media = [];
+  media = [];
   function noteMedia(el) {
     if (media.indexOf(el) < 0) {
       media.push(el);
@@ -724,9 +731,9 @@
     Object.defineProperty(HTMLMediaElement.prototype, 'muted', {
       configurable: true,
       get: function () { return this.__tbWant === undefined ? mutedDesc.get.call(this) : this.__tbWant; },
-      set: function (v) { noteMedia(this); this.__tbWant = !!v; mutedDesc.set.call(this, cfg.localMute ? true : !!v); }
+      set: function (v) { noteMedia(this); this.__tbWant = !!v; if (cfg.localMute) applyLocalMute(this); else mutedDesc.set.call(this, !!v); }
     });
-    hook(HTMLMediaElement.prototype, 'play', function () { noteMedia(this); if (cfg.localMute) mutedDesc.set.call(this, true); });
+    hook(HTMLMediaElement.prototype, 'play', function () { noteMedia(this); if (cfg.localMute) applyLocalMute(this); });
   }
   var masters = [], origConnect = AudioNode.prototype.connect, origDisconnect = AudioNode.prototype.disconnect;
   var LiveContext = window.AudioContext || window.webkitAudioContext;
@@ -750,15 +757,45 @@
     if (!isLiveDestination(dest)) return origDisconnect.apply(this, arguments);
     return origDisconnect.apply(this, [masterFor(dest.context)].concat(Array.prototype.slice.call(arguments, 1)));
   };
+  // Why elements are not simply muted: in some browser versions an element's muted state also silences what
+  // captureStream() hands the recorder. So an element that can be, is moved into Web Audio once (createMediaElementSource):
+  // its sound then reaches the speaker only through the context's master gain (0 while away) and the recorder reads the
+  // source node itself, before the gain. Elements that cannot be moved (a call's MediaStream, cross-origin media without
+  // CORS, which Web Audio would play as silence) are muted with the lock above; for a call's stream the recorder reads
+  // the track, which a muted element does not affect.
+  function canRoute(el) {
+    if (el.srcObject) return false;
+    var src = el.currentSrc || el.src || '';
+    if (!src) return false;
+    if (/^(blob|data):/.test(src)) return true;
+    try { return new URL(src, location.href).origin === location.origin || !!el.crossOrigin; } catch (e) { return false; }
+  }
+  function routeElement(el) {
+    if (el.__tbSrc !== undefined) return;
+    el.__tbSrc = null;
+    if (!canRoute(el)) return;
+    try {
+      var c = ensureCtx();
+      if (c.state !== 'running') return;     // a stuck context would make the page inaudible for good: do not
+      var node = c.createMediaElementSource(el);
+      node.connect(c.destination);           // goes through the master gain
+      el.__tbSrc = node;
+      if (tap.on && tap.sp) { node.connect(tap.sp); el.__tbTapSp = tap.sp; }
+    } catch (e) { el.__tbSrc = null; }       // already routed by the page, or not allowed
+  }
+  function applyLocalMute(el) {
+    noteMedia(el);
+    if (cfg.localMute) routeElement(el);
+    var routed = !!el.__tbSrc;
+    mutedDesc.set.call(el, routed ? !!el.__tbWant : (cfg.localMute ? true : !!el.__tbWant));
+  }
+  T.isSilenced = function (el) { return !!el.__tbSrc || mutedDesc.get.call(el); }; // for the tests
   function localMuteSweep() {
     var all = media.slice();
     docsOf(document, []).forEach(function (d) {
       deepQuery(d, 'audio,video', []).forEach(function (el) { if (all.indexOf(el) < 0) all.push(el); });
     });
-    all.forEach(function (el) {
-      noteMedia(el);
-      mutedDesc.set.call(el, cfg.localMute ? true : !!el.__tbWant);
-    });
+    all.forEach(applyLocalMute);
     masters.forEach(function (g) { g.gain.value = cfg.localMute ? 0 : 1; });
   }
   var lmTimer = 0;
