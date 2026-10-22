@@ -142,8 +142,8 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
                 + "phone's cache: the newest " + Prefs.bufferMinutes(this) + " minutes of each recording, and the last "
                 + Prefs.keepRuns(this) + " recordings. Android may clear a cache when storage runs low."));
         if (runs.isEmpty()) {
-            listBody.addView(Ui.text(this, "Nothing recorded yet. Tap Rec on a page, or Step away, or pin the page with "
-                    + "\"Start the recording buffer when it opens\".", 15f, Ui.DIM, "sans-serif"), Ui.lp(this, 18, 0));
+            listBody.addView(Ui.text(this, "Nothing recorded yet. Pages record when they open unless you turned that off "
+                    + "(Settings > Recording buffer); Rec on a page starts it by hand.", 15f, Ui.DIM, "sans-serif"), Ui.lp(this, 18, 0));
             return;
         }
         for (BufferStore.Run r : runs) listBody.addView(runCard(r), Ui.lp(this, 10, 0));
