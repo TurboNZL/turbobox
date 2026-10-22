@@ -24,6 +24,7 @@ import java.util.regex.Pattern;
  * volume 80                  0-200 (%), the page's audio
  * hangup 1h30m               hang up after that long (hangup off to cancel)
  * record start | record stop the screen buffer
+ * transcribe on | off        live captions (speech to text) saved as WebVTT with the recording
  * mark Lecture starts        a bookmark in the buffer
  * js document.title          run a script on the page
  * close                      close the page (hang up)
@@ -36,7 +37,7 @@ final class WorkflowParser {
     private WorkflowParser() {
     }
 
-    enum Kind { OPEN, WAIT, WAITFOR, CLICK, TYPE, KEY, SCROLL, MUTE, UNMUTE, VOLUME, HANGUP, RECORD_START, RECORD_STOP, MARK, JS, CLOSE }
+    enum Kind { OPEN, WAIT, WAITFOR, CLICK, TYPE, KEY, SCROLL, MUTE, UNMUTE, VOLUME, HANGUP, RECORD_START, RECORD_STOP, TRANSCRIBE_ON, TRANSCRIBE_OFF, MARK, JS, CLOSE }
 
     static final class Step {
         Kind kind;
@@ -168,6 +169,11 @@ final class WorkflowParser {
                 if (rest.equalsIgnoreCase("start")) s.kind = Kind.RECORD_START;
                 else if (rest.equalsIgnoreCase("stop")) s.kind = Kind.RECORD_STOP;
                 else throw new ParseError(no, "record start or record stop");
+                break;
+            case "transcribe":
+                if (rest.equalsIgnoreCase("on")) s.kind = Kind.TRANSCRIBE_ON;
+                else if (rest.equalsIgnoreCase("off")) s.kind = Kind.TRANSCRIBE_OFF;
+                else throw new ParseError(no, "transcribe on or transcribe off");
                 break;
             case "mark":
                 s.kind = Kind.MARK;

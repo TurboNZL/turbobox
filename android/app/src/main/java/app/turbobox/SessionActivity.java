@@ -17,6 +17,13 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.WebView;
 import android.widget.EditText;
+import android.widget.ImageView;
+import android.widget.PopupWindow;
+import android.graphics.Bitmap;
+import android.graphics.Rect;
+import android.view.PixelCopy;
+import android.os.Handler;
+import android.os.Looper;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -53,6 +60,9 @@ public class SessionActivity extends Activity implements Session.Listener {
     private boolean split;
     private boolean inPip;
     private SessionSheet sheet;
+    private final PopupWindow[] freezePopups = new PopupWindow[Sessions.COUNT];
+    private final Bitmap[] frozenPictures = new Bitmap[Sessions.COUNT];
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -138,6 +148,18 @@ public class SessionActivity extends Activity implements Session.Listener {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        // Back from the replay of what was missed: the live page is shown and heard again.
+        for (Session s : Sessions.active()) {
+            if (s.catchingUp) {
+                s.catchingUp = false;
+                s.setFrozen(false);
+            }
+        }
+    }
+
+    @Override
     protected void onPause() {
         super.onPause();
         keepPagesRunning();
@@ -162,6 +184,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     @Override
     protected void onDestroy() {
         // The pages and the timers outlive this screen; only the view of them goes away.
+        for (int i = 0; i < freezePopups.length; i++) dismissFreeze(i);
         for (Session s : Sessions.all()) {
             s.removeListener(this);
             WebView wv = s.peekWebView();
@@ -370,6 +393,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (f != null && !inPip) f.setCallMeter(true);
         updatePip();
         updateControls();
+        updateFreeze();
     }
 
     private void updateControls() {
@@ -389,7 +413,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         muteButton.setText(f.isMuted() ? "Unmute" : "Mute");
         Ui.tint(this, muteButton, f.isMuted() ? Ui.RED : 0); // red while muted, so the state is obvious at a glance
         onTimer(f, f.getRemainingMs());
-        recButton.setText(f.isRecording() ? "● Rec" : "Rec");
+        recButton.setText(f.isRecording() ? (f.isTranscribing() ? "● Rec CC" : "● Rec") : "Rec");
         Ui.tint(this, recButton, f.isRecording() ? Ui.RED : 0);
         awayButton.setText(f.awayAtWall != 0 ? "Back - play what I missed" : "Step away");
     }
@@ -427,20 +451,22 @@ public class SessionActivity extends Activity implements Session.Listener {
             if (!s.isRecording()) return;
             s.mark("Stepped away");
             s.awayAtWall = System.currentTimeMillis();
-            Toast.makeText(this, "Recording what the page shows and plays. Tap Back when you return.", Toast.LENGTH_LONG).show();
+            s.setFrozen(true);   // this phone stops showing and playing the page; the recording goes on
+            Toast.makeText(this, "The page is frozen and silent here, and still being recorded. Tap Back when you return.", Toast.LENGTH_LONG).show();
         } else {
             long from = s.awayAtWall;
             s.awayAtWall = 0;
             BufferRecorder r = s.recorder();
             if (r == null || r.runDir() == null) {
                 Toast.makeText(this, "The recording is not running, so nothing was kept.", Toast.LENGTH_LONG).show();
+                s.setFrozen(false);
             } else {
+                s.catchingUp = true;   // stays frozen and silent behind the player; let go when you come back
                 r.requestFlush(); // so the most recent part becomes playable
                 startActivity(new Intent(this, MissedActivity.class)
                         .putExtra(MissedActivity.EXTRA_RUN, r.runDir().getAbsolutePath())
                         .putExtra(MissedActivity.EXTRA_FROM_WALL, from));
             }
-            updateControls();
         }
         updateControls();
     }
@@ -456,13 +482,16 @@ public class SessionActivity extends Activity implements Session.Listener {
             }
             return;
         }
+        boolean cc = s.isTranscribing();
         new AlertDialog.Builder(this)
                 .setTitle("Recording " + s.title())
-                .setItems(new String[]{"Add a mark", "Play the recording", "Stop recording"}, (d, which) -> {
-                    if (which == 0) markDialog(s);
-                    else if (which == 1) playRecording(s);
-                    else s.stopRecording();
-                })
+                .setItems(new String[]{"Add a mark", "Play the recording", cc ? "Stop live captions" : "Start live captions (speech to text)", "Stop recording"},
+                        (d, which) -> {
+                            if (which == 0) markDialog(s);
+                            else if (which == 1) playRecording(s);
+                            else if (which == 2) s.setTranscribing(!cc);
+                            else s.stopRecording();
+                        })
                 .show();
     }
 
@@ -521,7 +550,88 @@ public class SessionActivity extends Activity implements Session.Listener {
             at.set(Calendar.MILLISECOND, 0);
             if (at.getTimeInMillis() <= System.currentTimeMillis()) at.add(Calendar.DAY_OF_MONTH, 1);
             s.arm(at.getTimeInMillis() - System.currentTimeMillis());
-        }, now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE), true).show();
+        }, now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE), android.text.format.DateFormat.is24HourFormat(this)).show();
+    }
+
+    // ---- freeze: the picture that stays on screen while you are away ------------------------------
+
+    /**
+     * Covers a frozen page with its last picture and a banner. The cover is a window of its own (a PopupWindow), not a
+     * view inside this one, so the recorder, which copies this window, keeps seeing the live page underneath.
+     */
+    private void showFreeze(int slot) {
+        dismissFreeze(slot);
+        Session s = Sessions.get(slot);
+        FrameLayout pane = panes[slot];
+        if (!s.isFrozen() || !s.isActive() || pane.getParent() == null || pane.getWidth() < 8 || pane.getHeight() < 8) return;
+        FrameLayout cover = new FrameLayout(this);
+        cover.setBackgroundColor(0xFF000000);
+        if (frozenPictures[slot] != null) {
+            ImageView img = new ImageView(this);
+            img.setImageBitmap(frozenPictures[slot]);
+            img.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            cover.addView(img, new FrameLayout.LayoutParams(-1, -1));
+        }
+        TextView banner = Ui.text(this, s.catchingUp ? "Watching what you missed" : "Stepped away - frozen here, still recording", 13f, Ui.TEXT, "sans-serif-medium");
+        banner.setGravity(Gravity.CENTER);
+        banner.setBackgroundColor(0xB3000000);
+        banner.setPadding(Ui.dp(this, 8), Ui.dp(this, 6), Ui.dp(this, 8), Ui.dp(this, 6));
+        cover.addView(banner, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
+        PopupWindow popup = new PopupWindow(cover, pane.getWidth(), pane.getHeight(), false);
+        popup.setClippingEnabled(false);
+        int[] at = new int[2];
+        pane.getLocationOnScreen(at);
+        try {
+            popup.showAtLocation(getWindow().getDecorView(), Gravity.TOP | Gravity.START, at[0], at[1]);
+            freezePopups[slot] = popup;
+        } catch (RuntimeException ignored) {
+            // The window is going away.
+        }
+    }
+
+    private void dismissFreeze(int slot) {
+        PopupWindow p = freezePopups[slot];
+        freezePopups[slot] = null;
+        if (p != null) {
+            try {
+                p.dismiss();
+            } catch (RuntimeException ignored) {
+                // Already gone.
+            }
+        }
+    }
+
+    /** Takes the picture of the page as it is now, then covers it. */
+    private void freezeNow(int slot) {
+        FrameLayout pane = panes[slot];
+        if (pane.getWidth() < 8 || pane.getHeight() < 8 || pane.getParent() == null) {
+            frozenPictures[slot] = null;
+            showFreeze(slot);
+            return;
+        }
+        int[] at = new int[2];
+        pane.getLocationInWindow(at);
+        Rect src = new Rect(at[0], at[1], at[0] + pane.getWidth(), at[1] + pane.getHeight());
+        float k = Math.min(1f, 1280f / src.width());
+        Bitmap bmp = Bitmap.createBitmap(Math.max(16, Math.round(src.width() * k)), Math.max(16, Math.round(src.height() * k)), Bitmap.Config.ARGB_8888);
+        try {
+            PixelCopy.request(getWindow(), src, bmp, result -> {
+                frozenPictures[slot] = result == PixelCopy.SUCCESS ? bmp : null;
+                showFreeze(slot);
+            }, mainHandler);
+        } catch (IllegalArgumentException e) {
+            frozenPictures[slot] = null;
+            showFreeze(slot);
+        }
+    }
+
+    /** Re-places the covers after the panes moved (rotation, split, window size). */
+    private void updateFreeze() {
+        for (int i = 0; i < Sessions.COUNT; i++) {
+            final int slot = i;
+            dismissFreeze(slot);
+            if (Sessions.get(slot).isFrozen() && !inPip) paneHolder.post(() -> showFreeze(slot));
+        }
     }
 
     // ---- Session.Listener --------------------------------------------------------------------
@@ -552,6 +662,17 @@ public class SessionActivity extends Activity implements Session.Listener {
     @Override
     public void onNotice(Session s, String text) {
         Toast.makeText(getApplicationContext(), s.title() + ": " + text, Toast.LENGTH_LONG).show();
+    }
+
+    @Override
+    public void onFrozen(Session s, boolean frozen) {
+        if (frozen) {
+            freezeNow(s.slot);
+        } else {
+            dismissFreeze(s.slot);
+            frozenPictures[s.slot] = null;
+        }
+        updateControls();
     }
 
     @Override

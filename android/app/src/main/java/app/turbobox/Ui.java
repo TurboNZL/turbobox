@@ -176,6 +176,14 @@ final class Ui {
         return bar;
     }
 
+    /** "7:30 AM" or "07:30", the way the phone is set to show the time. */
+    static String formatTime(Context c, int hour, int minute) {
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        cal.set(java.util.Calendar.HOUR_OF_DAY, hour);
+        cal.set(java.util.Calendar.MINUTE, minute);
+        return android.text.format.DateFormat.getTimeFormat(c).format(cal.getTime());
+    }
+
     static String pct(float value) {
         return String.format(java.util.Locale.US, "%d%%", Math.round(value * 100f));
     }

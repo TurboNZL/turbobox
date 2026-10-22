@@ -80,6 +80,37 @@ for (const [, d] of audio) { const buf = Buffer.from(d, 'base64'); total += buf.
 check('audio tap delivers PCM chunks', audio.length > 3, audio.length);
 check('audio tap is ~24 kHz (about 2-3 s of samples)', total > 24000 * 1.5 && total < 24000 * 4.5, total);
 check('audio tap carries the actual sound (peak well above silence)', peak > 3000, peak);
+// stepping away: the speaker is muted but the recording still hears the page
+posts.length = 0;
+await page.evaluate(() => { const a = document.getElementById('a'); a.muted = false; a.play(); window.__turbobox.setLocalMute(true); window.__turbobox.setTap(true); });
+await page.waitForTimeout(2500);
+const mutedNow = await page.evaluate(() => document.getElementById('a').muted);
+const audio2 = posts.filter(p => p[0] === 'audio');
+let peak2 = 0;
+for (const [, d] of audio2) { const buf = Buffer.from(d, 'base64'); for (let i = 0; i + 1 < buf.length; i += 2) peak2 = Math.max(peak2, Math.abs(buf.readInt16LE(i))); }
+check('local mute silences the page element', mutedNow === true);
+check('the tap still records the page while it is locally muted', peak2 > 3000, peak2);
+await page.evaluate(() => window.__turbobox.setLocalMute(false));
+check('local mute restores the element', (await page.evaluate(() => document.getElementById('a').muted)) === false);
+await page.evaluate(() => window.__turbobox.setTap(false));
+
+// microphone privacy switch (needs a secure origin for navigator.mediaDevices, so a page of its own on localhost)
+const p2 = await b.newPage();
+await p2.route('http://localhost/', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><body></body></html>' }));
+await p2.goto('http://localhost/');
+await p2.addScriptTag({ content: 'window.TurboBoxBridge = { post: function () {} };' });
+await p2.addScriptTag({ content: script });
+await p2.evaluate(() => window.__turbobox.configure({ micAllowed: false }));
+const denied = await p2.evaluate(async () => { try { await navigator.mediaDevices.getUserMedia({ audio: true }); return 'allowed'; } catch (e) { return e.name; } });
+check('a blocked microphone is refused like a browser "Block"', denied === 'NotAllowedError', denied);
+await p2.evaluate(() => window.__turbobox.configure({ micAllowed: true }));
+const allowed = await p2.evaluate(async () => { try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach(t => t.stop()); return 'allowed'; } catch (e) { return e.name; } });
+check('an allowed microphone is handed over', allowed === 'allowed', allowed);
+
+// a small window: the layout scale follows the area the page has, not the screen
+await page.evaluate(() => window.__turbobox.setViewWidth(400));
+const vp = await page.evaluate(() => document.querySelector('meta[name=viewport]').content);
+check('viewport scale fits the real area (400 css px of 1280)', /initial-scale=0\.313/.test(vp), vp);
 console.log(fails ? `${fails} FAILED` : 'all ok');
 await b.close();
 process.exit(fails ? 1 : 0);

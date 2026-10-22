@@ -16,6 +16,8 @@ final class Pin {
     float zoom = 1f;        // 0.5..3, this page's layout width is 1280 / zoom
     float volume = 1f;      // 0..2, gain on the page's audio
     boolean autoRecord;     // start the recording buffer as soon as the page opens
+    boolean allowMic = true;      // privacy: may the page use the microphone (what it hears of you)
+    boolean allowCamera;          // privacy: may the page use the camera (off until you allow it)
 
     Pin(String id, String name, String url) {
         this.id = id;
@@ -30,7 +32,8 @@ final class Pin {
     JSONObject toJson() {
         try {
             return new JSONObject().put("id", id).put("name", name).put("url", url)
-                    .put("zoom", zoom).put("volume", volume).put("autoRecord", autoRecord);
+                    .put("zoom", zoom).put("volume", volume).put("autoRecord", autoRecord)
+                    .put("allowMic", allowMic).put("allowCamera", allowCamera);
         } catch (JSONException e) {
             throw new IllegalStateException(e);
         }
@@ -41,6 +44,8 @@ final class Pin {
         p.zoom = (float) o.optDouble("zoom", 1.0);
         p.volume = (float) o.optDouble("volume", 1.0);
         p.autoRecord = o.optBoolean("autoRecord", false);
+        p.allowMic = o.optBoolean("allowMic", true);
+        p.allowCamera = o.optBoolean("allowCamera", false);
         return p;
     }
 

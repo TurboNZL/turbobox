@@ -18,7 +18,12 @@ import java.util.Locale;
 
 /** Standby, battery and alarm permissions, the recording buffer's size, and app updates. */
 public class SettingsActivity extends Activity implements AppUpdater.Listener {
-    private static final int[] BUFFER_MINUTES = {15, 30, 60, 90, 120, 180, 240};
+    private static final int[] BUFFER_MINUTES = {15, 30, 60, 90, 120, 180, 240, 360, 480, 720};
+    private static final String[][] LANGUAGES = {
+            {"", "The phone's language"}, {"en-US", "English (US)"}, {"en-GB", "English (UK)"}, {"en-AU", "English (Australia)"},
+            {"en-NZ", "English (New Zealand)"}, {"es-ES", "Spanish"}, {"fr-FR", "French"}, {"de-DE", "German"}, {"it-IT", "Italian"},
+            {"pt-BR", "Portuguese (Brazil)"}, {"nl-NL", "Dutch"}, {"pl-PL", "Polish"}, {"ru-RU", "Russian"}, {"ja-JP", "Japanese"},
+            {"ko-KR", "Korean"}, {"zh-CN", "Chinese (Mandarin)"}, {"hi-IN", "Hindi"}, {"ar-SA", "Arabic"}, {"tr-TR", "Turkish"}};
     private static final int[] KEEP_RUNS = {1, 2, 3, 5, 8, 12};
 
     private LinearLayout body;
@@ -96,13 +101,37 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         LinearLayout buffer = Ui.card(this);
         buffer.addView(Ui.text(this, "Recording buffer", 17f, Ui.TEXT, "sans-serif-medium"));
         buffer.addView(Ui.hint(this, "What a page shows and plays is kept in short pieces in this phone's cache so you can watch what "
-                + "you missed. Only the newest part of each recording is kept."), Ui.lp(this, 4, 8));
-        buffer.addView(choiceRow("Keep the newest", Prefs.bufferMinutes(this) + " minutes", this::chooseMinutes));
-        buffer.addView(choiceRow("Quality", BufferRecorder.QUALITIES[Math.max(0, Math.min(2, Prefs.bufferQuality(this)))].label, this::chooseQuality));
+                + "you missed."), Ui.lp(this, 4, 8));
+        buffer.addView(choiceRow("Record up to", minutesText(Prefs.bufferMinutes(this)), this::chooseMinutes));
+        buffer.addView(choiceRow("When that is reached", Prefs.bufferStopAtLimit(this) ? "Stop recording" : "Keep recording, drop the oldest",
+                this::chooseAtLimit));
+        buffer.addView(choiceRow("Resolution", BufferRecorder.widthLabel(BufferRecorder.width(this)), this::chooseWidth));
+        buffer.addView(choiceRow("Frame rate", BufferRecorder.fpsLabel(BufferRecorder.fps(this)), this::chooseFps));
         buffer.addView(choiceRow("Recordings kept", String.valueOf(Prefs.keepRuns(this)), this::chooseRuns));
         long mb = BufferStore.totalBytes(BufferRecorder.root(this)) / 1_048_576;
-        buffer.addView(Ui.hint(this, "Using " + mb + " MB now. A minute is about 2 to 9 MB, depending on the quality."), Ui.lp(this, 6, 0));
+        int w = BufferRecorder.width(this), h = Math.round(w * 9f / 16f), f = BufferRecorder.fps(this);
+        double perMin = BufferRecorder.bitrate(w, h, f) / 8.0 * 60 / 1_048_576 + 0.4;
+        buffer.addView(Ui.hint(this, String.format(Locale.US, "Using %d MB now. At these settings a minute is roughly %.1f MB, so "
+                + "%s is roughly %d MB.", mb, perMin, minutesText(Prefs.bufferMinutes(this)), Math.round(perMin * Prefs.bufferMinutes(this)))),
+                Ui.lp(this, 6, 0));
         body.addView(buffer, Ui.lp(this, 12, 0));
+
+        // Transcription
+        LinearLayout tr = Ui.card(this);
+        tr.addView(Ui.text(this, "Live transcription", 17f, Ui.TEXT, "sans-serif-medium"));
+        tr.addView(Ui.hint(this, "Turns what the page says into text while it records, and saves it as a WebVTT subtitle file next to the "
+                + "recording (Recordings > Share captions). It uses Android's speech recognition and needs Android 13 or newer. "
+                + "Times are approximate, and a recognizer that beeps when it starts may beep."), Ui.lp(this, 4, 8));
+        Switch next = new Switch(this);
+        next.setText("Transcribe the next recording");
+        next.setTextColor(Ui.TEXT);
+        next.setChecked(Prefs.transcribeNext(this));
+        next.setOnCheckedChangeListener((b, on) -> Prefs.setTranscribeNext(this, on));
+        tr.addView(next, Ui.lp(this, 0, 4));
+        tr.addView(Ui.hint(this, "One time only: it switches itself off when that recording starts. A workflow can also use the "
+                + "step \"transcribe on\"."), Ui.lp(this, 0, 6));
+        tr.addView(choiceRow("Speech language", languageName(Prefs.transcribeLang(this)), this::chooseLanguage));
+        body.addView(tr, Ui.lp(this, 12, 0));
 
         // Updates
         LinearLayout upd = Ui.card(this);
@@ -148,14 +177,18 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         return r;
     }
 
+    private static String minutesText(int m) {
+        return m < 60 ? m + " minutes" : m % 60 == 0 ? (m / 60) + (m == 60 ? " hour" : " hours") : (m / 60) + " h " + (m % 60) + " min";
+    }
+
     private void chooseMinutes() {
         String[] items = new String[BUFFER_MINUTES.length];
         int checked = 0;
         for (int i = 0; i < items.length; i++) {
-            items[i] = BUFFER_MINUTES[i] + " minutes";
+            items[i] = minutesText(BUFFER_MINUTES[i]);
             if (BUFFER_MINUTES[i] == Prefs.bufferMinutes(this)) checked = i;
         }
-        new AlertDialog.Builder(this).setTitle("Keep the newest")
+        new AlertDialog.Builder(this).setTitle("Record up to")
                 .setSingleChoiceItems(items, checked, (d, which) -> {
                     Prefs.setBufferMinutes(this, BUFFER_MINUTES[which]);
                     d.dismiss();
@@ -163,14 +196,75 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
                 }).show();
     }
 
-    private void chooseQuality() {
-        String[] items = new String[BufferRecorder.QUALITIES.length];
-        for (int i = 0; i < items.length; i++) items[i] = BufferRecorder.QUALITIES[i].label;
-        new AlertDialog.Builder(this).setTitle("Quality")
-                .setSingleChoiceItems(items, Math.max(0, Math.min(2, Prefs.bufferQuality(this))), (d, which) -> {
-                    Prefs.setBufferQuality(this, which);
+    private void chooseAtLimit() {
+        String[] items = {"Keep recording, drop the oldest (a rolling window)", "Stop recording"};
+        new AlertDialog.Builder(this).setTitle("When the limit is reached")
+                .setSingleChoiceItems(items, Prefs.bufferStopAtLimit(this) ? 1 : 0, (d, which) -> {
+                    Prefs.setBufferStopAtLimit(this, which == 1);
                     d.dismiss();
                     render();
+                }).show();
+    }
+
+    private void chooseWidth() {
+        String[] items = new String[BufferRecorder.WIDTHS.length];
+        int checked = 0;
+        for (int i = 0; i < items.length; i++) {
+            items[i] = BufferRecorder.widthLabel(BufferRecorder.WIDTHS[i]);
+            if (BufferRecorder.WIDTHS[i] == BufferRecorder.width(this)) checked = i;
+        }
+        new AlertDialog.Builder(this).setTitle("Resolution")
+                .setSingleChoiceItems(items, checked, (d, which) -> {
+                    Prefs.setBufferWidth(this, BufferRecorder.WIDTHS[which]);
+                    d.dismiss();
+                    render();
+                }).show();
+    }
+
+    private void chooseFps() {
+        String[] items = new String[BufferRecorder.FPS.length];
+        int checked = 0;
+        for (int i = 0; i < items.length; i++) {
+            items[i] = BufferRecorder.fpsLabel(BufferRecorder.FPS[i]);
+            if (BufferRecorder.FPS[i] == BufferRecorder.fps(this)) checked = i;
+        }
+        new AlertDialog.Builder(this).setTitle("Frame rate")
+                .setSingleChoiceItems(items, checked, (d, which) -> {
+                    Prefs.setBufferFps(this, BufferRecorder.FPS[which]);
+                    d.dismiss();
+                    render();
+                }).show();
+    }
+
+    private static String languageName(String tag) {
+        for (String[] l : LANGUAGES) if (l[0].equals(tag)) return l[1];
+        return tag;
+    }
+
+    private void chooseLanguage() {
+        String[] items = new String[LANGUAGES.length + 1];
+        int checked = -1;
+        for (int i = 0; i < LANGUAGES.length; i++) {
+            items[i] = LANGUAGES[i][1];
+            if (LANGUAGES[i][0].equals(Prefs.transcribeLang(this))) checked = i;
+        }
+        items[LANGUAGES.length] = "Another language tag...";
+        new AlertDialog.Builder(this).setTitle("Speech language")
+                .setSingleChoiceItems(items, checked, (d, which) -> {
+                    d.dismiss();
+                    if (which < LANGUAGES.length) {
+                        Prefs.setTranscribeLang(this, LANGUAGES[which][0]);
+                        render();
+                        return;
+                    }
+                    EditText tag = new EditText(this);
+                    tag.setHint("e.g. sv-SE");
+                    tag.setSingleLine(true);
+                    new AlertDialog.Builder(this).setTitle("Language tag").setView(tag)
+                            .setPositiveButton("Save", (dd, w) -> {
+                                Prefs.setTranscribeLang(this, tag.getText().toString().trim());
+                                render();
+                            }).setNegativeButton("Cancel", null).show();
                 }).show();
     }
 

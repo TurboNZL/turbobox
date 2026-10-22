@@ -8,15 +8,15 @@ phone's microphone on A2DP) made into an app of its own, on the [TurboNZL/turboe
 Tether keeps its PeerJS call; TurboBox is only the web pages.
 
 ## What it does
-- **Pinned pages** on the home screen (up to 8): one tap opens the page in a session. Long-press for an icon on the launcher's home screen, and the
+- **Pinned pages** on the home screen (up to 8), shown with the page's own icon: one tap opens the page in a session. Each page has its own microphone and camera privacy switches. Long-press for an icon on the launcher's home screen, and the
   first four are also in the app icon's long-press menu.
 - **Two running at once** (slots A and B): tabs, or **Split** to see both. A small floating window (Mini) keeps a page up while you use
   another app.
 - **Everything Tether's web session did**: desktop browser emulation and page zoom, the phone's own microphone chosen by you (a Bluetooth
   headset stays in its high-quality mode), a mute the page cannot undo, page volume (0-200%), microphone volume (0-300%) with a
   record-and-play-back test, a hang-up timer (a delay or a clock time), a foreground service with the screen off.
-- **Recording buffer**: records what the page shows and plays into short pieces in the cache, keeping the newest N minutes.
-  **Step away** marks the moment; **Back** plays what you missed at 1x to 3x until you have caught up. See [`docs/guides/RECORDING_BUFFER.md`](docs/guides/RECORDING_BUFFER.md).
+- **Recording buffer**: records what the page shows and plays into short pieces in the cache (resolution and frame rate chosen separately; a length limit that rolls or stops).
+  **Step away** freezes and silences the page on your phone while it keeps recording; **Back** plays what you missed at 1x to 3x until you have caught up. Optional live captions are saved as a WebVTT file. See [`docs/guides/RECORDING_BUFFER.md`](docs/guides/RECORDING_BUFFER.md).
 - **Workflows**: "open this page, click Join, type my name, unmute, record, hang up after two hours", at a set time on chosen days,
   with the screen off. See [`docs/guides/WORKFLOWS.md`](docs/guides/WORKFLOWS.md).
 

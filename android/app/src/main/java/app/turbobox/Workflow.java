@@ -61,10 +61,9 @@ final class Workflow {
     }
 
     /** "Every day 07:30", "Mon, Wed 07:30" or "Manual". */
-    String scheduleText() {
+    String scheduleText(android.content.Context c) {
         if (!timed) return "Manual";
-        String time = String.format(java.util.Locale.US, "%02d:%02d", hour, minute);
-        return daysText(days) + " " + time + (enabled ? "" : " (off)");
+        return daysText(days) + " " + Ui.formatTime(c, hour, minute) + (enabled ? "" : " (off)");
     }
 
     static String daysText(int mask) {

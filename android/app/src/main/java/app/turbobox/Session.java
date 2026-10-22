@@ -69,6 +69,9 @@ final class Session {
         /** Record-and-play-back test: state is "recording", "playing", "done" or "error". */
         default void onLoopback(Session s, String state, float peak, String verdict, String message) {}
 
+        /** The page was frozen or let go (Step away / Back). */
+        default void onFrozen(Session s, boolean frozen) {}
+
         /** The recording buffer started or stopped. */
         default void onRecording(Session s, boolean on, String note) {}
     }
@@ -101,8 +104,14 @@ final class Session {
     private long hangupAt;            // SystemClock.elapsedRealtime() deadline, 0 = no timer
     private long notifiedMinutes = -1;
     private BufferRecorder recorder;
+    private boolean transcribePending;   // captions were asked for before the recording started
     private Window frameWindow;       // the visible activity's window, the recorder's picture source
     long awayAtWall;                  // when "Step away" was tapped (wall clock), 0 = not away
+    boolean catchingUp;               // "Back" was tapped and the missed part is being replayed: still frozen
+    private boolean frozen;           // the live page is frozen and silent on this phone; the recording goes on
+    private boolean micAllowed = true;    // privacy: the page may use the microphone
+    private boolean cameraAllowed;        // privacy: the page may use the camera
+    private int viewCssWidth;         // the page's own area in CSS pixels, so a small window lays out right
 
     Session(int slot) {
         this.slot = slot;
@@ -204,7 +213,7 @@ final class Session {
     private final Runnable muteCheck = new Runnable() {
         @Override
         public void run() {
-            if (!active || !muted) return;
+            if (!active || !silenced()) return;
             checkMute();
             main.postDelayed(this, 3000);
         }
@@ -216,12 +225,11 @@ final class Session {
      */
     void setMuted(boolean value) {
         muted = value;
-        vmic.setMuted(value);          // the native microphone path goes silent too, whatever the page does
-        js("__turbobox.setMute(" + value + ")");
+        applyMute();                   // the native microphone path goes silent too, whatever the page does
         main.removeCallbacks(muteCheck);
         muteMisses = 0;
         muteWarned = false;
-        if (value) {
+        if (silenced()) {
             checkMute();
             main.postDelayed(muteCheck, 3000);
         }
@@ -235,9 +243,9 @@ final class Session {
      * reported only if a real page is loaded, only after several misses in a row, and only once per page load.
      */
     private void checkMute() {
-        if (webView == null || !active || !muted) return;
+        if (webView == null || !active || !silenced()) return;
         webView.evaluateJavascript("window.__turbobox ? window.__turbobox.muteStatus() : null", value -> {
-            if (!active || !muted) return;
+            if (!active || !silenced()) return;
             boolean answered = false;
             boolean silent = true;
             if (value != null && !value.equals("null")) {
@@ -262,6 +270,70 @@ final class Session {
                 notice("MUTE NOT CONFIRMED - the page is not answering. Close the page if you must be sure.");
             }
         });
+    }
+
+    // ---- privacy: what the page may use ---------------------------------------------------------
+
+    boolean micAllowed() {
+        return micAllowed;
+    }
+
+    boolean cameraAllowed() {
+        return cameraAllowed;
+    }
+
+    /**
+     * Microphone privacy. Off: the page is refused the microphone, and a call that already has it is cut at once
+     * (the outgoing audio is locked silent, whatever the page does, and the native capture stops).
+     */
+    void setMicAllowed(boolean allowed) {
+        micAllowed = allowed;
+        if (pin != null) {
+            pin.allowMic = allowed;
+            PinStore.put(app, pin);
+        }
+        applyMute();
+        js("__turbobox.configure({micAllowed:" + allowed + "})");
+        if (!allowed) stopCapture();
+        else if (pageWantsMic) startCapture();
+        notice(allowed ? "The page may use the microphone again." : "Microphone blocked for this page.");
+    }
+
+    /** Camera privacy. The page is only handed the camera when this is on (and Android's camera permission is granted). */
+    void setCameraAllowed(boolean allowed) {
+        cameraAllowed = allowed;
+        if (pin != null) {
+            pin.allowCamera = allowed;
+            PinStore.put(app, pin);
+        }
+        notice(allowed ? "The page may ask for the camera." : "Camera blocked for this page. A call that already has it keeps it until the page reloads.");
+    }
+
+    /** What the outgoing audio is locked to: muted by the user, or the microphone is blocked. */
+    private boolean silenced() {
+        return muted || !micAllowed;
+    }
+
+    private void applyMute() {
+        vmic.setMuted(silenced());
+        js("__turbobox.setMute(" + silenced() + ")");
+    }
+
+    // ---- freeze: stepping away ------------------------------------------------------------------
+
+    boolean isFrozen() {
+        return frozen;
+    }
+
+    /**
+     * Frozen: this phone stops showing and playing the live page (the activity covers it with its last picture and
+     * the page's own sound is switched off here), while the recording goes on taking the live picture and sound.
+     */
+    void setFrozen(boolean on) {
+        if (frozen == on) return;
+        frozen = on;
+        js("__turbobox.setLocalMute(" + on + ")");
+        for (Listener l : listeners) l.onFrozen(this, on);
     }
 
     // ---- audio settings ------------------------------------------------------------------------
@@ -348,7 +420,8 @@ final class Session {
         if (micKey.isEmpty() || vmic.isRunning() || !active) return;
         AudioDeviceInfo device = Devices.find(app, micKey);
         if (device == null) notice("The chosen microphone is not available now; using the system default input.");
-        vmic.setMuted(muted);
+        if (!micAllowed) return;
+        vmic.setMuted(silenced());
         InputRoute.apply(app, device);
         vmic.start(device, aec, new VirtualMic.Listener() {
             @Override
@@ -416,12 +489,17 @@ final class Session {
         micGain = Prefs.micGain(app);
         zoom = page.zoom;
         volume = page.volume;
+        micAllowed = page.allowMic;
+        cameraAllowed = page.allowCamera;
+        frozen = false;
+        catchingUp = false;
         WebView wv = webView(context);
         if (wv.getWidth() == 0) {
             // Started by a workflow with no screen showing it: give the page a screen-sized area to lay out in, or
             // every element would measure zero and nothing could be found or clicked. A real layout replaces it.
             android.util.DisplayMetrics dm = app.getResources().getDisplayMetrics();
             wv.layout(0, 0, dm.widthPixels, dm.heightPixels);
+            viewCssWidth = Math.round(dm.widthPixels / dm.density);
         }
         Uri uri = Uri.parse(page.url);
         startHost = uri.getHost() == null ? "" : uri.getHost();
@@ -454,6 +532,8 @@ final class Session {
         pageLoaded = false;
         pageWantsMic = false;
         awayAtWall = 0;
+        catchingUp = false;
+        frozen = false;
         stopRecording();
         stopCapture();
         InputRoute.clear(app);
@@ -530,8 +610,34 @@ final class Session {
         recorder = r;
         recorder.setSource(frameWindow, webView);
         js("__turbobox.setTap(true)");
+        if (transcribePending || Prefs.transcribeNext(app)) {
+            transcribePending = false;
+            Prefs.setTranscribeNext(app, false);   // the one-time switch in Settings
+            startTranscription();
+        }
         for (Listener l : listeners) l.onRecording(this, true, "");
         SessionService.refresh();
+    }
+
+    boolean isTranscribing() {
+        return recorder != null && recorder.isTranscribing();
+    }
+
+    /** Live captions (speech to text, saved as WebVTT) for the recording; asked for before it starts, they begin with it. */
+    void setTranscribing(boolean on) {
+        if (on) {
+            if (isRecording()) startTranscription(); else transcribePending = true;
+        } else {
+            transcribePending = false;
+            if (recorder != null) recorder.stopTranscribing();
+        }
+        for (Listener l : listeners) l.onRecording(this, isRecording(), "");
+    }
+
+    private void startTranscription() {
+        if (recorder == null) return;
+        recorder.startTranscribing(Prefs.transcribeLang(app), text -> notice(text));
+        for (Listener l : listeners) l.onRecording(this, isRecording(), "");
     }
 
     void stopRecording() {
@@ -570,6 +676,15 @@ final class Session {
         cookies.setAcceptCookie(true);
         cookies.setAcceptThirdPartyCookies(wv, true);
 
+        // Tell the page how wide its area really is (a floating window or half of a split screen is narrower than the
+        // screen), so it lays out to fit instead of showing one corner.
+        wv.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            int w = r - l;
+            if (w > 0 && w != or - ol) {
+                viewCssWidth = Math.round(w / app.getResources().getDisplayMetrics().density);
+                js("__turbobox.setViewWidth(" + viewCssWidth + ")");
+            }
+        });
         wv.addJavascriptInterface(new Bridge(), "TurboBoxBridge");
         // Before any page script runs, where the browser supports it; the callbacks below cover the rest
         // (the script is idempotent).
@@ -596,11 +711,15 @@ final class Session {
         wv.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(PermissionRequest request) {
-                // Microphone only, and only for the page that was opened (and its own subdomains).
+                // Only for the page that was opened (and its own subdomains), only what its privacy switches allow.
                 List<String> allowed = new ArrayList<>();
                 if (hostAllowed(request.getOrigin())) {
                     for (String r : request.getResources()) {
-                        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)) allowed.add(r);
+                        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r) && micAllowed) allowed.add(r);
+                        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r) && cameraAllowed
+                                && app.checkSelfPermission(android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                            allowed.add(r);
+                        }
                     }
                 }
                 if (allowed.isEmpty()) {
@@ -608,6 +727,11 @@ final class Session {
                 } else {
                     request.grant(allowed.toArray(new String[0]));
                 }
+            }
+
+            @Override
+            public void onReceivedIcon(WebView view, android.graphics.Bitmap icon) {
+                if (pin != null && icon != null) Favicons.saveIfBetter(app, pin.id, icon);
             }
         });
         return wv;
@@ -632,9 +756,10 @@ final class Session {
     private String pageScript() {
         try {
             JSONObject settings = new JSONObject()
-                    .put("muted", muted).put("volume", volume).put("aec", aec).put("zoom", zoom)
+                    .put("muted", silenced()).put("volume", volume).put("aec", aec).put("zoom", zoom)
                     .put("micGain", micGain).put("virtual", !micKey.isEmpty()).put("micLabel", micLabel())
-                    .put("tap", isRecording());
+                    .put("tap", isRecording()).put("micAllowed", micAllowed).put("localMute", frozen);
+            if (viewCssWidth > 0) settings.put("viewWidth", viewCssWidth);
             return sessionScript() + "\nwindow.__turbobox.configure(" + settings + ");"
                     + (callMeter ? "\nwindow.__turbobox.setMeter(true);" : "");
         } catch (JSONException e) {

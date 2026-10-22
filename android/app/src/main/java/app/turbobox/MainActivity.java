@@ -13,6 +13,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -29,6 +30,7 @@ public class MainActivity extends Activity {
     private static final int REQUEST_PERMISSIONS = 1;
 
     private LinearLayout body;
+    private final java.util.Set<String> iconTried = new java.util.HashSet<>();   // looked up once per start, not on every redraw
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -156,10 +158,26 @@ public class MainActivity extends Activity {
         Session running = Sessions.forPin(pin.id);
         LinearLayout t = Ui.card(this);
         t.setGravity(Gravity.CENTER_HORIZONTAL);
-        TextView badge = Ui.text(this, pin.initial(), 22f, Ui.BG, "semibold");
-        badge.setGravity(Gravity.CENTER);
-        badge.setBackground(Ui.rounded(this, Ui.GREEN, 0, 100));
-        t.addView(badge, new LinearLayout.LayoutParams(Ui.dp(this, 46), Ui.dp(this, 46)));
+        android.graphics.Bitmap icon = Favicons.load(this, pin.id);
+        if (icon != null) {
+            // The page's own icon, on a light disc so dark icons stay visible on the dark card.
+            ImageView img = new ImageView(this);
+            img.setImageBitmap(icon);
+            img.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            int pad = Ui.dp(this, 8);
+            img.setPadding(pad, pad, pad, pad);
+            img.setBackground(Ui.rounded(this, 0xFFF2F2F5, 0, 100));
+            t.addView(img, new LinearLayout.LayoutParams(Ui.dp(this, 46), Ui.dp(this, 46)));
+        } else {
+            TextView badge = Ui.text(this, pin.initial(), 22f, Ui.BG, "semibold");
+            badge.setGravity(Gravity.CENTER);
+            badge.setBackground(Ui.rounded(this, Ui.GREEN, 0, 100));
+            t.addView(badge, new LinearLayout.LayoutParams(Ui.dp(this, 46), Ui.dp(this, 46)));
+            if (iconTried.add(pin.id)) Favicons.fetch(this, pin, () -> {
+                Shortcuts.refresh(this);
+                render();
+            });
+        }
         TextView name = Ui.text(this, pin.name, 16f, Ui.TEXT, "sans-serif-medium");
         name.setSingleLine(true);
         name.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -248,6 +266,7 @@ public class MainActivity extends Activity {
                                     Session s = Sessions.forPin(pin.id);
                                     if (s != null) s.close("pin removed");
                                     PinStore.remove(this, pin.id);
+                                    Favicons.delete(this, pin.id);
                                     Shortcuts.refresh(this);
                                     render();
                                 })
@@ -303,6 +322,10 @@ public class MainActivity extends Activity {
             if (!PinStore.put(this, pin)) {
                 Toast.makeText(this, "You can pin up to " + PinStore.MAX + " pages.", Toast.LENGTH_LONG).show();
                 return;
+            }
+            if (existing == null || !existing.url.equals(address)) {
+                Favicons.delete(this, pin.id);
+                iconTried.remove(pin.id);
             }
             Shortcuts.refresh(this);
             d.dismiss();

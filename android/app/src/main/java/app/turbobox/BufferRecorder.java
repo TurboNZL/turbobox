@@ -41,26 +41,34 @@ final class BufferRecorder {
         void onError(String message);
     }
 
-    /** What the three quality settings mean: picture width, video bit rate, pictures per second. */
-    static final class Quality {
-        final String label;
-        final int maxWidth;
-        final int bitrate;
-        final int fps;
+    /** Picture widths and frame rates the settings offer. They are chosen separately. */
+    static final int[] WIDTHS = {480, 640, 960, 1280, 1920};
+    static final int[] FPS = {1, 2, 4, 6, 10, 15, 24, 30};
+    private static final int[] LEGACY_WIDTH = {640, 960, 1280};   // the old single "quality" setting
+    private static final int[] LEGACY_FPS = {4, 6, 10};
 
-        Quality(String label, int maxWidth, int bitrate, int fps) {
-            this.label = label;
-            this.maxWidth = maxWidth;
-            this.bitrate = bitrate;
-            this.fps = fps;
-        }
+    static int width(Context c) {
+        int w = Prefs.bufferWidth(c);
+        return w > 0 ? w : LEGACY_WIDTH[Math.max(0, Math.min(2, Prefs.bufferQuality(c)))];
     }
 
-    static final Quality[] QUALITIES = {
-            new Quality("Low (640 px, 4 pictures/s)", 640, 300_000, 4),
-            new Quality("Medium (960 px, 6 pictures/s)", 960, 600_000, 6),
-            new Quality("High (1280 px, 10 pictures/s)", 1280, 1_200_000, 10),
-    };
+    static int fps(Context c) {
+        int f = Prefs.bufferFps(c);
+        return f > 0 ? f : LEGACY_FPS[Math.max(0, Math.min(2, Prefs.bufferQuality(c)))];
+    }
+
+    /** About 0.2 bits per pixel per picture suits screens (slides, text); clamped to what encoders accept. */
+    static int bitrate(int width, int height, int fps) {
+        return (int) Math.max(150_000, Math.min(8_000_000, width * (double) height * fps * 0.2));
+    }
+
+    static String widthLabel(int w) {
+        return w + " px wide";
+    }
+
+    static String fpsLabel(int f) {
+        return f == 1 ? "1 picture a second" : f + " pictures a second";
+    }
 
     static File root(Context c) {
         return new File(c.getCacheDir(), "buffer");
@@ -76,7 +84,9 @@ final class BufferRecorder {
     private final int slot;
     private final String name;
     private final Listener listener;
-    private final Quality quality;
+    private final int fps;
+    private final int bitrate;
+    private final boolean stopAtLimit;
     private final long maxMs;
     private final int width;
     private final int height;
@@ -86,7 +96,9 @@ final class BufferRecorder {
     private BufferStore.Run run;
     private volatile boolean running;
     private volatile boolean flushRequested;
+    private volatile boolean limitReached;
     private volatile String lastError = "";
+    private Transcriber transcriber;
     private Thread worker;
     private HandlerThread frameThread;
     private Handler frameHandler;
@@ -124,12 +136,13 @@ final class BufferRecorder {
         this.slot = slot;
         this.name = name;
         this.listener = listener;
-        int q = Math.max(0, Math.min(QUALITIES.length - 1, Prefs.bufferQuality(app)));
-        this.quality = QUALITIES[q];
+        this.fps = fps(app);
+        this.stopAtLimit = Prefs.bufferStopAtLimit(app);
         this.maxMs = Prefs.bufferMinutes(app) * 60_000L;
-        double scale = Math.min(1.0, quality.maxWidth / (double) Math.max(1, sourceWidth));
+        double scale = Math.min(1.0, width(app) / (double) Math.max(1, sourceWidth));
         this.width = round16(sourceWidth * scale);
         this.height = round16(sourceHeight * scale);
+        this.bitrate = bitrate(this.width, this.height, this.fps);
     }
 
     private static int round16(double v) {
@@ -168,8 +181,8 @@ final class BufferRecorder {
         try {
             MediaFormat vf = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height);
             vf.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
-            vf.setInteger(MediaFormat.KEY_BIT_RATE, quality.bitrate);
-            vf.setInteger(MediaFormat.KEY_FRAME_RATE, quality.fps);
+            vf.setInteger(MediaFormat.KEY_BIT_RATE, bitrate);
+            vf.setInteger(MediaFormat.KEY_FRAME_RATE, fps);
             vf.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2);
             venc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
             venc.configure(vf, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
@@ -205,6 +218,29 @@ final class BufferRecorder {
     void stop() {
         running = false;
         main.removeCallbacks(tick);
+        stopTranscribing();
+    }
+
+    // ---- captions ----
+
+    boolean isTranscribing() {
+        return transcriber != null && transcriber.isRunning();
+    }
+
+    /** Starts live captions into {@code transcript.vtt} in the run's folder. False (with a notice) when it cannot. */
+    boolean startTranscribing(String language, Transcriber.Listener l) {
+        if (!running || run == null) return false;
+        if (isTranscribing()) return true;
+        transcriber = new Transcriber(app, new File(run.dir, "transcript.vtt"), run.startedAt, language, l);
+        if (transcriber.start()) return true;
+        transcriber = null;
+        return false;
+    }
+
+    void stopTranscribing() {
+        Transcriber t = transcriber;
+        transcriber = null;
+        if (t != null) t.stop();
     }
 
     /** A bookmark at this moment. */
@@ -220,7 +256,10 @@ final class BufferRecorder {
 
     /** 16-bit mono PCM at 24 kHz from the page; called on the main thread. */
     void feedAudio(byte[] pcm) {
-        if (running && pcm.length > 0) audioQ.offer(pcm);
+        if (!running || pcm.length == 0) return;
+        audioQ.offer(pcm);
+        Transcriber t = transcriber;
+        if (t != null) t.feed(pcm);
     }
 
     // ---- pictures ------------------------------------------------------------------------------
@@ -230,15 +269,19 @@ final class BufferRecorder {
         public void run() {
             if (!running) return;
             grab();
-            main.postDelayed(this, 1000L / quality.fps);
+            main.postDelayed(this, 1000L / fps);
         }
     };
 
     private void grab() {
+        if (copying) return;
         Window w = window;
         View v = view;
-        if (w == null || v == null || !v.isShown() || v.getWidth() < 8 || v.getHeight() < 8 || copying) {
-            if (!copying) frameHandler.post(() -> draw(lastGood));
+        boolean sized = v != null && v.getWidth() >= 8 && v.getHeight() >= 8;
+        if (w == null || !sized || !v.isShown()) {
+            // No screen shows the page (a workflow started it, the app is in the background): draw the view itself.
+            if (sized) softFrame(v);
+            else frameHandler.post(() -> draw(lastGood));
             return;
         }
         int[] at = new int[2];
@@ -246,17 +289,10 @@ final class BufferRecorder {
         Rect src = new Rect(at[0], at[1], at[0] + v.getWidth(), at[1] + v.getHeight());
         View decor = w.getDecorView();
         if (!src.intersect(0, 0, decor.getWidth(), decor.getHeight()) || src.width() < 8 || src.height() < 8) {
-            frameHandler.post(() -> draw(lastGood));
+            softFrame(v);
             return;
         }
-        double scale = Math.min(1.0, width / (double) src.width());
-        int bw = Math.max(16, (int) Math.round(src.width() * scale));
-        int bh = Math.max(16, (int) Math.round(src.height() * scale));
-        Bitmap target = bitmaps[nextBitmap];
-        if (target == null || target.getWidth() != bw || target.getHeight() != bh) {
-            target = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
-            bitmaps[nextBitmap] = target;
-        }
+        Bitmap target = bitmapFor(src.width(), src.height());
         final Bitmap copy = target;
         final int used = nextBitmap;
         copying = true;
@@ -272,10 +308,46 @@ final class BufferRecorder {
                 main.post(() -> copying = false);
             }, frameHandler);
         } catch (IllegalArgumentException e) {
-            // No surface behind the window right now (screen off, window going away): repeat the last picture.
+            // No surface behind the window right now (screen off, window going away): draw the view itself.
             copying = false;
-            frameHandler.post(() -> draw(lastGood));
+            softFrame(v);
         }
+    }
+
+    /** The bitmap the next picture goes into, sized to the encoder's width (never larger than the source). */
+    private Bitmap bitmapFor(int srcW, int srcH) {
+        double scale = Math.min(1.0, width / (double) srcW);
+        int bw = Math.max(16, (int) Math.round(srcW * scale));
+        int bh = Math.max(16, (int) Math.round(srcH * scale));
+        Bitmap target = bitmaps[nextBitmap];
+        if (target == null || target.getWidth() != bw || target.getHeight() != bh) {
+            target = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
+            bitmaps[nextBitmap] = target;
+        }
+        return target;
+    }
+
+    /**
+     * A picture made by drawing the view onto a bitmap, for when no window can be copied. It cannot show video
+     * the browser puts on its own layer (that part stays black), but slides, pages and the call's controls come out.
+     */
+    private void softFrame(View v) {
+        Bitmap target = bitmapFor(v.getWidth(), v.getHeight());
+        try {
+            Canvas c = new Canvas(target);
+            c.drawColor(Color.BLACK);
+            c.scale(target.getWidth() / (float) v.getWidth(), target.getHeight() / (float) v.getHeight());
+            v.draw(c);
+        } catch (RuntimeException e) {
+            frameHandler.post(() -> draw(lastGood));
+            return;
+        }
+        final Bitmap done = target;
+        nextBitmap ^= 1;
+        frameHandler.post(() -> {
+            lastGood = done;
+            draw(done);
+        });
     }
 
     /** Draws a picture (or black) onto the encoder's input, fitted into its fixed size. Frame thread only. */
@@ -330,6 +402,13 @@ final class BufferRecorder {
             listener.onError("Recording stopped: " + lastError);
         } finally {
             finishSegment();
+            if (limitReached) {
+                main.post(() -> {
+                    main.removeCallbacks(tick);
+                    stopTranscribing();
+                    listener.onError("The recording reached its " + (maxMs / 60_000) + " minute limit and stopped.");
+                });
+            }
             frameThread.quitSafely();
             try {
                 frameThread.join(1000);
@@ -477,9 +556,16 @@ final class BufferRecorder {
         } catch (RuntimeException ignored) {
             // Already released.
         }
-        long durMs = Math.max(1, (lastVideoUs - segBaseUs) / 1000 + 1000L / quality.fps);
+        long durMs = Math.max(1, (lastVideoUs - segBaseUs) / 1000 + 1000L / fps);
         if (ok && BufferStore.finishSegment(segFile, run, segWallMs, durMs) != null) {
-            BufferStore.trim(run, maxMs);
+            if (stopAtLimit) {
+                if (running && BufferStore.totalMs(BufferStore.segments(run)) >= maxMs) {
+                    running = false;
+                    limitReached = true;
+                }
+            } else {
+                BufferStore.trim(run, maxMs);
+            }
         } else {
             segFile.delete();
         }

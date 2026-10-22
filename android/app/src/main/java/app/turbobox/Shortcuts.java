@@ -14,6 +14,23 @@ final class Shortcuts {
     private Shortcuts() {
     }
 
+    /** The page's own icon when it has one, else the app's. */
+    private static Icon iconFor(Context c, Pin pin) {
+        android.graphics.Bitmap b = Favicons.load(c, pin.id);
+        if (b == null) return Icon.createWithResource(c, R.mipmap.ic_launcher);
+        // Adaptive icons crop to the middle 2/3: put the page's icon on a light square with room around it.
+        int size = 216;
+        android.graphics.Bitmap out = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas canvas = new android.graphics.Canvas(out);
+        canvas.drawColor(0xFFF2F2F5);
+        int inner = Math.round(size * 0.5f);
+        float k = Math.min(inner / (float) b.getWidth(), inner / (float) b.getHeight());
+        float w = b.getWidth() * k, h = b.getHeight() * k;
+        canvas.drawBitmap(b, null, new android.graphics.RectF((size - w) / 2f, (size - h) / 2f, (size + w) / 2f, (size + h) / 2f),
+                new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG));
+        return Icon.createWithAdaptiveBitmap(out);
+    }
+
     private static ShortcutInfo build(Context c, Pin pin) {
         Intent open = new Intent(c, SessionActivity.class)
                 .setAction(SessionActivity.ACTION_OPEN_PIN)
@@ -21,7 +38,7 @@ final class Shortcuts {
         return new ShortcutInfo.Builder(c, "pin-" + pin.id)
                 .setShortLabel(pin.name)
                 .setLongLabel(pin.name + " (" + pin.host() + ")")
-                .setIcon(Icon.createWithResource(c, R.mipmap.ic_launcher))
+                .setIcon(iconFor(c, pin))
                 .setIntent(open)
                 .build();
     }
