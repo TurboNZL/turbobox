@@ -489,7 +489,8 @@
   // What the page makes audible: an element it muted or turned to volume 0 (Twitch keeps an ad's element silent while the
   // stream plays, and captureStream / a media source node ignore that) is not part of what the listener hears.
   function elAudible(el) {
-    var muted = el.__tbWant !== undefined ? el.__tbWant : mutedDesc.get.call(el);
+    // what the page set: our own copy while local mute holds the real property at true, the real property otherwise
+    var muted = cfg.localMute && el.__tbWant !== undefined ? el.__tbWant : mutedDesc.get.call(el);
     return !muted && el.volume > 0;
   }
   // el: the element a track came from (null for a call's track)
@@ -512,11 +513,6 @@
     rt.forEach(function (t) { if (!tapKnown(t)) tapAdd(t); });
     var els = Array.prototype.slice.call(document.querySelectorAll('audio,video'));
     (media || []).forEach(function (el) { if (els.indexOf(el) < 0) els.push(el); });  // also ones never added to the page
-    // B is for pages with no audible element or call at all; one that has them is heard through A, even when A is quiet
-    // for a moment (Twitch plays an ad through Web Audio while the stream element is what the listener hears).
-    tap.hasA = rt.some(function (t) { return t.readyState === 'live'; }) || els.some(function (el) {
-      return !el.paused && !el.ended && el.readyState >= 2 && elAudible(el);
-    });
     els.forEach(function (el) {
       if (el.__tbSrc) { // routed through Web Audio by local mute: tapped from its source node, not from the element
         if (el.__tbTapSp !== tap.sp) {
@@ -552,12 +548,12 @@
   //  A  tracks and media elements (above): exact, but blind to sound a page makes with its own Web Audio graph (a call
   //     app that plays the other side through Web Audio, a player that routes its video through a processor).
   //  B  the page's own audio contexts, tapped just before their output (and before local mute).
-  // A is used while it has sound; B only when the page has no audible element or call track and A has been silent for a few seconds.
+  // A is used while it has sound; when A has been silent for a few seconds and B has sound, B is used.
   var liveCtxs = [], loud = { A: 0, B: 0 };
   function deliver(which, i16, rms) {
     var now = Date.now();
     if (rms > 0.003) loud[which] = now;
-    var useB = !tap.hasA && now - loud.A > 3000 && now - loud.B < 3000;
+    var useB = now - loud.A > 3000 && now - loud.B < 3000;
     if ((which === 'B') !== useB) return;
     tap.pend.push(i16); tap.pendLen += i16.length;
     tapFlush(false);
@@ -946,13 +942,33 @@
     if ('localMute' in o) T.setLocalMute(o.localMute);
     if ('tap' in o) T.setTap(o.tap);
   };
+  // For "Page info": who is making sound on this page and which tap hears it (found by looking, not guessing)
+  function audioReport() {
+    var els = Array.prototype.slice.call(document.querySelectorAll('audio,video'));
+    (media || []).forEach(function (el) { if (els.indexOf(el) < 0) els.push(el); });
+    var now = Date.now(), lines = [];
+    els.slice(0, 6).forEach(function (el, i) {
+      var cap = null;
+      try { cap = el.__tbCap ? el.__tbCap.getAudioTracks().map(function (t) { return t.readyState; }).join('/') || 'none' : '-'; } catch (e) { cap = 'err'; }
+      var src = el.srcObject ? 'stream' : /^blob:/.test(el.currentSrc || '') ? 'blob' : (el.currentSrc || el.src) ? 'url' : 'none';
+      lines.push('  ' + el.tagName.toLowerCase() + ' ' + i + ': ' + (el.paused ? 'paused' : 'playing') + ', ' + (mutedDesc.get.call(el) ? 'muted' : 'unmuted')
+        + ', volume ' + Math.round(el.volume * 100) + ', ' + src + ', ready ' + el.readyState
+        + ', routed ' + (el.__tbSrc ? 'by us' : el.__tbPageRouted ? 'by page' : 'no') + ', captured tracks ' + cap
+        + ', counted ' + (elAudible(el) ? 'yes' : 'no'));
+    });
+    if (els.length > 6) lines.push('  ... ' + (els.length - 6) + ' more');
+    return (tap.on ? 'recording tap on' : 'recording tap off') + ', page audio contexts ' + liveCtxs.length
+      + '\n  heard by elements/calls ' + (loud.A ? Math.round((now - loud.A) / 1000) + ' s ago' : 'never')
+      + ', by page audio ' + (loud.B ? Math.round((now - loud.B) / 1000) + ' s ago' : 'never')
+      + ', call tracks ' + remoteTracks().length + '\n' + (lines.join('\n') || '  no media elements');
+  }
   T.info = function () {
     var vp = document.querySelector('meta[name=viewport]');
     var uad = navigator.userAgentData;
     post('info', {
       ua: navigator.userAgent, platform: navigator.platform, width: window.innerWidth, dpr: window.devicePixelRatio,
       viewport: vp ? vp.content : null, uaMobile: uad ? uad.mobile : null, host: location.host,
-      mediaDevices: !!md, calls: livePcs().length
+      mediaDevices: !!md, calls: livePcs().length, audio: audioReport()
     });
   };
   T.state = function () {
