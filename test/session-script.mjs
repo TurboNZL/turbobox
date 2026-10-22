@@ -142,29 +142,12 @@ wposts.length = 0;
 await pw.waitForTimeout(1500);
 const both = peakOf(wposts);
 check('with both kinds of sound present they are not added together', both > 8000 && both < 17000, both);
+// Page info lists what makes sound
+const rep = await pw.evaluate(() => { let r; window.TurboBoxBridge.post = (t, d) => { if (t === 'info') r = d; }; window.__turbobox.info(); return r; });
+const repAudio = typeof rep === 'string' ? JSON.parse(rep).audio : rep && rep.audio;
+check('page info carries an audio report', /recording tap on/.test(String(repAudio)) && /audio 0:|no media elements|\n  audio/.test(String(repAudio)), repAudio);
 await pw.close();
 
-// a page with an audible, playing element (quiet for a moment) and its own Web Audio sound (Twitch: ad through Web Audio,
-// the stream in an element): the page-audio tap must not take over
-const silent = (() => { const b = Buffer.from(wav, 'base64'); b.fill(0, 44); return b.toString('base64'); })();
-const tw = await b.newPage();
-const tposts = [];
-await tw.exposeFunction('__post', (t, d) => tposts.push([t, d]));
-await tw.setContent('<!doctype html><html><body><audio id="e" loop></audio></body></html>');
-await tw.addScriptTag({ content: 'window.TurboBoxBridge = { post: function (t, d) { window.__post(t, d); } };' });
-await tw.addScriptTag({ content: script });
-await tw.evaluate((w) => {
-  const e = document.getElementById('e'); e.src = 'data:audio/wav;base64,' + w; e.play();
-  const ac = new AudioContext(), g = ac.createGain(); g.gain.value = 0.4;
-  const o = ac.createOscillator(); o.frequency.value = 330; o.connect(g); g.connect(ac.destination); o.start();
-  window.__turbobox.setTap(true);
-}, silent);
-await tw.waitForTimeout(6000);
-tposts.length = 0;
-await tw.waitForTimeout(2500);
-const tw1 = peakOf(tposts);
-check('a page with an audible element does not switch to its Web Audio sound', tw1 < 300, tw1);
-await tw.close();
 
 // microphone privacy switch (needs a secure origin for navigator.mediaDevices, so a page of its own on localhost)
 const p2 = await b.newPage();

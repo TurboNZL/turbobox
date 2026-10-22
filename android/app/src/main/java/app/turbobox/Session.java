@@ -840,7 +840,8 @@ final class Session {
                             + "\nclient hint mobile: " + o.optString("uaMobile")
                             + "\npage: " + o.optString("host")
                             + "\nmic API: " + o.optString("mediaDevices")
-                            + "\ncalls open: " + o.optInt("calls");
+                            + "\ncalls open: " + o.optInt("calls")
+                            + "\naudio: " + o.optString("audio");
                     for (Listener l : listeners) l.onInfo(this, text);
                     break;
                 }
