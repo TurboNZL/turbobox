@@ -88,6 +88,7 @@ final class Session {
     private Pin pin;
     private boolean active;
     private String startHost = "";
+    private final java.util.Set<String> allowedRoots = new java.util.HashSet<>();   // sites that may be given the microphone and camera
     private boolean muted;
     private float volume = 1f;        // 0..2, applied to the page's audio inside the page
     private String micKey = "";       // "" = the page's own capture; otherwise an input device, captured natively
@@ -306,6 +307,7 @@ final class Session {
             pin.allowCamera = allowed;
             PinStore.put(app, pin);
         }
+        js("__turbobox.configure({cameraAllowed:" + allowed + "})");
         notice(allowed ? "The page may ask for the camera." : "Camera blocked for this page. A call that already has it keeps it until the page reloads.");
     }
 
@@ -503,6 +505,8 @@ final class Session {
         }
         Uri uri = Uri.parse(page.url);
         startHost = uri.getHost() == null ? "" : uri.getHost();
+        allowedRoots.clear();
+        allowSite(page.url);
         active = true;
         hangupAt = 0;
         muted = false;
@@ -595,6 +599,11 @@ final class Session {
         int h = webView == null || webView.getHeight() < 16 ? 1280 : webView.getHeight();
         BufferRecorder r = new BufferRecorder(app, slot, title(), w, h, new BufferRecorder.Listener() {
             @Override
+            public void onNotice(String message) {
+                main.post(() -> notice(message));
+            }
+
+            @Override
             public void onError(String message) {
                 main.post(() -> {
                     js("__turbobox.setTap(false)");
@@ -681,7 +690,7 @@ final class Session {
         wv.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
             int w = r - l;
             if (w > 0 && w != or - ol) {
-                viewCssWidth = Math.round(w / app.getResources().getDisplayMetrics().density);
+                viewCssWidth = Math.round(w / v.getResources().getDisplayMetrics().density);
                 js("__turbobox.setViewWidth(" + viewCssWidth + ")");
             }
         });
@@ -694,6 +703,7 @@ final class Session {
         wv.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                allowSite(url);
                 pageLoaded = false;
                 muteMisses = 0;
                 muteWarned = false;
@@ -758,7 +768,7 @@ final class Session {
             JSONObject settings = new JSONObject()
                     .put("muted", silenced()).put("volume", volume).put("aec", aec).put("zoom", zoom)
                     .put("micGain", micGain).put("virtual", !micKey.isEmpty()).put("micLabel", micLabel())
-                    .put("tap", isRecording()).put("micAllowed", micAllowed).put("localMute", frozen);
+                    .put("tap", isRecording()).put("micAllowed", micAllowed).put("cameraAllowed", cameraAllowed).put("localMute", frozen);
             if (viewCssWidth > 0) settings.put("viewWidth", viewCssWidth);
             return sessionScript() + "\nwindow.__turbobox.configure(" + settings + ");"
                     + (callMeter ? "\nwindow.__turbobox.setMeter(true);" : "");
@@ -819,18 +829,32 @@ final class Session {
         }
     }
 
+    /**
+     * May this origin have the microphone or camera? The pinned page's own site and its subdomains, and any site the page
+     * itself has navigated to (call apps redirect, e.g. to another domain of the same company, and then ask from there).
+     */
     private boolean hostAllowed(Uri origin) {
         String host = origin == null ? null : origin.getHost();
-        if (host == null || startHost.isEmpty()) return false;
-        String root = rootDomain(startHost);
-        return host.equals(root) || host.endsWith("." + root);
+        if (host == null || allowedRoots.isEmpty()) return false;
+        String root = rootDomain(host);
+        return allowedRoots.contains(root);
     }
 
-    /** The last two labels of a host name ("a.b.example.com" -> "example.com"). */
-    private static String rootDomain(String host) {
+    private void allowSite(String url) {
+        String host = url == null ? null : Uri.parse(url).getHost();
+        if (host != null && !host.isEmpty()) allowedRoots.add(rootDomain(host));
+    }
+
+    /** "a.b.example.com" -> "example.com"; "a.example.co.nz" -> "example.co.nz". */
+    static String rootDomain(String host) {
         String[] parts = host.split("\\.");
         if (parts.length <= 2) return host;
-        return parts[parts.length - 2] + "." + parts[parts.length - 1];
+        String last = parts[parts.length - 1], second = parts[parts.length - 2];
+        int keep = last.length() == 2 && second.matches("co|com|org|net|gov|ac|edu|ne|or|go") ? 3 : 2;
+        keep = Math.min(keep, parts.length);
+        StringBuilder sb = new StringBuilder();
+        for (int i = parts.length - keep; i < parts.length; i++) sb.append(sb.length() == 0 ? "" : ".").append(parts[i]);
+        return sb.toString();
     }
 
     private static String desktopUserAgent(String mobile) {

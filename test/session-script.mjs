@@ -84,7 +84,7 @@ check('audio tap carries the actual sound (peak well above silence)', peak > 300
 posts.length = 0;
 await page.evaluate(() => { const a = document.getElementById('a'); a.muted = false; a.play(); window.__turbobox.setLocalMute(true); window.__turbobox.setTap(true); });
 await page.waitForTimeout(2500);
-const mutedNow = await page.evaluate(() => document.getElementById('a').muted);
+const mutedNow = await page.evaluate(() => window.__turbobox.realMuted(document.getElementById('a')));
 const audio2 = posts.filter(p => p[0] === 'audio');
 let peak2 = 0;
 for (const [, d] of audio2) { const buf = Buffer.from(d, 'base64'); for (let i = 0; i + 1 < buf.length; i += 2) peak2 = Math.max(peak2, Math.abs(buf.readInt16LE(i))); }
@@ -106,6 +106,42 @@ check('a blocked microphone is refused like a browser "Block"', denied === 'NotA
 await p2.evaluate(() => window.__turbobox.configure({ micAllowed: true }));
 const allowed = await p2.evaluate(async () => { try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach(t => t.stop()); return 'allowed'; } catch (e) { return e.name; } });
 check('an allowed microphone is handed over', allowed === 'allowed', allowed);
+
+// local mute holds against a page that un-mutes itself, covers Web Audio, detached elements and frames
+await page.evaluate(() => {
+  window.__ac = new AudioContext(); window.__osc = window.__ac.createOscillator(); window.__osc.connect(window.__ac.destination); window.__osc.start();
+  window.__na = new Audio('data:audio/wav;base64,' + document.getElementById('a').src.split(',')[1]); window.__na.loop = true; window.__na.play();
+  window.__turbobox.setLocalMute(true);
+});
+await page.waitForTimeout(300);
+await page.evaluate(() => { document.getElementById('a').muted = false; window.__na.muted = false; });
+await page.waitForTimeout(100);
+const lm = await page.evaluate(() => ({
+  master: window.__turbobox.state().masters,
+  real: [document.getElementById('a'), window.__na].map(e => window.__turbobox.realMuted(e)),
+  seen: [document.getElementById('a'), window.__na].map(e => e.muted),
+}));
+check('Web Audio goes through a master gain that local mute closes', lm.master.length > 0 && lm.master.every(g => g === 0), lm.master);
+check('a page that un-mutes itself (page element and new Audio()) cannot get through', lm.real.every(Boolean), lm.real);
+check('the page still reads back what it set', lm.seen.every(v => v === false), lm.seen);
+await page.evaluate(() => window.__turbobox.setLocalMute(false));
+const lm2 = await page.evaluate(() => ({ master: window.__turbobox.state().masters, real: [document.getElementById('a'), window.__na].map(e => window.__turbobox.realMuted(e)) }));
+check('letting go restores the page\'s own settings', lm2.master.every(g => g === 1) && lm2.real.every(v => v === false), lm2);
+await page.evaluate(() => { window.__osc.stop(); window.__na.pause(); });
+
+// permission signalling follows the privacy switches
+await p2.evaluate(() => { window.__perm = []; });
+const st = await p2.evaluate(async () => {
+  const s = await navigator.permissions.query({ name: 'microphone' });
+  window.__st = s; s.onchange = () => window.__perm.push(s.state);
+  const before = s.state;
+  window.__turbobox.configure({ micAllowed: false });
+  window.__turbobox.configure({ micAllowed: true });
+  return { before, now: s.state, events: window.__perm.slice() };
+});
+check('the Permissions API reports the switch and fires change events', st.before === 'granted' && st.now === 'granted' && st.events.join() === 'denied,granted', st);
+const cam = await p2.evaluate(async () => { try { await navigator.mediaDevices.getUserMedia({ video: true }); return 'allowed'; } catch (e) { return e.name; } });
+check('the camera is refused until it is allowed', cam === 'NotAllowedError', cam);
 
 // a small window: the layout scale follows the area the page has, not the screen
 await page.evaluate(() => window.__turbobox.setViewWidth(400));

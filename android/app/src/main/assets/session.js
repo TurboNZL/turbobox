@@ -18,7 +18,7 @@
   if (window.__turbobox) return;
   var T = window.__turbobox = {};
   var WIDTH = 1280;
-  var cfg = { muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, localMute: false };
+  var cfg = { muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, cameraAllowed: false, localMute: false };
   var tracks = [], pcs = [];
 
   function post(type, data) {
@@ -277,6 +277,7 @@
       var stream;
       // Microphone privacy switch: refuse the way a browser does when you press "Block".
       if (c && c.audio && !cfg.micAllowed) throw new DOMException('Permission denied by TurboBox (microphone blocked for this page)', 'NotAllowedError');
+      if (c && c.video && !cfg.cameraAllowed) throw new DOMException('Permission denied by TurboBox (camera blocked for this page)', 'NotAllowedError');
       if (c && c.audio && vm.on) {
         stream = vmStream();
         if (c.video) {
@@ -703,27 +704,113 @@
   };
 
   // ---- local mute: stepping away -----------------------------------------------------------------------
-  // The phone stops playing the page while the recording (the audio tap above) goes on: every media element is
-  // muted here, new ones as they appear, and put back as they were when it ends. The tap reads the tracks and the
-  // elements' captured streams, not the speaker, so what is recorded does not change.
-  var lmTimer = 0;
-  function localMuteSweep() {
-    document.querySelectorAll('audio,video').forEach(function (el) {
-      if (cfg.localMute) {
-        if (!el.__tbLM) { el.__tbLM = true; el.__tbLMWas = el.muted; }
-        el.muted = true;
-      } else if (el.__tbLM) {
-        el.muted = !!el.__tbLMWas;
-        el.__tbLM = false;
-      }
+  // The phone stops playing the page while the recording (the audio tap above) goes on. Three ways sound leaves a
+  // page, all closed here, and none of them is what the tap reads (it reads tracks and captured streams):
+  //  1. media elements, in the page, in shadow roots, in same-origin frames, and ones that were never added to the page
+  //     (new Audio()). Their `muted` is a lock like the call mute: the page may read and write it, the real value is
+  //     "what the page set OR local mute", so a page that un-mutes itself (call apps do) cannot get through.
+  //  2. Web Audio: every connection to a context's destination goes through one master gain, which local mute sets to 0.
+  //  3. other frames (a call can live in an iframe): the state is passed to them with postMessage.
+  var mutedDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'muted');
+  var media = [];
+  function noteMedia(el) {
+    if (media.indexOf(el) < 0) {
+      media.push(el);
+      if (media.length > 300) media = media.filter(function (e) { return e.isConnected || !e.paused; });
+    }
+    if (el.__tbWant === undefined) el.__tbWant = mutedDesc.get.call(el);
+  }
+  if (mutedDesc && mutedDesc.set) {
+    Object.defineProperty(HTMLMediaElement.prototype, 'muted', {
+      configurable: true,
+      get: function () { return this.__tbWant === undefined ? mutedDesc.get.call(this) : this.__tbWant; },
+      set: function (v) { noteMedia(this); this.__tbWant = !!v; mutedDesc.set.call(this, cfg.localMute ? true : !!v); }
     });
+    hook(HTMLMediaElement.prototype, 'play', function () { noteMedia(this); if (cfg.localMute) mutedDesc.set.call(this, true); });
+  }
+  var masters = [], origConnect = AudioNode.prototype.connect, origDisconnect = AudioNode.prototype.disconnect;
+  var LiveContext = window.AudioContext || window.webkitAudioContext;
+  function isLiveDestination(d) { return window.AudioDestinationNode && d instanceof AudioDestinationNode && LiveContext && d.context instanceof LiveContext; }
+  function masterFor(ctx) {
+    if (!ctx.__tbMaster) {
+      var g = ctx.createGain();
+      g.gain.value = cfg.localMute ? 0 : 1;
+      origConnect.call(g, ctx.destination);
+      ctx.__tbMaster = g;
+      masters.push(g);
+    }
+    return ctx.__tbMaster;
+  }
+  AudioNode.prototype.connect = function (dest) {
+    if (!isLiveDestination(dest)) return origConnect.apply(this, arguments);
+    origConnect.apply(this, [masterFor(dest.context)].concat(Array.prototype.slice.call(arguments, 1)));
+    return dest;
+  };
+  AudioNode.prototype.disconnect = function (dest) {
+    if (!isLiveDestination(dest)) return origDisconnect.apply(this, arguments);
+    return origDisconnect.apply(this, [masterFor(dest.context)].concat(Array.prototype.slice.call(arguments, 1)));
+  };
+  function localMuteSweep() {
+    var all = media.slice();
+    docsOf(document, []).forEach(function (d) {
+      deepQuery(d, 'audio,video', []).forEach(function (el) { if (all.indexOf(el) < 0) all.push(el); });
+    });
+    all.forEach(function (el) {
+      noteMedia(el);
+      mutedDesc.set.call(el, cfg.localMute ? true : !!el.__tbWant);
+    });
+    masters.forEach(function (g) { g.gain.value = cfg.localMute ? 0 : 1; });
+  }
+  var lmTimer = 0;
+  function relayToFrames(msg) {
+    for (var i = 0; i < window.frames.length; i++) { try { window.frames[i].postMessage(msg, '*'); } catch (e) { /* gone */ } }
   }
   T.setLocalMute = function (on) {
     cfg.localMute = !!on;
     localMuteSweep();
     clearInterval(lmTimer);
     if (cfg.localMute) lmTimer = setInterval(localMuteSweep, 500);
+    relayToFrames({ __tb: 'localMute', on: cfg.localMute });
   };
+  // Frames: take the state from the parent, and ask for it when they appear.
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (!d || typeof d !== 'object' || !d.__tb) return;
+    if (e.source === window.parent && d.__tb === 'localMute') T.setLocalMute(d.on);
+    else if (e.source === window.parent && d.__tb === 'cfg') T.configure(d.cfg);
+    else if (d.__tb === 'hello' && e.source) {
+      try { e.source.postMessage({ __tb: 'localMute', on: cfg.localMute }, '*'); e.source.postMessage({ __tb: 'cfg', cfg: { muted: cfg.muted, micAllowed: cfg.micAllowed, cameraAllowed: cfg.cameraAllowed } }, '*'); } catch (x) { /* gone */ }
+    }
+  });
+  if (window.parent !== window) { try { window.parent.postMessage({ __tb: 'hello' }, '*'); } catch (e) { /* no parent */ } }
+
+  // ---- permission signalling ----------------------------------------------------------------------------
+  // Call apps read the Permissions API and wait for it to change; after a refusal they usually keep a "blocked" state
+  // until it says otherwise. So the microphone and camera report what the privacy switches say, and a change fires.
+  var permStatuses = [];
+  function permState(name) { return (name === 'microphone' ? cfg.micAllowed : cfg.cameraAllowed) ? 'granted' : 'denied'; }
+  if (navigator.permissions && navigator.permissions.query) {
+    var origQuery = navigator.permissions.query.bind(navigator.permissions);
+    navigator.permissions.query = function (desc) {
+      var n = desc && desc.name;
+      if (n !== 'microphone' && n !== 'camera') return origQuery(desc);
+      var st = new EventTarget();
+      st.name = n; st.state = permState(n); st.onchange = null;
+      permStatuses.push(st);
+      return Promise.resolve(st);
+    };
+  }
+  function permissionsChanged() {
+    permStatuses.forEach(function (st) {
+      var now = permState(st.name);
+      if (now === st.state) return;
+      st.state = now;
+      var ev = new Event('change');
+      try { if (typeof st.onchange === 'function') st.onchange(ev); } catch (e) { /* the page's handler */ }
+      st.dispatchEvent(ev);
+    });
+  }
+  T.realMuted = function (el) { return mutedDesc.get.call(el); }; // for the tests
 
   // ---- misc ----------------------------------------------------------------------------------------
   T.configure = function (o) {
@@ -736,6 +823,9 @@
     if ('volume' in o) T.setVolume(o.volume);
     if ('muted' in o) T.setMute(o.muted);
     if ('micAllowed' in o) cfg.micAllowed = !!o.micAllowed;
+    if ('cameraAllowed' in o) cfg.cameraAllowed = !!o.cameraAllowed;
+    if ('micAllowed' in o || 'cameraAllowed' in o) { permissionsChanged(); relayToFrames({ __tb: 'cfg', cfg: { micAllowed: cfg.micAllowed, cameraAllowed: cfg.cameraAllowed } }); }
+    if ('muted' in o) relayToFrames({ __tb: 'cfg', cfg: { muted: !!o.muted } });
     if ('viewWidth' in o) T.setViewWidth(o.viewWidth);
     if ('localMute' in o) T.setLocalMute(o.localMute);
     if ('tap' in o) T.setTap(o.tap);
@@ -750,6 +840,6 @@
     });
   };
   T.state = function () {
-    return { volume: cfg.volume, muted: cfg.muted, aec: cfg.aec, zoom: cfg.zoom, micGain: cfg.micGain, virtual: vm.on, routed: routed.length, ctx: ctx ? ctx.state : null, tracks: tracks.length };
+    return { masters: masters.map(function (g) { return g.gain.value; }), volume: cfg.volume, muted: cfg.muted, aec: cfg.aec, zoom: cfg.zoom, micGain: cfg.micGain, virtual: vm.on, routed: routed.length, ctx: ctx ? ctx.state : null, tracks: tracks.length };
   };
 })();

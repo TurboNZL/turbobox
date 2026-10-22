@@ -27,7 +27,7 @@ The bar acts on the page that is in front:
 - **Close** ends the call on your end. **Mute** switches your outgoing audio off in a way the page cannot undo; it turns red while it is on.
 - **Timer** hangs up after a delay, or at a clock time (tonight's 03:30).
 - **Settings**: privacy switches for the microphone and camera, microphone, echo cancellation, microphone volume with a record-and-play-back test, page volume, brightness, page zoom, page info. The sheet keeps a free strip on its right edge: rest your finger there to scroll.
-- **Rec** starts or stops the recording buffer. **Step away** / **Back** are for lectures: see [RECORDING_BUFFER](RECORDING_BUFFER.md).
+- **Rec** starts or stops the recording buffer. **CC** turns live captions on (and starts the recording they are saved with). **Step away** / **Back** are for lectures: see [RECORDING_BUFFER](RECORDING_BUFFER.md).
 - **Mini** shrinks the page into a small floating window (it also happens by itself when you press Home on Android 12 or newer). The page is laid out to fit the window, including when you rotate the phone. A visible window makes Android much less likely to unload the app.
 
 Leaving the screen never pauses a page. The notification says what is running and has **Mute** and **Close all**; tap it to come back.

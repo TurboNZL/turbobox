@@ -27,7 +27,8 @@ This app is pinned to TurboNZL/turboengine (see `.turboengine.json`; `docs/devel
 | Themes / appearance | Off. The engine's turbothemes themes web pages; this app has none. Own dark UI in `Ui.java`. The engine still has a `themes/turbobox` palette pair for a future web surface. |
 | Step away | Freezes the live page on this phone (last picture in a PopupWindow, page audio muted locally) while recording continues; stays frozen behind the replay until you come back. |
 | Captions | Speech to text through Android's `SpeechRecognizer` (13+) fed from the recorder's PCM, saved as `transcript.vtt` in the run. Started by a one-time Settings switch, the Rec menu, or the workflow step `transcribe on`. |
-| Privacy | Per-pin microphone and camera switches (camera off by default). |
+| Privacy | Per-pin microphone and camera switches (camera off by default). The page is told on change (fake PermissionStatus); sheet has Reload. |
+| Screen-off recording | Page hosted on a private VirtualDisplay (Presentation) read through an ImageReader whenever no window can be copied (screen off/locked/other app/workflow). Soft draw is only the fallback. |
 | No server | So no port, no `self-hosted-server`, no Cloudflare. |
 
 ## Repo layout
@@ -43,8 +44,8 @@ branding/, scripts/                        the logo (engine `logos` module); nev
 ```
 
 ## What exists and is tested
-- Verified here: JVM unit tests (`WorkflowParserTest`, `WorkflowSchedulerTest`, `BufferStoreTest`, `PinTest`, `ReleasesTest`, `VttTest`, `FaviconsTest`: 33 tests, run with javac + JUnit in the sandbox); `node test/session-script.mjs` (workflow steps across shadow roots and frames, audio tap delivering real PCM, in Chromium); every Java file compiles against the Android 14 framework jar (`org.robolectric:android-all` from Maven Central; androidx stubbed).
-- **Not verified, never run on a device:** the whole Gradle build (the sandbox cannot reach Google's Android SDK downloads; the first CI run is the first Gradle build), the screen recorder (`BufferRecorder`: `PixelCopy` into an encoder surface, rotation of segments, the audio/video clock), the player (`MissedActivity`), foreground-service rules on Android 12-15, alarms with the screen off, and the WebView behaviour of a page that no screen shows. Expect fixes after the first real run; keep this list honest. Also unproven: the freeze cover staying out of the recording, the soft-draw recording of a detached WebView, live captions.
+- Verified here: JVM unit tests (`WorkflowParserTest`, `WorkflowSchedulerTest`, `BufferStoreTest`, `PinTest`, `ReleasesTest`, `VttTest`, `FaviconsTest`: 34 tests, run with javac + JUnit in the sandbox); `node test/session-script.mjs` (workflow steps across shadow roots and frames, audio tap delivering real PCM, in Chromium); every Java file compiles against the Android 14 framework jar (`org.robolectric:android-all` from Maven Central; androidx stubbed).
+- **Not verified, never run on a device:** the whole Gradle build (the sandbox cannot reach Google's Android SDK downloads; the first CI run is the first Gradle build), the screen recorder (`BufferRecorder`: `PixelCopy` into an encoder surface, rotation of segments, the audio/video clock), the player (`MissedActivity`), foreground-service rules on Android 12-15, alarms with the screen off, and the WebView behaviour of a page that no screen shows. Expect fixes after the first real run; keep this list honest. Also unproven: the offscreen VirtualDisplay/Presentation path on real phones, the freeze cover staying out of the recording, the soft-draw recording of a detached WebView, live captions.
 
 ## Hard-won gotchas
 (Carried from Tether's web session; each was a real bug there.)
@@ -63,3 +64,4 @@ New in TurboBox:
 ## Session log
 - 2026-10-22: created from Tether's web session (`TurboNZL/tether` 40b287e), on the engine, in one session (see the decisions above). Nothing built by Gradle yet.
 - 2026-10-22 (after the first release, PR #1 merged): owner feedback applied: AM/PM follows the phone's clock setting; settings sheet has a free right strip for scrolling; per-page microphone/camera privacy switches; recording limit (rolling or stop) up to 12 h; Step away freezes and silences the live page; workflow recordings no longer black (soft draw, and Run now shows the page); Mini view lays out to its real width; pin favicons; resolution and frame rate separate; live captions to WebVTT.
+- 2026-10-22 (PR #2 merged): owner reported: freeze did not silence audio (fixed: muted-lock on all media elements incl. detached ones, Web Audio master gain, frames via postMessage; Chromium-tested); captions hard to find (CC button, Captions viewer in Recordings); privacy toggles ignored by Teams/Snapchat (page now told via Permissions API, camera/mic gated in getUserMedia, permission site rule follows redirects, Reload button; cause not reproduced); recording with the screen off skipped (now an offscreen virtual display); "pictures per second" renamed fps.

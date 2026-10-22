@@ -51,6 +51,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     private TextView splitButton;
     private TextView muteButton;
     private TextView recButton;
+    private TextView ccButton;
     private TextView awayButton;
     private TextView countdown;
     private LevelMeterView strip;
@@ -141,7 +142,9 @@ public class SessionActivity extends Activity implements Session.Listener {
     @Override
     protected void onStart() {
         super.onStart();
+        // A page that was hosted off screen (recording with the screen off) comes back into its pane here.
         for (Session s : Sessions.active()) s.setFrameWindow(getWindow());
+        rebuild();
         Session f = front();
         if (f != null && !inPip) f.setCallMeter(true);
         updateControls();
@@ -150,6 +153,8 @@ public class SessionActivity extends Activity implements Session.Listener {
     @Override
     protected void onResume() {
         super.onResume();
+        // After the screen was off or locked a page recorded off screen is put back into its pane.
+        if (!Sessions.active().isEmpty()) rebuild();
         // Back from the replay of what was missed: the live page is shown and heard again.
         for (Session s : Sessions.active()) {
             if (s.catchingUp) {
@@ -316,6 +321,9 @@ public class SessionActivity extends Activity implements Session.Listener {
         recButton = Ui.pill(this, "Rec", 0);
         recButton.setOnClickListener(v -> recordingMenu());
         row2.addView(recButton, Ui.weight(this, gap));
+        ccButton = Ui.pill(this, "CC", 0);
+        ccButton.setOnClickListener(v -> toggleCaptions());
+        row2.addView(ccButton, Ui.weight(this, gap));
         TextView pip = Ui.pill(this, "Mini", 0);
         pip.setOnClickListener(v -> enterPip());
         if (canPip()) row2.addView(pip, Ui.weight(this, gap));
@@ -415,6 +423,8 @@ public class SessionActivity extends Activity implements Session.Listener {
         onTimer(f, f.getRemainingMs());
         recButton.setText(f.isRecording() ? (f.isTranscribing() ? "● Rec CC" : "● Rec") : "Rec");
         Ui.tint(this, recButton, f.isRecording() ? Ui.RED : 0);
+        ccButton.setText(f.isTranscribing() ? "CC on" : "CC");
+        Ui.tint(this, ccButton, f.isTranscribing() ? Ui.GREEN : 0);
         awayButton.setText(f.awayAtWall != 0 ? "Back - play what I missed" : "Step away");
     }
 
@@ -469,6 +479,26 @@ public class SessionActivity extends Activity implements Session.Listener {
             }
         }
         updateControls();
+    }
+
+    /** Live captions on or off for the page in front; turning them on starts the recording they are saved with. */
+    private void toggleCaptions() {
+        Session s = front();
+        if (s == null) return;
+        if (s.isTranscribing()) {
+            s.setTranscribing(false);
+            Toast.makeText(this, "Live captions off. What was captured is saved with the recording.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String why = Transcriber.unavailableReason(this);
+        if (why != null) {
+            Toast.makeText(this, why, Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (!s.isRecording()) s.startRecording();
+        if (!s.isRecording()) return;
+        s.setTranscribing(true);
+        Toast.makeText(this, "Live captions on. They are saved with the recording (Recordings > Captions).", Toast.LENGTH_LONG).show();
     }
 
     private void recordingMenu() {

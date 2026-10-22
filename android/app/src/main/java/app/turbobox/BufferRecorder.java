@@ -39,6 +39,10 @@ import java.util.concurrent.ArrayBlockingQueue;
 final class BufferRecorder {
     interface Listener {
         void onError(String message);
+
+        /** Something to tell the user that does not stop the recording (e.g. the screen-off picture is not available). */
+        default void onNotice(String message) {
+        }
     }
 
     /** Picture widths and frame rates the settings offer. They are chosen separately. */
@@ -67,7 +71,7 @@ final class BufferRecorder {
     }
 
     static String fpsLabel(int f) {
-        return f == 1 ? "1 picture a second" : f + " pictures a second";
+        return f + " fps";
     }
 
     static File root(Context c) {
@@ -99,6 +103,8 @@ final class BufferRecorder {
     private volatile boolean limitReached;
     private volatile String lastError = "";
     private Transcriber transcriber;
+    private OffscreenHost offscreen;       // the page rendering on a virtual display while no window shows it
+    private boolean offscreenFailed;
     private Thread worker;
     private HandlerThread frameThread;
     private Handler frameHandler;
@@ -219,6 +225,7 @@ final class BufferRecorder {
         running = false;
         main.removeCallbacks(tick);
         stopTranscribing();
+        leaveOffscreen();
     }
 
     // ---- captions ----
@@ -278,8 +285,22 @@ final class BufferRecorder {
         Window w = window;
         View v = view;
         boolean sized = v != null && v.getWidth() >= 8 && v.getHeight() >= 8;
-        if (w == null || !sized || !v.isShown()) {
-            // No screen shows the page (a workflow started it, the app is in the background): draw the view itself.
+        // A window can only be copied while the screen is on and unlocked and the app is in front.
+        boolean windowMode = w != null && sized && v.isShown() && screenShowsApp();
+        if (windowMode) {
+            if (offscreen != null) leaveOffscreen();   // a screen shows the page again: copy it from the window
+        } else {
+            // No window shows the page (screen off, another app in front, started by a workflow): host it on a virtual
+            // display of our own, which keeps rendering, and read the pictures from there.
+            if (v != null && offscreen == null && !offscreenFailed) enterOffscreen(v);
+            if (offscreen != null) {
+                final Bitmap f = offscreen.latest();
+                frameHandler.post(() -> {
+                    if (f != null) lastGood = f;
+                    draw(lastGood);
+                });
+                return;
+            }
             if (sized) softFrame(v);
             else frameHandler.post(() -> draw(lastGood));
             return;
@@ -312,6 +333,31 @@ final class BufferRecorder {
             copying = false;
             softFrame(v);
         }
+    }
+
+    private boolean screenShowsApp() {
+        android.os.PowerManager pm = app.getSystemService(android.os.PowerManager.class);
+        android.app.KeyguardManager km = app.getSystemService(android.app.KeyguardManager.class);
+        return (pm == null || pm.isInteractive()) && (km == null || !km.isKeyguardLocked());
+    }
+
+    private void enterOffscreen(View v) {
+        int srcW = Math.max(1, v.getWidth());
+        int dpi = Math.max(60, Math.round(v.getResources().getDisplayMetrics().densityDpi * (width / (float) srcW)));
+        OffscreenHost host = new OffscreenHost(app, "s" + slot, v, width, height, dpi);
+        if (host.start()) {
+            offscreen = host;
+        } else {
+            offscreenFailed = true;
+            listener.onNotice("The picture cannot be recorded with the screen off on this phone (" + host.error()
+                    + "). The sound still is; the picture is drawn from the page when it can be.");
+        }
+    }
+
+    private void leaveOffscreen() {
+        OffscreenHost h = offscreen;
+        offscreen = null;
+        if (h != null) h.stop();
     }
 
     /** The bitmap the next picture goes into, sized to the encoder's width (never larger than the source). */
@@ -402,6 +448,7 @@ final class BufferRecorder {
             listener.onError("Recording stopped: " + lastError);
         } finally {
             finishSegment();
+            main.post(this::leaveOffscreen);
             if (limitReached) {
                 main.post(() -> {
                     main.removeCallbacks(tick);
