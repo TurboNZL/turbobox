@@ -77,7 +77,9 @@ final class SessionSheet implements Session.Listener {
         LinearLayout col = new LinearLayout(act);
         col.setOrientation(LinearLayout.VERTICAL);
         int pad = Ui.dp(act, 20);
-        col.setPadding(pad, Ui.dp(act, 18), pad, Ui.dp(act, 22));
+        // A wide empty strip on the right: sliders take every drag that starts on them, so this is where a finger
+        // can rest to scroll the sheet.
+        col.setPadding(pad, Ui.dp(act, 18), Ui.dp(act, 64), Ui.dp(act, 28));
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(0xFF121217);
         float r = Ui.dpf(act, 24);
@@ -87,6 +89,28 @@ final class SessionSheet implements Session.Listener {
         scroll.addView(col, new ViewGroup.LayoutParams(-1, -2));
 
         col.addView(Ui.text(act, "Settings - " + session.title(), 20f, Ui.TEXT, "semibold"), Ui.lp(act, 0, 14));
+
+        // Privacy: what this page may use
+        col.addView(Ui.label(act, "Privacy - this page may use"));
+        Switch micSwitch = new Switch(act);
+        micSwitch.setText("Microphone");
+        micSwitch.setTextColor(Ui.TEXT);
+        micSwitch.setChecked(session.micAllowed());
+        micSwitch.setOnCheckedChangeListener((b, on) -> session.setMicAllowed(on));
+        col.addView(micSwitch, Ui.lp(act, 8, 4));
+        Switch camSwitch = new Switch(act);
+        camSwitch.setText("Camera");
+        camSwitch.setTextColor(Ui.TEXT);
+        camSwitch.setChecked(session.cameraAllowed());
+        camSwitch.setOnCheckedChangeListener((b, on) -> {
+            session.setCameraAllowed(on);
+            if (on && act.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                act.requestPermissions(new String[]{Manifest.permission.CAMERA}, 3);
+            }
+        });
+        col.addView(camSwitch, Ui.lp(act, 4, 4));
+        col.addView(Ui.hint(act, "Off means the page is refused, like pressing Block in a browser. Turning the microphone off also "
+                + "cuts a call that already has it. The camera is off until you allow it here and in Android."), Ui.lp(act, 2, 18));
 
         // Mic level test
         col.addView(Ui.label(act, "Microphone level"));

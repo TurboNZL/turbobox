@@ -94,7 +94,7 @@ public class WorkflowsActivity extends Activity {
         names.setOrientation(LinearLayout.VERTICAL);
         names.addView(Ui.text(this, w.name.isEmpty() ? "(no name)" : w.name, 17f, Ui.TEXT, "sans-serif-medium"));
         Pin pin = PinStore.find(this, w.pinId);
-        names.addView(Ui.text(this, (pin == null ? "No page chosen" : pin.name) + "  -  " + w.scheduleText(), 13f, Ui.DIM, "sans-serif"),
+        names.addView(Ui.text(this, (pin == null ? "No page chosen" : pin.name) + "  -  " + w.scheduleText(this), 13f, Ui.DIM, "sans-serif"),
                 Ui.lp(this, 3, 0));
         head.addView(names, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         if (w.timed) {

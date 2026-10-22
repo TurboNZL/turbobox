@@ -49,13 +49,14 @@ public class WorkflowParserTest {
                 + "volume 80%\n"
                 + "hangup 1h30m\n"
                 + "record start\n"
+                + "transcribe on\n"
                 + "mark Lecture starts\n"
                 + "waitfor Leave\n"
                 + "js document.title\n"
                 + "record stop\n"
                 + "close\n";
         List<WorkflowParser.Step> s = WorkflowParser.parse(src);
-        assertEquals(16, s.size());
+        assertEquals(17, s.size());
         assertEquals(WorkflowParser.Kind.OPEN, s.get(0).kind);
         assertEquals(5, s.get(1).seconds);
         assertTrue(s.get(2).optional);
@@ -70,16 +71,17 @@ public class WorkflowParserTest {
         assertEquals(300, s.get(6).number);
         assertEquals(80, s.get(8).number);
         assertEquals(5400, s.get(9).seconds);
-        assertEquals("Lecture starts", s.get(11).text);
-        assertEquals(60_000, s.get(12).withinMs);
-        assertEquals("document.title", s.get(13).text);
-        assertEquals(WorkflowParser.Kind.CLOSE, s.get(15).kind);
+        assertEquals(WorkflowParser.Kind.TRANSCRIBE_ON, s.get(11).kind);
+        assertEquals("Lecture starts", s.get(12).text);
+        assertEquals(60_000, s.get(13).withinMs);
+        assertEquals("document.title", s.get(14).text);
+        assertEquals(WorkflowParser.Kind.CLOSE, s.get(16).kind);
         assertEquals(5, s.get(3).line); // the source's line number, comments included
     }
 
     @Test
     public void errorsNameTheLine() {
-        String[] bad = {"dance", "wait soon", "click", "type css:#a", "scroll sideways", "volume 300", "record", "key", "js"};
+        String[] bad = {"dance", "wait soon", "click", "type css:#a", "scroll sideways", "volume 300", "record", "key", "js", "transcribe maybe"};
         for (String line : bad) {
             try {
                 WorkflowParser.parse("open\n" + line);

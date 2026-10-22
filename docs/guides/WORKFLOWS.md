@@ -20,6 +20,7 @@ One per line. Blank lines and lines starting with `#` are ignored.
 | `volume 80` | The page's volume, 0 to 200 (%). |
 | `hangup 1h30m` | Closes the page after that long (`hangup off` cancels). |
 | `record start` / `record stop` | The [recording buffer](RECORDING_BUFFER.md). |
+| `transcribe on` / `transcribe off` | Live captions saved as WebVTT with the recording ([RECORDING_BUFFER](RECORDING_BUFFER.md)). |
 | `mark Lecture starts` | A bookmark in the recording. |
 | `js document.title` | Runs a script on the page. |
 | `close` | Closes the page (hangs up). |
@@ -34,15 +35,15 @@ Start a line with `?` and it is optional: if it fails the workflow carries on (`
 Elements inside open shadow roots and same-origin frames are found too. A page from another origin inside a frame cannot be reached (browsers forbid it).
 
 ## When it runs
-- **Timed**: pick the time and the days. The phone does not have to be awake: Android wakes it at that time (allow **exact alarms** so it is on time, not minutes late), TurboBox opens the page and starts clicking. A notification says it is running.
-- **Run now** on the workflow's card, or **Save and run now** in the editor, shows the log live; use it to try a workflow before you trust it with an alarm.
+- **Timed**: pick the time (shown the way your phone shows time, with AM/PM unless it is set to 24 hours) and the days. The phone does not have to be awake: Android wakes it at that time (allow **exact alarms** so it is on time, not minutes late), TurboBox opens the page and starts clicking. A notification says it is running.
+- **Run now** on the workflow's card, or **Save and run now** in the editor, brings the page to the front and shows the log live (in the editor); use it to try a workflow before you trust it with an alarm. Because the page is on screen, a recording it starts gets the full picture.
 - If both slots are busy the workflow stops and says so. If its page is already open, it uses that one.
 - If a step fails (a button never appears, the page was closed) the workflow stops, a notification says which step and why, and the last run is shown on its card.
 
 ## With the screen off
 The page, the waiting and the clicking all continue with the screen off. Two things to know:
 1. **The microphone.** Android only lets an app use the microphone when it was in front, or has a foreground service that was started from the front. A workflow started by an alarm while the phone is locked is neither unless **Standby** is on (Settings; it keeps one small foreground service up). With Standby on, the call's microphone works; without it, the workflow still clicks and the page still plays, but your microphone may be silent.
-2. **The picture of the recording buffer** needs the screen on (see [RECORDING_BUFFER](RECORDING_BUFFER.md)); the sound is recorded either way.
+2. **The picture of the recording buffer.** With the screen off nothing can be copied from a window, so TurboBox draws the page onto the recording itself: slides, pages and call controls are recorded, but video the browser puts on its own layer may stay black and the picture can be stale. The sound is recorded either way (see [RECORDING_BUFFER](RECORDING_BUFFER.md)).
 
 ## Examples
 A lecture every weekday at 08:55:

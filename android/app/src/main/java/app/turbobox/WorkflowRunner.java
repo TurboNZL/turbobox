@@ -86,6 +86,11 @@ final class WorkflowRunner {
         SessionService.ensure(app);
         run.log((manual ? "Started by hand" : "Started by its schedule") + ", " + steps.size() + " steps");
         MAIN.post(run::begin);
+        if (manual) {
+            // Started by hand: show the page, so it has a window to be recorded from (a timed run with the screen off has none).
+            app.startActivity(new Intent(app, SessionActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    .setAction(SessionActivity.ACTION_OPEN_PIN).putExtra(SessionActivity.EXTRA_PIN, wf.pinId));
+        }
         return true;
     }
 
@@ -228,6 +233,14 @@ final class WorkflowRunner {
                     break;
                 case RECORD_STOP:
                     session.stopRecording();
+                    next();
+                    break;
+                case TRANSCRIBE_ON:
+                    session.setTranscribing(true);
+                    next();
+                    break;
+                case TRANSCRIBE_OFF:
+                    session.setTranscribing(false);
                     next();
                     break;
                 case MARK:

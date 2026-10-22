@@ -14,6 +14,8 @@ The app updates itself: Settings > App updates > Check for updates.
 On the home screen tap **Pin a page**, type a name and the address (`meet.example.com/room` is enough, `https://` is added). Tick **Start the recording
 buffer when it opens** for a lecture you always want to be able to rewind. A pinned page is one tap from the home screen.
 
+A tile shows the page's own icon (found when you pin it, and updated whenever the page reports one; a letter until then).
+
 Long-press a tile for: Edit, **Add an icon to the home screen** (the launcher puts the page next to your other apps), Remove. The first four pins are
 also in the long-press menu of the TurboBox icon.
 
@@ -24,9 +26,9 @@ once (one above the other, or side by side when the phone is on its side). A thi
 The bar acts on the page that is in front:
 - **Close** ends the call on your end. **Mute** switches your outgoing audio off in a way the page cannot undo; it turns red while it is on.
 - **Timer** hangs up after a delay, or at a clock time (tonight's 03:30).
-- **Settings**: microphone, echo cancellation, microphone volume with a record-and-play-back test, page volume, brightness, page zoom, page info.
+- **Settings**: privacy switches for the microphone and camera, microphone, echo cancellation, microphone volume with a record-and-play-back test, page volume, brightness, page zoom, page info. The sheet keeps a free strip on its right edge: rest your finger there to scroll.
 - **Rec** starts or stops the recording buffer. **Step away** / **Back** are for lectures: see [RECORDING_BUFFER](RECORDING_BUFFER.md).
-- **Mini** shrinks the page into a small floating window (it also happens by itself when you press Home on Android 12 or newer). A visible window makes Android much less likely to unload the app.
+- **Mini** shrinks the page into a small floating window (it also happens by itself when you press Home on Android 12 or newer). The page is laid out to fit the window, including when you rotate the phone. A visible window makes Android much less likely to unload the app.
 
 Leaving the screen never pauses a page. The notification says what is running and has **Mute** and **Close all**; tap it to come back.
 

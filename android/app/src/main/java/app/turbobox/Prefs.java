@@ -31,8 +31,25 @@ final class Prefs {
     static void setBufferMinutes(Context c, int v) { sp(c).edit().putInt("bufferMinutes", v).apply(); }
     static int bufferQuality(Context c) { return sp(c).getInt("bufferQuality", 1); }
     static void setBufferQuality(Context c, int v) { sp(c).edit().putInt("bufferQuality", v).apply(); }
+    /** What to do when a recording reaches its length: false = keep recording and drop the oldest, true = stop. */
+    static boolean bufferStopAtLimit(Context c) { return sp(c).getBoolean("bufferStop", false); }
+    static void setBufferStopAtLimit(Context c, boolean v) { sp(c).edit().putBoolean("bufferStop", v).apply(); }
+    /** Picture width of the recording; 0 = not chosen yet (the old "quality" setting decides). */
+    static int bufferWidth(Context c) { return sp(c).getInt("bufferWidth", 0); }
+    static void setBufferWidth(Context c, int v) { sp(c).edit().putInt("bufferWidth", v).apply(); }
+    /** Pictures per second; 0 = not chosen yet. */
+    static int bufferFps(Context c) { return sp(c).getInt("bufferFps", 0); }
+    static void setBufferFps(Context c, int v) { sp(c).edit().putInt("bufferFps", v).apply(); }
     static int keepRuns(Context c) { return sp(c).getInt("keepRuns", 3); }
     static void setKeepRuns(Context c, int v) { sp(c).edit().putInt("keepRuns", v).apply(); }
+
+    // ---- transcription (speech to text, saved as WebVTT next to a recording) ----
+    /** One-shot: transcribe the next recording that starts, then switch off. */
+    static boolean transcribeNext(Context c) { return sp(c).getBoolean("transcribeNext", false); }
+    static void setTranscribeNext(Context c, boolean v) { sp(c).edit().putBoolean("transcribeNext", v).apply(); }
+    /** BCP-47 language tag, "" = the phone's language. */
+    static String transcribeLang(Context c) { return sp(c).getString("transcribeLang", ""); }
+    static void setTranscribeLang(Context c, String v) { sp(c).edit().putString("transcribeLang", v).apply(); }
 
     // ---- updates ----
     static String updateToken(Context c) { return sp(c).getString("updateToken", ""); }

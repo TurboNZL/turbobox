@@ -18,7 +18,7 @@
   if (window.__turbobox) return;
   var T = window.__turbobox = {};
   var WIDTH = 1280;
-  var cfg = { muted: false, volume: 1, aec: true, zoom: 1, micGain: 1 };
+  var cfg = { muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, localMute: false };
   var tracks = [], pcs = [];
 
   function post(type, data) {
@@ -47,12 +47,15 @@
       document.head.appendChild(m);
     }
     var w = Math.round(WIDTH / cfg.zoom);
-    var want = 'width=' + w + ', initial-scale=' + ((window.screen.width || w) / w).toFixed(3);
+    // The scale fits the layout width to the area the page really has (a small floating window, half of a split
+    // screen), not to the whole screen, or a page in a small window would show only its top-left corner.
+    var want = 'width=' + w + ', initial-scale=' + ((cfg.viewW || window.screen.width || w) / w).toFixed(3);
     if (m.content !== want) m.content = want;
   }
   viewport();
   window.addEventListener('orientationchange', function () { setTimeout(viewport, 300); });
   T.setZoom = function (z) { cfg.zoom = Math.max(0.5, Math.min(3, +z || 1)); viewport(); };
+  T.setViewWidth = function (w) { cfg.viewW = Math.max(0, +w || 0); viewport(); setTimeout(viewport, 300); };
   new MutationObserver(viewport).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['content'] });
 
   // ---- audio context shared by the volume path and the meters --------------------------
@@ -272,6 +275,8 @@
   if (orig) {
     md.getUserMedia = async function (c) {
       var stream;
+      // Microphone privacy switch: refuse the way a browser does when you press "Block".
+      if (c && c.audio && !cfg.micAllowed) throw new DOMException('Permission denied by TurboBox (microphone blocked for this page)', 'NotAllowedError');
       if (c && c.audio && vm.on) {
         stream = vmStream();
         if (c.video) {
@@ -697,6 +702,29 @@
     } catch (e) { return no((e && e.name ? e.name + ': ' : '') + (e && e.message || e)); }
   };
 
+  // ---- local mute: stepping away -----------------------------------------------------------------------
+  // The phone stops playing the page while the recording (the audio tap above) goes on: every media element is
+  // muted here, new ones as they appear, and put back as they were when it ends. The tap reads the tracks and the
+  // elements' captured streams, not the speaker, so what is recorded does not change.
+  var lmTimer = 0;
+  function localMuteSweep() {
+    document.querySelectorAll('audio,video').forEach(function (el) {
+      if (cfg.localMute) {
+        if (!el.__tbLM) { el.__tbLM = true; el.__tbLMWas = el.muted; }
+        el.muted = true;
+      } else if (el.__tbLM) {
+        el.muted = !!el.__tbLMWas;
+        el.__tbLM = false;
+      }
+    });
+  }
+  T.setLocalMute = function (on) {
+    cfg.localMute = !!on;
+    localMuteSweep();
+    clearInterval(lmTimer);
+    if (cfg.localMute) lmTimer = setInterval(localMuteSweep, 500);
+  };
+
   // ---- misc ----------------------------------------------------------------------------------------
   T.configure = function (o) {
     if (!o) return;
@@ -707,6 +735,9 @@
     if ('virtual' in o) { vm.on = !!o.virtual; vmCheck(); }
     if ('volume' in o) T.setVolume(o.volume);
     if ('muted' in o) T.setMute(o.muted);
+    if ('micAllowed' in o) cfg.micAllowed = !!o.micAllowed;
+    if ('viewWidth' in o) T.setViewWidth(o.viewWidth);
+    if ('localMute' in o) T.setLocalMute(o.localMute);
     if ('tap' in o) T.setTap(o.tap);
   };
   T.info = function () {

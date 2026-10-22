@@ -133,7 +133,7 @@ public class WorkflowEditActivity extends Activity {
             wf.hour = h;
             wf.minute = m;
             timeValue.setText(timeText());
-        }, wf.hour, wf.minute, true).show());
+        }, wf.hour, wf.minute, android.text.format.DateFormat.is24HourFormat(this)).show());
         timedBox.addView(timeValue);
         LinearLayout days = new LinearLayout(this);
         String[] names = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
@@ -217,7 +217,7 @@ public class WorkflowEditActivity extends Activity {
     }
 
     private String timeText() {
-        return String.format(Locale.US, "%02d:%02d", wf.hour, wf.minute);
+        return Ui.formatTime(this, wf.hour, wf.minute);
     }
 
     private void paintDays() {

@@ -51,6 +51,8 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
     private SeekBar seek;
     private TextView timeText;
     private TextView statusText;
+    private TextView captionText;
+    private List<Vtt.Cue> cues = new java.util.ArrayList<>();
     private TextView playButton;
     private TextView speedButton;
     private boolean surfaceReady;
@@ -203,8 +205,22 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
             showList();
         });
         row.addView(del, Ui.weight(this, 8));
+        File vtt = new File(r.dir, "transcript.vtt");
+        if (vtt.exists() && vtt.length() > Vtt.HEADER.length()) {
+            TextView share = Ui.pill(this, "Share captions", 0);
+            share.setOnClickListener(v -> shareCaptions(r, vtt));
+            row.addView(share, Ui.weight(this, 8));
+        }
         c.addView(row, Ui.lp(this, 10, 0));
         return c;
+    }
+
+    private void shareCaptions(BufferStore.Run r, File vtt) {
+        android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", vtt);
+        startActivity(android.content.Intent.createChooser(new android.content.Intent(android.content.Intent.ACTION_SEND)
+                .setType("text/vtt").putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                .putExtra(android.content.Intent.EXTRA_SUBJECT, (r.name.isEmpty() ? "Recording" : r.name) + " captions")
+                .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share captions"));
     }
 
     // ---- the player --------------------------------------------------------------------------
@@ -215,6 +231,7 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
         resumeAtMs = -1;
         segs = BufferStore.segments(r);
         currentStartWall = -1;
+        cues = loadCues(r);
         player = new LinearLayout(this);
         player.setOrientation(LinearLayout.VERTICAL);
         player.setBackgroundColor(Ui.BG);
@@ -238,8 +255,13 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
         stage.addView(surfaceView, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
         player.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1f));
 
+        captionText = Ui.text(this, "", 16f, Ui.TEXT, "sans-serif-medium");
+        captionText.setGravity(Gravity.CENTER);
+        captionText.setPadding(pad, Ui.dp(this, 8), pad, 0);
+        captionText.setMinLines(2);
+        player.addView(captionText, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
         statusText = Ui.text(this, "", 13f, Ui.DIM, "sans-serif");
-        statusText.setPadding(pad, Ui.dp(this, 8), pad, 0);
+        statusText.setPadding(pad, Ui.dp(this, 4), pad, 0);
         player.addView(statusText, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
         seek = new SeekBar(this);
         seek.setProgressTintList(android.content.res.ColorStateList.valueOf(Ui.GREEN));
@@ -339,6 +361,7 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
     private void rescan() {
         if (run == null || player == null) return;
         segs = BufferStore.segments(run);
+        cues = loadCues(run);
         seek.setMax((int) Math.max(1, BufferStore.totalMs(segs)));
         maybeStart();
     }
@@ -547,8 +570,37 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
             long at = timelineMs();
             seek.setProgress((int) Math.min(at, seek.getMax()));
             timeText.setText(clock(at) + " / " + clock(total));
+            showCaption();
         } else if (!userSeeking) {
             timeText.setText(clock(0) + " / " + clock(total));
+        }
+    }
+
+    /** The caption for the playing moment: the segment's wall-clock start plus the position in it, from the run's start. */
+    private void showCaption() {
+        if (cues.isEmpty() || mp == null || !prepared) {
+            captionText.setText("");
+            return;
+        }
+        try {
+            long rel = currentStartWall + mp.getCurrentPosition() - run.startedAt;
+            Vtt.Cue c = Vtt.at(cues, rel);
+            captionText.setText(c == null ? "" : c.text);
+        } catch (IllegalStateException e) {
+            captionText.setText("");
+        }
+    }
+
+    private static List<Vtt.Cue> loadCues(BufferStore.Run r) {
+        File f = new File(r.dir, "transcript.vtt");
+        if (!f.exists()) return new java.util.ArrayList<>();
+        try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+            byte[] b = new byte[(int) f.length()];
+            int off = 0;
+            for (int n; off < b.length && (n = in.read(b, off, b.length - off)) > 0; ) off += n;
+            return Vtt.parse(new String(b, 0, off, "UTF-8"));
+        } catch (IOException e) {
+            return new java.util.ArrayList<>();
         }
     }
 
