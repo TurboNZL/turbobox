@@ -110,7 +110,16 @@ final class SessionSheet implements Session.Listener {
         });
         col.addView(camSwitch, Ui.lp(act, 4, 4));
         col.addView(Ui.hint(act, "Off means the page is refused, like pressing Block in a browser. Turning the microphone off also "
-                + "cuts a call that already has it. The camera is off until you allow it here and in Android."), Ui.lp(act, 2, 18));
+                + "cuts a call that already has it. The camera is off until you allow it here and in Android."), Ui.lp(act, 2, 10));
+
+        TextView reload = Ui.pill(act, "Reload the page", 0);
+        reload.setOnClickListener(v -> {
+            session.reload();
+            dismiss();
+        });
+        col.addView(reload, Ui.lp(act, 0, 4));
+        col.addView(Ui.hint(act, "A page that was refused often keeps saying \"blocked\" until it is reloaded. The page is told when a switch "
+                + "changes, but if it still does not see the microphone or camera, reload it (this ends a call in progress)."), Ui.lp(act, 2, 18));
 
         // Mic level test
         col.addView(Ui.label(act, "Microphone level"));

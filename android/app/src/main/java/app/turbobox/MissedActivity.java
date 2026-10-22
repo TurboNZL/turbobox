@@ -207,12 +207,30 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
         row.addView(del, Ui.weight(this, 8));
         File vtt = new File(r.dir, "transcript.vtt");
         if (vtt.exists() && vtt.length() > Vtt.HEADER.length()) {
-            TextView share = Ui.pill(this, "Share captions", 0);
-            share.setOnClickListener(v -> shareCaptions(r, vtt));
-            row.addView(share, Ui.weight(this, 8));
+            TextView caps = Ui.pill(this, "Captions", 0);
+            caps.setOnClickListener(v -> showCaptions(r, vtt));
+            row.addView(caps, Ui.weight(this, 8));
         }
         c.addView(row, Ui.lp(this, 10, 0));
         return c;
+    }
+
+    /** The captions of a recording as readable text, with a button that sends the .vtt file. */
+    private void showCaptions(BufferStore.Run r, File vtt) {
+        List<Vtt.Cue> list = loadCues(r);
+        StringBuilder sb = new StringBuilder();
+        for (Vtt.Cue c : list) sb.append(Vtt.timestamp(c.startMs), 0, 8).append("   ").append(c.text).append("\n\n");
+        TextView t = Ui.text(this, sb.length() == 0 ? "No speech was recognised yet." : sb.toString(), 15f, Ui.TEXT, "sans-serif");
+        t.setTextIsSelectable(true);
+        t.setPadding(Ui.dp(this, 20), Ui.dp(this, 12), Ui.dp(this, 20), Ui.dp(this, 12));
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        sv.addView(t);
+        new AlertDialog.Builder(this)
+                .setTitle("Captions - " + (r.name.isEmpty() ? "recording" : r.name))
+                .setView(sv)
+                .setPositiveButton("Share .vtt file", (d, w) -> shareCaptions(r, vtt))
+                .setNegativeButton("Close", null)
+                .show();
     }
 
     private void shareCaptions(BufferStore.Run r, File vtt) {
