@@ -94,6 +94,25 @@ await page.evaluate(() => window.__turbobox.setLocalMute(false));
 check('local mute restores the element', (await page.evaluate(() => document.getElementById('a').muted)) === false);
 await page.evaluate(() => window.__turbobox.setTap(false));
 
+// an element the page keeps silent (muted, or volume 0: Twitch does this to an ad while the stream plays) is not recorded,
+// with or without local mute
+for (const [name, away, silence, restore] of [
+  ['muted by the page', false, a => { a.muted = true; }, a => { a.muted = false; }],
+  ['muted by the page, while stepped away', true, a => { a.muted = true; }, a => { a.muted = false; }],
+  ['volume 0, while stepped away', true, a => { a.volume = 0; }, a => { a.volume = 1; }],
+]) {
+  posts.length = 0;
+  await page.evaluate(([away, silence]) => {
+    const a = document.getElementById('a'); eval('(' + silence + ')')(a); a.play();
+    window.__turbobox.setLocalMute(away); window.__turbobox.setTap(true);
+  }, [away, silence.toString()]);
+  await page.waitForTimeout(2500);
+  let quiet = 0;
+  for (const [t, d] of posts) if (t === 'audio') { const bf = Buffer.from(d, 'base64'); for (let i = 0; i + 1 < bf.length; i += 2) quiet = Math.max(quiet, Math.abs(bf.readInt16LE(i))); }
+  await page.evaluate(([restore]) => { eval('(' + restore + ')')(document.getElementById('a')); window.__turbobox.setTap(false); window.__turbobox.setLocalMute(false); }, [restore.toString()]);
+  check('the tap skips an element ' + name, quiet < 300, quiet);
+}
+
 // sound a page makes with its own Web Audio graph is recorded too (the page-audio tap), including while stepped away,
 // and never on top of the track/element tap (that would double everything)
 const peakOf = (arr) => { let k = 0; for (const [t, d] of arr) if (t === 'audio') { const bf = Buffer.from(d, 'base64'); for (let i = 0; i + 1 < bf.length; i += 2) k = Math.max(k, Math.abs(bf.readInt16LE(i))); } return k; };
