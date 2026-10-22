@@ -524,9 +524,17 @@
         if (el.__tbTapG) el.__tbTapG.gain.value = elAudible(el) ? 1 : 0;
         return;
       }
-      if (el.srcObject) return; // a stream from a call: already tapped above
-      var cap = el.__tbCap;
+      if (el.srcObject && typeof MediaStream !== 'undefined' && el.srcObject instanceof MediaStream) {
+        // a call's stream is known already (its tracks were added above); any other stream (Twitch plays its live stream
+        // like this) is tapped from its own tracks
+        el.srcObject.getAudioTracks().forEach(function (t) { if (t.readyState === 'live' && !tapKnown(t)) tapAdd(t, el); });
+        return;
+      }
+      var cap = el.__tbCap, capKey = (el.srcObject ? 'o' : '') + (el.currentSrc || '');
+      // a source that changed under the same element (an ad, a quality switch) gets a fresh capture
+      if (cap && (el.__tbCapKey !== capKey || (cap.getAudioTracks().length && !cap.getAudioTracks().some(function (t) { return t.readyState === 'live'; })))) cap = el.__tbCap = null;
       if (!cap) {
+        el.__tbCapKey = capKey;
         try { cap = el.__tbCap = (el.captureStream || el.mozCaptureStream).call(el); } catch (e) { cap = el.__tbCap = null; }
       }
       if (!cap) return;

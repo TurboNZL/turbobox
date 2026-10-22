@@ -142,6 +142,27 @@ wposts.length = 0;
 await pw.waitForTimeout(1500);
 const both = peakOf(wposts);
 check('with both kinds of sound present they are not added together', both > 8000 && both < 17000, both);
+// an element playing a MediaStream that is not a call (Twitch plays its live stream like this) is recorded; on a page of its
+// own, so nothing else can make the sound
+const sp = await b.newPage();
+const sposts = [];
+await sp.exposeFunction('__post', (t, d) => sposts.push([t, d]));
+await sp.setContent('<!doctype html><html><body></body></html>');
+await sp.addScriptTag({ content: 'window.TurboBoxBridge = { post: function (t, d) { window.__post(t, d); } };' });
+await sp.addScriptTag({ content: script });
+await sp.evaluate(() => {
+  const ac = new AudioContext(), dest = ac.createMediaStreamDestination(), o = ac.createOscillator(), g = ac.createGain();
+  g.gain.value = 0.4; o.frequency.value = 440; o.connect(g); g.connect(dest); o.start();
+  const v = document.createElement('video'); v.srcObject = dest.stream; document.body.appendChild(v); v.play();
+  window.__turbobox.setTap(true);
+});
+await sp.waitForTimeout(3500);
+sposts.length = 0;
+await sp.waitForTimeout(1500);
+const streamPeak = peakOf(sposts);
+check('an element playing a plain MediaStream is recorded', streamPeak > 3000, streamPeak);
+await sp.close();
+
 // Page info lists what makes sound
 const rep = await pw.evaluate(() => { let r; window.TurboBoxBridge.post = (t, d) => { if (t === 'info') r = d; }; window.__turbobox.info(); return r; });
 const repAudio = typeof rep === 'string' ? JSON.parse(rep).audio : rep && rep.audio;
