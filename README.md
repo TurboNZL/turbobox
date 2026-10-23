@@ -1,6 +1,6 @@
 # TurboBox
 
-An Android app that keeps your web pages running like calls: pin a lecture stream or a meeting room, open it with one tap,
+An Android app that keeps your web pages running in the background: pin a video, a stream or a web app, open it with one tap,
 run two at once, keep them alive with the screen off, record what you missed, and let a workflow click through them for you.
 
 It is the **web-session half of [Tether](https://github.com/TurboNZL/tether)** (the embedded browser that joins a web call and keeps the

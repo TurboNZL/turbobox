@@ -1,11 +1,11 @@
 # Workflows
 
-A workflow opens one of your pinned pages and follows steps you write: click this, type that, wait, record, hang up. It can start **by itself at a time you choose, on the days you choose, with the screen off**, or when you tap **Run now**.
+A workflow opens one or more of your pinned pages and follows steps you write: click this, type that, wait, record, hang up. It can start **by itself at a time you choose, on the days you choose, with the screen off**, or when you tap **Run now**.
 
-Home > Workflows > **New workflow**. Give it a name, choose the page, optionally switch on **Start by itself at a set time**, and write the steps.
+Home > Workflows > **New workflow**. Give it a name, choose the pages (tap tiles in the same layout as the home screen; pick several to run the steps on each page at once), optionally switch on **Start by itself at a set time**, and write the steps.
 
 ## The steps
-One per line. Blank lines and lines starting with `#` are ignored.
+Tap **+ Add a step** in the editor and pick one from the buttons: it asks what it needs (how long to wait, which words to click...) and writes the line after the one your cursor is on. Or type them yourself, one per line. Blank lines and lines starting with `#` are ignored.
 
 | Step | Does |
 |---|---|
@@ -16,15 +16,14 @@ One per line. Blank lines and lines starting with `#` are ignored.
 | `type css:#name = My Name` | Puts the text in a field (and fires the events the page listens for). A `<select>` picks the option with that text. |
 | `key Enter` | Presses a key: `Enter`, `Escape`, `Tab`, `Backspace`, `ArrowDown`... Enter in a form field submits the form. |
 | `scroll down 600` | `up`, `down` (pixels), `top`, `bottom`. |
-| `mute` / `unmute` | The call's outgoing audio, with the same lock as the Mute button. |
+| `mute` / `unmute` | Your outgoing audio, with the same lock as the Mute button. |
 | `volume 80` | The page's volume, 0 to 200 (%). |
-| `hangup 1h30m` | Closes the page after that long (`hangup off` cancels). |
+| `hangup 1h30m` | Closes the page after that long (`hangup off` cancels). `hangup` or `close` with no time closes it now: they are the same step. |
 | `record start` / `record stop` | The [recording buffer](RECORDING_BUFFER.md). |
 | `step away` / `step back` | Like the Step away button: freezes and silences the page on the phone while it keeps recording (it starts the recording if needed). `step back` lets go, without opening the replay. |
 | `transcribe on` / `transcribe off` | Live captions saved as WebVTT with the recording ([RECORDING_BUFFER](RECORDING_BUFFER.md)). |
-| `mark Lecture starts` | A bookmark in the recording. |
+| `mark Chapter 2 starts` | A bookmark in the recording. |
 | `js document.title` | Runs a script on the page. |
-| `close` | Closes the page (hangs up). |
 
 Start a line with `?` and it is optional: if it fails the workflow carries on (`? click Accept cookies within 5s`).
 
@@ -38,32 +37,33 @@ Elements inside open shadow roots and same-origin frames are found too. A page f
 ## When it runs
 - **Timed**: pick the time (shown the way your phone shows time, with AM/PM unless it is set to 24 hours) and the days. The phone does not have to be awake: Android wakes it at that time (allow **exact alarms** so it is on time, not minutes late), TurboBox opens the page and starts clicking. A notification says it is running.
 - **Run now** on the workflow's card, or **Save and run now** in the editor, brings the page to the front and shows the log live (in the editor); use it to try a workflow before you trust it with an alarm. Because the page is on screen, a recording it starts gets the full picture.
-- If both slots are busy the workflow stops and says so. If its page is already open, it uses that one.
+- If its page is already open, it uses that one. If A and B are both busy, it opens the page in a **temporary extra tab** (C, D...) that you can reach from the session screen as usual; the tab closes when the workflow finishes (it stays if a hang-up timer is still running or something went wrong, so you can look). A workflow with several pages starts one run per page, side by side; the log shows `[Page]` in front of each line.
+- A run's result is reported once, when the last page is done.
 - If a step fails (a button never appears, the page was closed) the workflow stops, a notification says which step and why, and the last run is shown on its card.
 
 ## With the screen off
 The page, the waiting and the clicking all continue with the screen off. Two things to know:
 1. **The microphone.** Android only lets an app use the microphone when it was in front, or has a foreground service that was started from the front. A workflow started by an alarm while the phone is locked is neither unless **Standby** is on (Settings; it keeps one small foreground service up). With Standby on, the call's microphone works; without it, the workflow still clicks and the page still plays, but your microphone may be silent.
-2. **The picture of the recording buffer.** With the screen off nothing can be copied from a window, so TurboBox draws the page onto the recording itself: slides, pages and call controls are recorded, but video the browser puts on its own layer may stay black and the picture can be stale. The sound is recorded either way (see [RECORDING_BUFFER](RECORDING_BUFFER.md)).
+2. **The picture of the recording buffer.** With the screen off nothing can be copied from a window, so TurboBox draws the page onto the recording itself: pages and their controls are recorded, but video the browser puts on its own layer may stay black and the picture can be stale. The sound is recorded either way (see [RECORDING_BUFFER](RECORDING_BUFFER.md)).
 
 ## Examples
-A lecture every weekday at 08:55:
+A morning check-in every weekday at 08:55:
 ```
 wait 5s
 ? click Accept cookies within 10s
-click Join lecture within 3m
-waitfor Leave
+click Start within 3m
+waitfor Finish
 record start
-mark Lecture starts
+mark Check-in starts
 hangup 2h
 ```
-Join a standup, muted, and leave after 15 minutes:
+Join a room, muted, and leave after 15 minutes:
 ```
 click Join now within 1m
 mute
 hangup 15m
 ```
-Type a room code, press Enter, then record the stream:
+Type a code, press Enter, then record what plays:
 ```
 type css:#room-code = 4821
 key Enter

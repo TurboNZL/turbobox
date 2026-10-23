@@ -37,7 +37,7 @@ public class WorkflowParserTest {
 
     @Test
     public void aWholeWorkflow() throws Exception {
-        String src = "# morning lecture\n"
+        String src = "# morning routine\n"
                 + "open\n"
                 + "wait 5s\n"
                 + "? click Accept cookies within 5s\n"
@@ -52,7 +52,7 @@ public class WorkflowParserTest {
                 + "transcribe on\n"
                 + "step away\n"
                 + "step back\n"
-                + "mark Lecture starts\n"
+                + "mark Chapter 2 starts\n"
                 + "waitfor Leave\n"
                 + "js document.title\n"
                 + "record stop\n"
@@ -76,7 +76,7 @@ public class WorkflowParserTest {
         assertEquals(WorkflowParser.Kind.TRANSCRIBE_ON, s.get(11).kind);
         assertEquals(WorkflowParser.Kind.STEP_AWAY, s.get(12).kind);
         assertEquals(WorkflowParser.Kind.STEP_BACK, s.get(13).kind);
-        assertEquals("Lecture starts", s.get(14).text);
+        assertEquals("Chapter 2 starts", s.get(14).text);
         assertEquals(60_000, s.get(15).withinMs);
         assertEquals("document.title", s.get(16).text);
         assertEquals(WorkflowParser.Kind.CLOSE, s.get(18).kind);
@@ -84,8 +84,25 @@ public class WorkflowParserTest {
     }
 
     @Test
+    public void hangupAndCloseAreTheSameThing() throws Exception {
+        List<WorkflowParser.Step> s = WorkflowParser.parse("hangup\nclose\nhangup 0\nclose 0s\nhangup 30m\nclose 1h\nhangup off\nclose off");
+        assertEquals(WorkflowParser.Kind.CLOSE, s.get(0).kind);
+        assertEquals(WorkflowParser.Kind.CLOSE, s.get(1).kind);
+        assertEquals(WorkflowParser.Kind.CLOSE, s.get(2).kind);
+        assertEquals(WorkflowParser.Kind.CLOSE, s.get(3).kind);
+        assertEquals(WorkflowParser.Kind.HANGUP, s.get(4).kind);
+        assertEquals(1800, s.get(4).seconds);
+        assertEquals(WorkflowParser.Kind.HANGUP, s.get(5).kind);
+        assertEquals(3600, s.get(5).seconds);
+        assertEquals(WorkflowParser.Kind.HANGUP, s.get(6).kind);
+        assertEquals(0, s.get(6).seconds);
+        assertEquals(WorkflowParser.Kind.HANGUP, s.get(7).kind);
+        assertEquals(0, s.get(7).seconds);
+    }
+
+    @Test
     public void errorsNameTheLine() {
-        String[] bad = {"dance", "wait soon", "click", "type css:#a", "scroll sideways", "volume 300", "record", "key", "js", "transcribe maybe", "step sideways"};
+        String[] bad = {"dance", "wait soon", "click", "type css:#a", "scroll sideways", "volume 300", "record", "key", "js", "transcribe maybe", "step sideways", "hangup soon"};
         for (String line : bad) {
             try {
                 WorkflowParser.parse("open\n" + line);

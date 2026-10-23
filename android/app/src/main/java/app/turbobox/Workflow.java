@@ -1,8 +1,11 @@
 package app.turbobox;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -14,7 +17,7 @@ final class Workflow {
 
     final String id;
     String name = "";
-    String pinId = "";
+    final List<String> pinIds = new ArrayList<>();   // the pinned pages it runs on; every one gets its own run of the steps
     String steps = "";
     boolean timed;                       // run by itself at hour:minute on the chosen days
     boolean enabled = true;              // only matters when timed
@@ -29,13 +32,19 @@ final class Workflow {
         this.id = id;
     }
 
+    /** The first page, or "" when none is chosen. */
+    String firstPinId() {
+        return pinIds.isEmpty() ? "" : pinIds.get(0);
+    }
+
     static Workflow create() {
         return new Workflow(UUID.randomUUID().toString().substring(0, 8));
     }
 
     JSONObject toJson() {
         try {
-            return new JSONObject().put("id", id).put("name", name).put("pinId", pinId).put("steps", steps)
+            return new JSONObject().put("id", id).put("name", name).put("pinId", firstPinId())
+                    .put("pinIds", new JSONArray(pinIds)).put("steps", steps)
                     .put("timed", timed).put("enabled", enabled).put("hour", hour).put("minute", minute)
                     .put("days", days).put("lastRunAt", lastRunAt).put("lastOk", lastOk)
                     .put("lastMessage", lastMessage);
@@ -47,7 +56,15 @@ final class Workflow {
     static Workflow fromJson(JSONObject o) {
         Workflow w = new Workflow(o.optString("id"));
         w.name = o.optString("name");
-        w.pinId = o.optString("pinId");
+        JSONArray ids = o.optJSONArray("pinIds");
+        if (ids != null) {
+            for (int i = 0; i < ids.length(); i++) {
+                String id = ids.optString(i);
+                if (!id.isEmpty() && !w.pinIds.contains(id)) w.pinIds.add(id);
+            }
+        } else if (!o.optString("pinId").isEmpty()) {
+            w.pinIds.add(o.optString("pinId"));   // saved before a workflow could have several pages
+        }
         w.steps = o.optString("steps");
         w.timed = o.optBoolean("timed");
         w.enabled = o.optBoolean("enabled", true);

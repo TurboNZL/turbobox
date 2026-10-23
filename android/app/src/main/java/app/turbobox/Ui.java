@@ -141,6 +141,36 @@ final class Ui {
         return root;
     }
 
+    /**
+     * A dark sheet that rises from the bottom and scrolls: {@code col} is its content (the caller fills it, then calls
+     * {@code show()}). Same look as the session's settings.
+     */
+    static android.app.Dialog sheet(Activity act, LinearLayout col) {
+        android.app.Dialog d = new android.app.Dialog(act);
+        d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(act);
+        int pad = dp(act, 18);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(pad, dp(act, 18), pad, dp(act, 22));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0xFF121217);
+        float r = dpf(act, 24);
+        bg.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
+        bg.setStroke(dp(act, 1), STROKE);
+        col.setBackground(bg);
+        scroll.addView(col, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        d.setContentView(scroll);
+        android.view.Window w = d.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            w.setGravity(Gravity.BOTTOM);
+            w.setDimAmount(0.45f);
+            w.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
+        return d;
+    }
+
     static View spacer(Context c, int dp) {
         View v = new View(c);
         v.setLayoutParams(new LinearLayout.LayoutParams(1, dp(c, dp)));

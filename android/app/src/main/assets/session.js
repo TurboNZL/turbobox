@@ -3,7 +3,8 @@
  * idempotent). The native side talks to it through window.__turbobox and hears back through
  * window.TurboBoxBridge.post(type, json).
  *
- *  - desktop emulation: desktop-sized layout viewport (scalable: "zoom") and desktop navigator properties
+ *  - desktop emulation: desktop-sized layout viewport (scalable: "zoom") and desktop navigator properties, a desktop
+ *                       Chrome's window.chrome, and a page that is always "visible" (a video keeps playing with the screen off)
  *  - virtual mic:       audio captured natively from a chosen input device, played into the page as its microphone
  *  - mute:              switch the outgoing audio off and on without touching the page's own UI
  *  - volume:            0-200% gain on the other person's voice (only routed when it is not 100%)
@@ -18,7 +19,7 @@
   if (window.__turbobox) return;
   var T = window.__turbobox = {};
   var WIDTH = 1280;
-  var cfg = { muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, cameraAllowed: false, localMute: false };
+  var cfg = { muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, cameraAllowed: false, localMute: false, keepVisible: true };
   var tracks = [], pcs = [];
 
   function post(type, data) {
@@ -33,6 +34,40 @@
       Object.defineProperty(window.NavigatorUAData.prototype, 'mobile', { get: function () { return false; }, configurable: true });
       Object.defineProperty(window.NavigatorUAData.prototype, 'platform', { get: function () { return 'Linux'; }, configurable: true });
     }
+  } catch (e) { /* best effort */ }
+
+  // Sign-in pages (Google's, so YouTube's; Twitch's) turn away what looks like an embedded browser. A desktop Chrome has a
+  // window.chrome object and a built-in PDF viewer; WebView has neither.
+  try {
+    // The same members a normal page sees in desktop Chrome (no `runtime`: that is only there for extension pages).
+    if (!window.chrome) Object.defineProperty(window, 'chrome', { value: {}, configurable: true, writable: true });
+    var ch = window.chrome;
+    if (!ch.app) ch.app = { isInstalled: false };
+    if (!ch.csi) ch.csi = function () { return {}; };
+    if (!ch.loadTimes) ch.loadTimes = function () { return {}; };
+    if (navigator.pdfViewerEnabled === undefined) Object.defineProperty(Object.getPrototypeOf(navigator), 'pdfViewerEnabled', { get: function () { return true; }, configurable: true });
+  } catch (e) { /* best effort */ }
+
+  // ---- always visible -----------------------------------------------------------------------
+  // With the screen off or another app in front the browser tells the page it is hidden, and YouTube (among others) pauses
+  // its video when it hears that. The page is told "visible" instead, and the change events are not delivered. (The native
+  // side also keeps the page on a private display, so this is the second line.) cfg.keepVisible false turns it all off.
+  try {
+    var docProto = Document.prototype;
+    var hiddenDesc = Object.getOwnPropertyDescriptor(docProto, 'hidden');
+    var stateDesc = Object.getOwnPropertyDescriptor(docProto, 'visibilityState');
+    var wkHiddenDesc = Object.getOwnPropertyDescriptor(docProto, 'webkitHidden');
+    var wkStateDesc = Object.getOwnPropertyDescriptor(docProto, 'webkitVisibilityState');
+    [['hidden', hiddenDesc, false], ['visibilityState', stateDesc, 'visible'], ['webkitHidden', wkHiddenDesc, false], ['webkitVisibilityState', wkStateDesc, 'visible']].forEach(function (a) {
+      var desc = a[1], value = a[2];
+      if (!desc || !desc.get) return;
+      Object.defineProperty(docProto, a[0], { get: function () { return cfg.keepVisible ? value : desc.get.call(this); }, configurable: true, enumerable: desc.enumerable });
+    });
+    var realHasFocus = Document.prototype.hasFocus;
+    Document.prototype.hasFocus = function () { return cfg.keepVisible ? true : realHasFocus.call(this); };
+    ['visibilitychange', 'webkitvisibilitychange'].forEach(function (n) {
+      window.addEventListener(n, function (e) { if (cfg.keepVisible) e.stopImmediatePropagation(); }, true);
+    });
   } catch (e) { /* best effort */ }
 
   // Pages that ask for a device-width layout would otherwise get the phone layout whatever the UA says.
@@ -949,6 +984,7 @@
     if ('viewWidth' in o) T.setViewWidth(o.viewWidth);
     if ('localMute' in o) T.setLocalMute(o.localMute);
     if ('tap' in o) T.setTap(o.tap);
+    if ('keepVisible' in o) cfg.keepVisible = !!o.keepVisible;
   };
   // For "Page info": who is making sound on this page and which tap hears it (found by looking, not guessing)
   function audioReport() {

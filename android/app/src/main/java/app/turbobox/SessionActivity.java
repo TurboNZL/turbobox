@@ -2,12 +2,19 @@ package app.turbobox;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
+import android.app.PendingIntent;
 import android.app.PictureInPictureParams;
+import android.app.RemoteAction;
 import android.app.TimePickerDialog;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Color;
+import android.graphics.drawable.Icon;
 import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -45,8 +52,22 @@ public class SessionActivity extends Activity implements Session.Listener {
     static final String EXTRA_SLOT = "slot";
     private static final int[] TIMER_MINUTES = {0, 15, 30, 45, 60, 90, 120, 180, 240, 360, 480};
 
+    /** Set while the pocket lock is on. Static so it outlives this screen (home, screen off, a new instance of the activity). */
+    private static boolean pocketLocked;
+    private static final String ACTION_PIP_MUTE = "app.turbobox.PIP_MUTE";
+
     private final FrameLayout[] panes = new FrameLayout[Sessions.COUNT];
+    private final AspectFrame[] boxes = new AspectFrame[Sessions.COUNT];
     private final TextView[] tabs = new TextView[Sessions.COUNT];
+    private LinearLayout root;
+    private LinearLayout chromeBox;
+    private FrameLayout fullscreenHolder;
+    private Session fullscreenSession;
+    private Dialog lockDialog;
+    private PopupWindow floatButton;
+    private PopupWindow floatPanel;
+    private boolean panelOpen;
+    private boolean pipReceiverOn;
     private LinearLayout paneHolder;
     private TextView splitButton;
     private TextView muteButton;
@@ -56,7 +77,6 @@ public class SessionActivity extends Activity implements Session.Listener {
     private TextView countdown;
     private LevelMeterView strip;
     private View dim;
-    private View[] chrome = new View[0];
     private int focus;
     private boolean split;
     private boolean inPip;
@@ -114,10 +134,10 @@ public class SessionActivity extends Activity implements Session.Listener {
             start(free, pin);
             return;
         }
-        String[] names = new String[Sessions.COUNT];
-        for (int i = 0; i < names.length; i++) names[i] = "Replace " + (char) ('A' + i) + "  " + Sessions.get(i).title();
+        String[] names = new String[Sessions.PERMANENT];
+        for (int i = 0; i < names.length; i++) names[i] = "Replace " + Sessions.tag(Sessions.get(i)) + Sessions.get(i).title();
         new AlertDialog.Builder(this)
-                .setTitle("Both slots are in use")
+                .setTitle("Both pages are in use")
                 .setItems(names, (d, which) -> {
                     Sessions.get(which).close("replaced by " + pin.name);
                     start(which, pin);
@@ -132,7 +152,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     }
 
     private void start(int slot, Pin pin) {
-                Sessions.get(slot).open(this, pin);
+        Sessions.get(slot).open(this, pin);
         focus = slot;
         rebuild();
     }
@@ -148,6 +168,10 @@ public class SessionActivity extends Activity implements Session.Listener {
         Session f = front();
         if (f != null && !inPip) f.setCallMeter(true);
         updateControls();
+        registerPipReceiver();
+        if (Sessions.active().isEmpty()) pocketLocked = false;
+        if (pocketLocked) showLock();
+        getWindow().getDecorView().post(this::applyBarMode);
     }
 
     @Override
@@ -178,6 +202,8 @@ public class SessionActivity extends Activity implements Session.Listener {
             s.setCallMeter(false); // the level strip is only useful while it can be seen
         }
         if (sheet != null) sheet.dismiss();
+        dismissFloat();
+        unregisterPipReceiver();
         keepPagesRunning();
     }
 
@@ -190,10 +216,14 @@ public class SessionActivity extends Activity implements Session.Listener {
     protected void onDestroy() {
         // The pages and the timers outlive this screen; only the view of them goes away.
         for (int i = 0; i < freezePopups.length; i++) dismissFreeze(i);
+        dismissFloat();
+        dismissLock();
         for (Session s : Sessions.all()) {
             s.removeListener(this);
+            s.exitFullscreen();
             WebView wv = s.peekWebView();
-            if (wv != null && wv.getParent() instanceof ViewGroup) ((ViewGroup) wv.getParent()).removeView(wv);
+            // Only take the page out of one of our own panes: it may now be on the private display that keeps it alive.
+            if (wv != null && wv.getParent() == boxes[s.slot]) boxes[s.slot].removeView(wv);
             s.detach();
         }
         super.onDestroy();
@@ -201,6 +231,11 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     @Override
     public void onBackPressed() {
+        if (pocketLocked) return;   // locked: nothing gets through
+        if (fullscreenSession != null) {
+            fullscreenSession.exitFullscreen();
+            return;
+        }
         // Never navigate the page back mid-call (that could unload it); just leave. The pages keep running and
         // the notification brings you back.
         moveTaskToBack(true);
@@ -210,6 +245,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     public void onConfigurationChanged(Configuration c) {
         super.onConfigurationChanged(c);
         rebuild();
+        getWindow().getDecorView().post(this::applyBarMode);   // the floating button belongs in the new shape of the screen
     }
 
     // ---- picture in picture ------------------------------------------------------------------
@@ -218,11 +254,55 @@ public class SessionActivity extends Activity implements Session.Listener {
         return Build.VERSION.SDK_INT >= 26 && getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE);
     }
 
+    /** 0 = the page in front, 1 = two pages side by side, 2 = two pages stacked (the choice in Settings, used with two pages open). */
+    private int pipLayout() {
+        return Sessions.active().size() >= 2 ? Prefs.pipLayout(this) : 0;
+    }
+
     private PictureInPictureParams.Builder pipParams() {
-        PictureInPictureParams.Builder b = new PictureInPictureParams.Builder().setAspectRatio(new Rational(16, 9));
+        int layout = pipLayout();
+        // Android only accepts shapes between 1:2.39 and 2.39:1, so two 16:9 pages next to each other (32:9) cannot be had.
+        Rational shape = layout == 1 ? new Rational(21, 9) : layout == 2 ? new Rational(8, 9) : new Rational(16, 9);
+        PictureInPictureParams.Builder b = new PictureInPictureParams.Builder().setAspectRatio(shape);
+        // The mic button works for any page: it is the same mute as the notification's (for a page that is not in a call it
+        // simply keeps the microphone from being sent when one is asked for).
+        if (!Sessions.active().isEmpty()) {
+            boolean muted = Sessions.allMuted();
+            Icon icon = Icon.createWithResource(this, muted ? R.drawable.ic_mic_off : R.drawable.ic_mic);
+            PendingIntent pi = PendingIntent.getBroadcast(this, 7, new Intent(ACTION_PIP_MUTE).setPackage(getPackageName()),
+                    PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+            List<RemoteAction> actions = new ArrayList<>();
+            actions.add(new RemoteAction(icon, muted ? "Unmute" : "Mute", muted ? "Turn the microphone back on" : "Mute the microphone", pi));
+            b.setActions(actions);
+        }
         // From Android 12 the window shrinks by itself when you go Home with a page open.
-        if (Build.VERSION.SDK_INT >= 31) b.setAutoEnterEnabled(!Sessions.active().isEmpty());
+        if (Build.VERSION.SDK_INT >= 31) b.setAutoEnterEnabled(!Sessions.active().isEmpty() && !pocketLocked);
         return b;
+    }
+
+    private final BroadcastReceiver pipMute = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            Sessions.toggleAllMuted();
+        }
+    };
+
+    private void registerPipReceiver() {
+        if (pipReceiverOn || !canPip()) return;
+        IntentFilter f = new IntentFilter(ACTION_PIP_MUTE);
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(pipMute, f, Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(pipMute, f);
+        pipReceiverOn = true;
+    }
+
+    private void unregisterPipReceiver() {
+        if (!pipReceiverOn) return;
+        pipReceiverOn = false;
+        try {
+            unregisterReceiver(pipMute);
+        } catch (IllegalArgumentException ignored) {
+            // Already gone.
+        }
     }
 
     private void updatePip() {
@@ -236,13 +316,25 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     /** Shrinks the page in front into a small floating window, which also keeps Android from unloading the app. */
     private void enterPip() {
-        if (!canPip() || isInPictureInPictureMode() || Sessions.active().isEmpty()) return;
+        if (!canPip() || isInPictureInPictureMode() || Sessions.active().isEmpty() || pocketLocked) return;
         if (sheet != null) sheet.dismiss();
         try {
             enterPictureInPictureMode(pipParams().build());
         } catch (RuntimeException e) {
             Toast.makeText(this, "Picture in picture is not available here.", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    /** Which layout the Mini window should have, asked from the Mini button's long press. */
+    private void choosePipLayout() {
+        String[] items = {"The page in front only", "Two pages side by side", "Two pages stacked"};
+        new AlertDialog.Builder(this).setTitle("Mini window with two pages")
+                .setSingleChoiceItems(items, Prefs.pipLayout(this), (d, which) -> {
+                    Prefs.setPipLayout(this, which);
+                    d.dismiss();
+                    updatePip();
+                    Toast.makeText(this, "Used the next time the Mini window opens with two pages running.", Toast.LENGTH_SHORT).show();
+                }).show();
     }
 
     @Override
@@ -255,20 +347,23 @@ public class SessionActivity extends Activity implements Session.Listener {
     public void onPictureInPictureModeChanged(boolean in, Configuration config) {
         super.onPictureInPictureModeChanged(in, config);
         inPip = in;
-        for (View v : chrome) v.setVisibility(in ? View.GONE : View.VISIBLE);
+        chromeBox.setVisibility(in ? View.GONE : View.VISIBLE);
         rebuild();
+        getWindow().getDecorView().post(this::applyBarMode);
     }
 
     // ---- UI ----------------------------------------------------------------------------------
 
     private void buildUi() {
-        LinearLayout root = new LinearLayout(this);
+        root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Ui.BG);
+        chromeBox = new LinearLayout(this);
+        chromeBox.setOrientation(LinearLayout.VERTICAL);
         int side = Ui.dp(this, 10);
         int gap = 6;
 
-        // Tabs for the two slots, then Split
+        // Tabs for the open pages, then Split
         LinearLayout tabRow = new LinearLayout(this);
         tabRow.setGravity(Gravity.CENTER_VERTICAL);
         tabRow.setPadding(side, Ui.dp(this, 8), side, 0);
@@ -288,7 +383,7 @@ public class SessionActivity extends Activity implements Session.Listener {
             rebuild();
         });
         tabRow.addView(splitButton, Ui.weight(this, gap));
-        root.addView(tabRow, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
+        chromeBox.addView(tabRow, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
 
         // Close, Mute, Timer, Settings
         LinearLayout row1 = new LinearLayout(this);
@@ -309,9 +404,9 @@ public class SessionActivity extends Activity implements Session.Listener {
         TextView settings = Ui.pill(this, "Settings", 0);
         settings.setOnClickListener(v -> showSettings());
         row1.addView(settings, Ui.weight(this, gap));
-        root.addView(row1, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
+        chromeBox.addView(row1, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // Step away / Back, Rec, Mini
+        // Step away / Back, Rec, CC
         LinearLayout row2 = new LinearLayout(this);
         row2.setGravity(Gravity.CENTER_VERTICAL);
         row2.setPadding(side, Ui.dp(this, 6), side, 0);
@@ -324,29 +419,56 @@ public class SessionActivity extends Activity implements Session.Listener {
         ccButton = Ui.pill(this, "CC", 0);
         ccButton.setOnClickListener(v -> toggleCaptions());
         row2.addView(ccButton, Ui.weight(this, gap));
-        TextView pip = Ui.pill(this, "Mini", 0);
-        pip.setOnClickListener(v -> enterPip());
-        if (canPip()) row2.addView(pip, Ui.weight(this, gap));
-        root.addView(row2, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
+        chromeBox.addView(row2, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        // The countdown, with Mini (picture in picture) and Lock (pocket protection) beside it
+        LinearLayout row3 = new LinearLayout(this);
+        row3.setGravity(Gravity.CENTER_VERTICAL);
+        row3.setPadding(side, Ui.dp(this, 6), side, Ui.dp(this, 4));
         countdown = Ui.text(this, "No timer", 13f, Ui.DIM, "sans-serif-medium");
-        countdown.setGravity(Gravity.CENTER);
-        countdown.setPadding(0, Ui.dp(this, 6), 0, Ui.dp(this, 4));
-        root.addView(countdown, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
+        countdown.setGravity(Gravity.CENTER_VERTICAL);
+        row3.addView(countdown, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        if (canPip()) {
+            TextView pip = Ui.pill(this, "Mini", 0);
+            pip.setPadding(Ui.dp(this, 14), Ui.dp(this, 7), Ui.dp(this, 14), Ui.dp(this, 7));
+            pip.setOnClickListener(v -> enterPip());
+            pip.setOnLongClickListener(v -> {
+                choosePipLayout();
+                return true;
+            });
+            row3.addView(pip);
+        }
+        TextView lock = Ui.pill(this, "Lock", 0);
+        lock.setPadding(Ui.dp(this, 14), Ui.dp(this, 7), Ui.dp(this, 14), Ui.dp(this, 7));
+        lock.setOnClickListener(v -> startPocketLock());
+        LinearLayout.LayoutParams lockParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lockParams.leftMargin = Ui.dp(this, gap);
+        row3.addView(lock, lockParams);
+        chromeBox.addView(row3, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
 
         strip = new LevelMeterView(this);
         LinearLayout.LayoutParams ml = new LinearLayout.LayoutParams(-1, Ui.dp(this, 5));
         ml.setMargins(Ui.dp(this, 14), 0, Ui.dp(this, 14), Ui.dp(this, 6));
-        root.addView(strip, ml);
+        chromeBox.addView(strip, ml);
 
-        chrome = new View[]{tabRow, row1, row2, countdown, strip};
+        root.addView(chromeBox, new LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT));
         paneHolder = new LinearLayout(this);
-        for (int i = 0; i < Sessions.COUNT; i++) panes[i] = new FrameLayout(this);
+        for (int i = 0; i < Sessions.COUNT; i++) {
+            panes[i] = new FrameLayout(this);
+            boxes[i] = new AspectFrame(this);
+            panes[i].addView(boxes[i], new FrameLayout.LayoutParams(-1, -1));
+        }
         root.addView(paneHolder, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+        // A page's own full-screen view (a video's full-screen button) goes over everything but the veil.
+        fullscreenHolder = new FrameLayout(this);
+        fullscreenHolder.setBackgroundColor(Color.BLACK);
+        fullscreenHolder.setVisibility(View.GONE);
 
         // Brightness veil over everything, the same trick as Tether's main screen.
         FrameLayout frame = new FrameLayout(this);
         frame.addView(root, new FrameLayout.LayoutParams(-1, -1));
+        frame.addView(fullscreenHolder, new FrameLayout.LayoutParams(-1, -1));
         dim = new View(this);
         dim.setBackgroundColor(Color.BLACK);
         dim.setClickable(false);
@@ -365,6 +487,19 @@ public class SessionActivity extends Activity implements Session.Listener {
         return s.isActive() ? s : null;
     }
 
+    /** The pages shown together: the first two open ones, or the focused one with the first other. Slot order. */
+    private List<Session> pair() {
+        List<Session> out = new ArrayList<>();
+        Session f = front();
+        if (f != null) out.add(f);
+        for (Session s : Sessions.active()) {
+            if (out.size() >= 2) break;
+            if (s != f) out.add(s);
+        }
+        java.util.Collections.sort(out, (a, b) -> a.slot - b.slot);
+        return out;
+    }
+
     /** Puts the pages in their panes and brings every control up to date. */
     private void rebuild() {
         List<Session> active = Sessions.active();
@@ -373,8 +508,12 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (active.size() < 2) split = false;
 
         boolean landscape = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+        int layout = inPip ? pipLayout() : 0;
+        boolean together = (split && !inPip) || layout != 0;
+        boolean horizontal = inPip && layout != 0 ? layout == 1 : landscape;
+        List<Session> shownTogether = together ? pair() : new ArrayList<Session>();
         paneHolder.removeAllViews();
-        paneHolder.setOrientation(landscape ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+        paneHolder.setOrientation(horizontal ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
         for (int i = 0; i < Sessions.COUNT; i++) {
             Session s = Sessions.get(i);
             FrameLayout p = panes[i];
@@ -382,18 +521,19 @@ public class SessionActivity extends Activity implements Session.Listener {
             if (s.isActive()) {
                 wv = s.webView(this);
                 s.attach(this);
-                if (wv.getParent() != p) {
+                if (wv.getParent() != boxes[i]) {
                     if (wv.getParent() instanceof ViewGroup) ((ViewGroup) wv.getParent()).removeView(wv);
-                    p.addView(wv, new FrameLayout.LayoutParams(-1, -1));
+                    boxes[i].addView(wv, new FrameLayout.LayoutParams(-1, -1));
                 }
+                boxes[i].setRatio(Pin.ASPECTS[s.aspect()]);
                 s.setFrameWindow(getWindow());
-            } else if (wv != null && wv.getParent() == p) {
-                p.removeView(wv);
+            } else if (wv != null && wv.getParent() == boxes[i]) {
+                boxes[i].removeView(wv);
             }
-            boolean shown = s.isActive() && (i == focus || (split && !inPip));
+            boolean shown = s.isActive() && (together ? shownTogether.contains(s) : i == focus);
             if (p.getParent() != null) ((ViewGroup) p.getParent()).removeView(p);
             if (shown) {
-                paneHolder.addView(p, landscape ? new LinearLayout.LayoutParams(0, -1, 1f) : new LinearLayout.LayoutParams(-1, 0, 1f));
+                paneHolder.addView(p, horizontal ? new LinearLayout.LayoutParams(0, -1, 1f) : new LinearLayout.LayoutParams(-1, 0, 1f));
             }
             if (i != focus) s.setCallMeter(false);
         }
@@ -410,7 +550,7 @@ public class SessionActivity extends Activity implements Session.Listener {
             Session s = Sessions.get(i);
             tabs[i].setVisibility(s.isActive() ? View.VISIBLE : View.GONE);
             if (!s.isActive()) continue;
-            tabs[i].setText((char) ('A' + i) + "  " + s.title());
+            tabs[i].setText(s.label());
             tabs[i].setSingleLine(true);
             tabs[i].setEllipsize(android.text.TextUtils.TruncateAt.END);
             Ui.tint(this, tabs[i], i == focus ? Ui.GREEN : 0);
@@ -426,6 +566,180 @@ public class SessionActivity extends Activity implements Session.Listener {
         ccButton.setText(f.isTranscribing() ? "CC on" : "CC");
         Ui.tint(this, ccButton, f.isTranscribing() ? Ui.GREEN : 0);
         awayButton.setText(f.awayAtWall != 0 ? "Back - play what I missed" : "Step away");
+    }
+
+    // ---- the options bar as a floating button ------------------------------------------------
+
+    /**
+     * Docked: the bar sits across the top. Floating (a setting): the bar leaves the layout so the page gets the whole
+     * screen, and a small round button you can drag opens it over the page. Both the button and the opened bar are windows of
+     * their own, like the freeze cover, so a recording of the page never shows them.
+     */
+    private void applyBarMode() {
+        dismissFloat();
+        boolean floating = Prefs.floatingBar(this) && !inPip && !isFinishing() && fullscreenSession == null;
+        if (chromeBox.getParent() instanceof ViewGroup) ((ViewGroup) chromeBox.getParent()).removeView(chromeBox);
+        if (!floating) {
+            chromeBox.setBackground(null);
+            chromeBox.setPadding(0, 0, 0, 0);
+            root.addView(chromeBox, 0, new LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT));
+            chromeBox.setVisibility(inPip ? View.GONE : View.VISIBLE);
+            return;
+        }
+        chromeBox.setVisibility(View.VISIBLE);
+        chromeBox.setBackground(Ui.rounded(this, Ui.withAlpha(Ui.BG, 0.96f), Ui.STROKE, 0));
+        chromeBox.setPadding(0, 0, 0, Ui.dp(this, 6));
+        View decor = getWindow().getDecorView();
+        if (decor.getWidth() < 8) {
+            decor.post(this::applyBarMode);
+            return;
+        }
+        int size = Ui.dp(this, 48);
+        TextView button = Ui.text(this, "☰", 22f, Ui.BG, "semibold");
+        button.setGravity(Gravity.CENTER);
+        button.setBackground(Ui.rounded(this, Ui.withAlpha(Ui.GREEN, 0.92f), 0, 100));
+        floatButton = new PopupWindow(button, size, size, false);
+        floatButton.setClippingEnabled(false);
+        int[] origin = new int[2];
+        decor.getLocationOnScreen(origin);
+        final int maxX = Math.max(0, decor.getWidth() - size), maxY = Math.max(0, decor.getHeight() - size);
+        final int[] pos = {Math.round(Prefs.floatX(this) * maxX), Math.round(Prefs.floatY(this) * maxY)};
+        final float[] down = new float[4];
+        final boolean[] dragged = {false};
+        button.setOnTouchListener((v, e) -> {
+            switch (e.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    down[0] = e.getRawX();
+                    down[1] = e.getRawY();
+                    down[2] = pos[0];
+                    down[3] = pos[1];
+                    dragged[0] = false;
+                    return true;
+                case android.view.MotionEvent.ACTION_MOVE: {
+                    float dx = e.getRawX() - down[0], dy = e.getRawY() - down[1];
+                    if (!dragged[0] && Math.hypot(dx, dy) < Ui.dp(this, 8)) return true;
+                    dragged[0] = true;
+                    pos[0] = Math.max(0, Math.min(maxX, Math.round(down[2] + dx)));
+                    pos[1] = Math.max(0, Math.min(maxY, Math.round(down[3] + dy)));
+                    floatButton.update(pos[0], pos[1], -1, -1);
+                    return true;
+                }
+                case android.view.MotionEvent.ACTION_UP:
+                    if (dragged[0]) {
+                        Prefs.setFloatPos(this, maxX == 0 ? 0f : pos[0] / (float) maxX, maxY == 0 ? 0f : pos[1] / (float) maxY);
+                    } else {
+                        togglePanel();
+                    }
+                    return true;
+                default:
+                    return true;
+            }
+        });
+        try {
+            floatButton.showAtLocation(decor, Gravity.TOP | Gravity.START, pos[0], pos[1]);
+        } catch (RuntimeException e) {
+            floatButton = null;   // the window is going away
+            return;
+        }
+        if (panelOpen) showPanel();
+    }
+
+    private void togglePanel() {
+        panelOpen = !panelOpen;
+        if (panelOpen) showPanel(); else hidePanel();
+    }
+
+    private void showPanel() {
+        hidePanel();
+        View decor = getWindow().getDecorView();
+        floatPanel = new PopupWindow(chromeBox, decor.getWidth(), ViewGroup.LayoutParams.WRAP_CONTENT, false);
+        floatPanel.setClippingEnabled(false);
+        int[] at = new int[2];
+        root.getLocationOnScreen(at);
+        int[] origin = new int[2];
+        decor.getLocationOnScreen(origin);
+        try {
+            floatPanel.showAtLocation(decor, Gravity.TOP | Gravity.START, at[0] - origin[0], at[1] - origin[1]);
+        } catch (RuntimeException e) {
+            floatPanel = null;
+            panelOpen = false;
+        }
+    }
+
+    private void hidePanel() {
+        PopupWindow p = floatPanel;
+        floatPanel = null;
+        if (p != null) {
+            try {
+                p.dismiss();
+            } catch (RuntimeException ignored) {
+                // Already gone.
+            }
+        }
+    }
+
+    /** Takes both floating windows down (the bar view itself stays ours and goes back to a parent in {@link #applyBarMode}). */
+    private void dismissFloat() {
+        hidePanel();
+        PopupWindow b = floatButton;
+        floatButton = null;
+        if (b != null) {
+            try {
+                b.dismiss();
+            } catch (RuntimeException ignored) {
+                // Already gone.
+            }
+        }
+    }
+
+    // ---- pocket lock -------------------------------------------------------------------------------
+
+    private void startPocketLock() {
+        if (Sessions.active().isEmpty()) return;
+        pocketLocked = true;
+        if (sheet != null) sheet.dismiss();
+        panelOpen = false;
+        hidePanel();
+        showLock();
+        updatePip();
+    }
+
+    /**
+     * The lock is a window of its own above everything (so the recording, which copies this activity's window, never shows
+     * it, and Step away's cover underneath is covered too). Touches stop there; Back does nothing. To unlock, hold both
+     * circles at once for a moment.
+     */
+    private void showLock() {
+        if (lockDialog != null) return;
+        Dialog d = new Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+        d.setCancelable(false);
+        d.setCanceledOnTouchOutside(false);
+        d.setContentView(new PocketLockView(this, () -> {
+            pocketLocked = false;
+            dismissLock();
+            updatePip();
+            Toast.makeText(this, "Unlocked", Toast.LENGTH_SHORT).show();
+        }));
+        d.setOnKeyListener((dd, code, ev) -> code == android.view.KeyEvent.KEYCODE_BACK
+                || code == android.view.KeyEvent.KEYCODE_APP_SWITCH || code == android.view.KeyEvent.KEYCODE_MENU);
+        lockDialog = d;
+        try {
+            d.show();
+        } catch (RuntimeException e) {
+            lockDialog = null;
+        }
+    }
+
+    private void dismissLock() {
+        Dialog d = lockDialog;
+        lockDialog = null;
+        if (d != null) {
+            try {
+                d.dismiss();
+            } catch (RuntimeException ignored) {
+                // Already gone.
+            }
+        }
     }
 
     // ---- actions -----------------------------------------------------------------------------
@@ -676,8 +990,61 @@ public class SessionActivity extends Activity implements Session.Listener {
     }
 
     @Override
+    public void onOpened(Session s) {
+        if (Sessions.get(focus).isActive()) updateControls();   // a new tab (a workflow's temporary page) shows up
+        else rebuild();
+    }
+
+    @Override
     public void onMuted(Session s, boolean muted) {
         updateControls();
+        updatePip();   // the Mini window's microphone button shows the state
+    }
+
+    @Override
+    public void onAspect(Session s) {
+        boxes[s.slot].setRatio(Pin.ASPECTS[s.aspect()]);
+        updateFreeze();
+    }
+
+    @Override
+    public void onFullscreen(Session s, View view) {
+        if (view == null) {
+            if (fullscreenSession == s) fullscreenSession = null;
+            fullscreenHolder.removeAllViews();
+            fullscreenHolder.setVisibility(View.GONE);
+            setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+            setSystemBars(true);
+        } else {
+            fullscreenSession = s;
+            if (view.getParent() instanceof ViewGroup) ((ViewGroup) view.getParent()).removeView(view);
+            fullscreenHolder.removeAllViews();
+            fullscreenHolder.addView(view, new FrameLayout.LayoutParams(-1, -1));
+            fullscreenHolder.setVisibility(View.VISIBLE);
+            // A video wants to be turned sideways even when the phone's own rotation lock is on.
+            setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR);
+            setSystemBars(false);
+        }
+        getWindow().getDecorView().post(this::applyBarMode);
+    }
+
+    /** Status and navigation bars shown, or hidden for full screen (they come back with a swipe from the edge). */
+    @SuppressWarnings("deprecation")
+    private void setSystemBars(boolean visible) {
+        if (Build.VERSION.SDK_INT >= 30) {
+            android.view.WindowInsetsController c = getWindow().getInsetsController();
+            if (c == null) return;
+            if (visible) {
+                c.show(android.view.WindowInsets.Type.systemBars());
+            } else {
+                c.hide(android.view.WindowInsets.Type.systemBars());
+                c.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            }
+        } else {
+            getWindow().getDecorView().setSystemUiVisibility(visible ? View.SYSTEM_UI_FLAG_VISIBLE
+                    : View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        }
     }
 
     @Override
@@ -687,7 +1054,7 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     @Override
     public void onNotice(Session s, String text) {
-        Toast.makeText(getApplicationContext(), s.title() + ": " + text, Toast.LENGTH_LONG).show();
+        Toast.makeText(getApplicationContext(), s.label() + ": " + text, Toast.LENGTH_LONG).show();
     }
 
     @Override
@@ -711,6 +1078,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     public void onClosed(Session s, String reason) {
         Toast.makeText(getApplicationContext(), s.title() + " closed: " + reason, Toast.LENGTH_LONG).show();
         if (Sessions.active().isEmpty()) {
+            pocketLocked = false;
             if (sheet != null) sheet.dismiss();
             finish();
         } else {

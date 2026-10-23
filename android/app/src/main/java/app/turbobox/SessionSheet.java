@@ -53,6 +53,8 @@ final class SessionSheet implements Session.Listener {
     private long testStartedAt;
     private boolean heardSound;
     private Runnable zoomApply;
+    private TextView navBack;
+    private TextView navForward;
 
     SessionSheet(Activity act, Session session, Runnable onBrightness) {
         this.act = act;
@@ -88,7 +90,23 @@ final class SessionSheet implements Session.Listener {
         col.setBackground(bg);
         scroll.addView(col, new ViewGroup.LayoutParams(-1, -2));
 
-        col.addView(Ui.text(act, "Settings - " + session.title(), 20f, Ui.TEXT, "semibold"), Ui.lp(act, 0, 14));
+        // Title, and a little back / forward box so moving around the site needs no trip to the page's own buttons
+        LinearLayout head = new LinearLayout(act);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = Ui.text(act, "Settings - " + session.title(), 20f, Ui.TEXT, "semibold");
+        title.setSingleLine(true);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        head.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout navBox = new LinearLayout(act);
+        navBox.setBackground(Ui.rounded(act, Ui.CARD, Ui.STROKE, 100));
+        navBox.setPadding(Ui.dp(act, 4), Ui.dp(act, 2), Ui.dp(act, 4), Ui.dp(act, 2));
+        navBack = navButton("‹", "Back", session::goBack);
+        navForward = navButton("›", "Forward", session::goForward);
+        navBox.addView(navBack);
+        navBox.addView(navForward);
+        head.addView(navBox);
+        col.addView(head, Ui.lp(act, 0, 14));
+        updateNav();
 
         // Privacy: what this page may use
         col.addView(Ui.label(act, "Privacy - this page may use"));
@@ -223,6 +241,21 @@ final class SessionSheet implements Session.Listener {
         }), new LinearLayout.LayoutParams(-1, -2));
         col.addView(Ui.hint(act, "Makes the whole page bigger or smaller by changing the width it is laid out at, like "
                 + "browser zoom. Pinch still magnifies. Kept with the pinned page."), Ui.lp(act, 0, 14));
+
+        // Forced shape: the page's area is fitted into a box of this shape (bars around it) instead of filling the space
+        TextView aspectValue = Ui.text(act, Pin.ASPECT_LABELS[session.aspect()] + "  ›", 17f, Ui.GREEN, "sans-serif-medium");
+        aspectValue.setPadding(0, Ui.dp(act, 8), 0, Ui.dp(act, 8));
+        aspectValue.setClickable(true);
+        aspectValue.setOnClickListener(v -> new AlertDialog.Builder(act).setTitle("Force aspect ratio")
+                .setSingleChoiceItems(Pin.ASPECT_LABELS, session.aspect(), (dd, which) -> {
+                    session.setAspect(which);
+                    aspectValue.setText(Pin.ASPECT_LABELS[which] + "  ›");
+                    dd.dismiss();
+                }).show());
+        col.addView(Ui.label(act, "Aspect ratio"));
+        col.addView(aspectValue, Ui.lp(act, 0, 2));
+        col.addView(Ui.hint(act, "Fits the page into a box of this shape, centred with bars around it, and lays the page out to fit it "
+                + "(a 16:9 box suits a video). Kept with the pinned page."), Ui.lp(act, 0, 14));
 
         // Page info: what the page sees, to check the desktop layout
         TextView info = Ui.pill(act, "Show page info", 0);
@@ -409,6 +442,30 @@ final class SessionSheet implements Session.Listener {
         loopbackAction.setVisibility(View.GONE);
         loopbackStatus.setText("Set to " + Ui.pct(micGain) + ". Run the test again to check it.");
         loopbackStatus.setTextColor(Ui.DIM);
+    }
+
+    private TextView navButton(String glyph, String description, Runnable action) {
+        TextView b = Ui.text(act, glyph, 26f, Ui.TEXT, "sans-serif-medium");
+        b.setGravity(Gravity.CENTER);
+        b.setContentDescription(description);
+        b.setPadding(Ui.dp(act, 16), Ui.dp(act, 2), Ui.dp(act, 16), Ui.dp(act, 4));
+        b.setClickable(true);
+        b.setOnClickListener(v -> {
+            action.run();
+            ui.postDelayed(this::updateNav, 400);   // the history changes a moment after the page starts to move
+        });
+        return b;
+    }
+
+    private void updateNav() {
+        if (navBack == null) return;
+        navBack.setAlpha(session.canGoBack() ? 1f : 0.3f);
+        navForward.setAlpha(session.canGoForward() ? 1f : 0.3f);
+    }
+
+    @Override
+    public void onNavigation(Session s) {
+        updateNav();
     }
 
     @Override

@@ -2,6 +2,7 @@ package app.turbobox;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.app.TimePickerDialog;
 import android.os.Bundle;
 import android.os.Handler;
@@ -15,8 +16,9 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 
 /** Writes one workflow: its page, its schedule and its steps, and tries it. */
 public class WorkflowEditActivity extends Activity {
@@ -30,29 +32,6 @@ public class WorkflowEditActivity extends Activity {
             + "unmute\n"
             + "record start\n"
             + "hangup 2h\n";
-
-    private static final String[][] TEMPLATES = {
-            {"Wait", "wait 30s"},
-            {"Click a button by its words", "click Join"},
-            {"Click by CSS selector", "click css:#join-button"},
-            {"Wait until something shows", "waitfor Leave"},
-            {"Type into a field", "type css:#name = Your name"},
-            {"Press a key", "key Enter"},
-            {"Scroll", "scroll down 600"},
-            {"Mute the call", "mute"},
-            {"Unmute the call", "unmute"},
-            {"Set the page volume", "volume 100"},
-            {"Hang up after a while", "hangup 1h30m"},
-            {"Start the recording buffer", "record start"},
-            {"Stop the recording buffer", "record stop"},
-            {"Mark the recording", "mark Lecture starts"},
-            {"Step away (freeze and silence the page here, keep recording)", "step away"},
-            {"Step back (show and hear the page again)", "step back"},
-            {"Live captions on", "transcribe on"},
-            {"Load the page again", "open"},
-            {"Run a script on the page", "js document.title"},
-            {"Close the page (hang up)", "close"},
-    };
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private Workflow wf;
@@ -87,7 +66,7 @@ public class WorkflowEditActivity extends Activity {
             wf = Workflow.create();
             wf.steps = EXAMPLE;
             java.util.List<Pin> pins = PinStore.load(this);
-            if (!pins.isEmpty()) wf.pinId = pins.get(0).id;
+            if (!pins.isEmpty()) wf.pinIds.add(pins.get(0).id);
         }
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
@@ -111,13 +90,13 @@ public class WorkflowEditActivity extends Activity {
         body.addView(Ui.label(this, "Name"));
         name = new EditText(this);
         name.setText(wf.name);
-        name.setHint("Morning lecture");
+        name.setHint("Morning check-in");
         name.setSingleLine(true);
         name.setTextColor(Ui.TEXT);
         name.setHintTextColor(Ui.FAINT);
         body.addView(name, Ui.lp(this, 4, 12));
 
-        body.addView(Ui.label(this, "Page"));
+        body.addView(Ui.label(this, "Pages"));
         pageValue = Ui.text(this, pageText(), 17f, Ui.GREEN, "sans-serif-medium");
         pageValue.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 8));
         pageValue.setOnClickListener(v -> choosePage());
@@ -175,11 +154,12 @@ public class WorkflowEditActivity extends Activity {
         steps.setBackground(Ui.rounded(this, Ui.CARD, Ui.STROKE, 12));
         steps.setPadding(Ui.dp(this, 10), Ui.dp(this, 10), Ui.dp(this, 10), Ui.dp(this, 10));
         body.addView(steps, Ui.lp(this, 0, 6));
-        TextView add = Ui.pill(this, "Add a step", 0);
+        TextView add = Ui.pill(this, "+ Add a step", Ui.GREEN);
         add.setOnClickListener(v -> addStepMenu());
         body.addView(add, Ui.lp(this, 0, 4));
-        body.addView(Ui.hint(this, "click, waitfor and type look for the words on the page (or css:SELECTOR) and retry for up to "
-                + "20 s (waitfor: 60 s); add \"within 2m\" to change that. Guides > Workflows lists every step."), Ui.lp(this, 4, 12));
+        body.addView(Ui.hint(this, "Pick a step and answer what it asks; the line is written into the box above, after the line your "
+                + "cursor is on. You can also type the lines yourself: click, waitfor and type look for the words on the page (or "
+                + "css:SELECTOR) and retry for up to 20 s (waitfor: 60 s); add \"within 2m\" to change that. Guides > Workflows lists every step."), Ui.lp(this, 4, 12));
 
         LinearLayout actions = new LinearLayout(this);
         TextView save = Ui.pill(this, "Save", Ui.GREEN);
@@ -215,8 +195,12 @@ public class WorkflowEditActivity extends Activity {
     }
 
     private String pageText() {
-        Pin p = PinStore.find(this, wf.pinId);
-        return p == null ? "Choose a pinned page" : p.name + "  (" + p.host() + ")";
+        List<String> names = new ArrayList<>();
+        for (String id : wf.pinIds) {
+            Pin p = PinStore.find(this, id);
+            if (p != null) names.add(p.name);
+        }
+        return names.isEmpty() ? "Choose pinned pages" : String.join(", ", names);
     }
 
     private String timeText() {
@@ -233,34 +217,156 @@ public class WorkflowEditActivity extends Activity {
             Toast.makeText(this, "Pin a page on the home screen first.", Toast.LENGTH_LONG).show();
             return;
         }
-        String[] items = new String[pins.size()];
-        int checked = 0;
-        for (int i = 0; i < items.length; i++) {
-            items[i] = pins.get(i).name + "  (" + pins.get(i).host() + ")";
-            if (pins.get(i).id.equals(wf.pinId)) checked = i;
-        }
-        new AlertDialog.Builder(this)
-                .setTitle("Page")
-                .setSingleChoiceItems(items, checked, (d, which) -> {
-                    wf.pinId = pins.get(which).id;
-                    pageValue.setText(pageText());
-                    d.dismiss();
-                })
-                .show();
+        PinGrid.pick(this, "Run on", pins, new LinkedHashSet<>(wf.pinIds), true, chosen -> {
+            wf.pinIds.clear();
+            for (Pin p : pins) if (chosen.contains(p.id)) wf.pinIds.add(p.id);   // the home screen's order
+            pageValue.setText(pageText());
+        });
     }
 
+    // ---- adding a step with buttons --------------------------------------------------------------------
+
+    /** Every kind of step as a button, grouped; tapping one asks what it needs. */
     private void addStepMenu() {
-        String[] items = new String[TEMPLATES.length];
-        for (int i = 0; i < items.length; i++) items[i] = TEMPLATES[i][0] + "   -   " + TEMPLATES[i][1];
-        new AlertDialog.Builder(this)
-                .setTitle("Add a step")
-                .setItems(items, (d, which) -> {
-                    String text = steps.getText().toString();
-                    if (!text.isEmpty() && !text.endsWith("\n")) text += "\n";
-                    steps.setText(text + TEMPLATES[which][1] + "\n");
-                    steps.setSelection(steps.getText().length());
-                })
-                .show();
+        LinearLayout col = new LinearLayout(this);
+        Dialog d = Ui.sheet(this, col);
+        col.addView(Ui.text(this, "Add a step", 20f, Ui.TEXT, "semibold"), Ui.lp(this, 0, 4));
+        col.addView(Ui.hint(this, "It is added after the line your cursor is on."), Ui.lp(this, 0, 8));
+        String group = "";
+        for (StepTemplates.Template t : StepTemplates.all()) {
+            if (!t.group.equals(group)) {
+                group = t.group;
+                col.addView(Ui.label(this, group), Ui.lp(this, 14, 4));
+            }
+            TextView b = Ui.pill(this, t.title, 0);
+            b.setOnClickListener(v -> {
+                d.dismiss();
+                askStep(t);
+            });
+            col.addView(b, Ui.lp(this, 4, 0));
+            col.addView(Ui.hint(this, t.help), Ui.lp(this, 2, 0));
+        }
+        d.show();
+    }
+
+    /** The questions a step needs (how long, which words...), then the line goes into the steps box. */
+    private void askStep(StepTemplates.Template t) {
+        if (t.fields.length == 0 && !t.pageStep) {
+            insertLine(t.line(t.defaults()));
+            return;
+        }
+        LinearLayout col = new LinearLayout(this);
+        Dialog d = Ui.sheet(this, col);
+        col.addView(Ui.text(this, t.title, 20f, Ui.TEXT, "semibold"));
+        col.addView(Ui.hint(this, t.help), Ui.lp(this, 2, 6));
+        final Supplier[] answers = new Supplier[t.fields.length];
+        for (int i = 0; i < t.fields.length; i++) {
+            StepTemplates.Field f = t.fields[i];
+            col.addView(Ui.label(this, f.label), Ui.lp(this, 12, 4));
+            answers[i] = fieldInput(col, f);
+            if (f.hint != null) col.addView(Ui.hint(this, f.hint), Ui.lp(this, 2, 0));
+        }
+        Switch optional = null;
+        Supplier within = null;
+        if (t.pageStep) {
+            optional = new Switch(this);
+            optional.setText("Fine to skip if it is not there");
+            optional.setTextColor(Ui.TEXT);
+            col.addView(optional, Ui.lp(this, 14, 0));
+            col.addView(Ui.label(this, "Give up after"), Ui.lp(this, 12, 4));
+            within = timeInput(col, 0);
+            col.addView(Ui.hint(this, "0 uses the usual time: 20 seconds, 60 for waiting for something to show."), Ui.lp(this, 2, 0));
+        }
+        final Switch optionalFinal = optional;
+        final Supplier withinFinal = within;
+        TextView add = Ui.pill(this, "Add step", Ui.GREEN);
+        add.setOnClickListener(v -> {
+            String[] values = new String[answers.length];
+            for (int i = 0; i < values.length; i++) values[i] = answers[i].get();
+            String line = t.line(values);
+            if (line == null) {
+                Toast.makeText(this, "Fill in what it should look for.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (t.pageStep) {
+                line = StepTemplates.decorate(line, optionalFinal.isChecked(), Long.parseLong(withinFinal.get()));
+            }
+            d.dismiss();
+            insertLine(line);
+        });
+        col.addView(add, Ui.lp(this, 18, 0));
+        d.show();
+    }
+
+    private interface Supplier {
+        String get();
+    }
+
+    /** One input for a field, added to {@code col}; returns what to read the answer with. */
+    private Supplier fieldInput(LinearLayout col, StepTemplates.Field f) {
+        switch (f.type) {
+            case TIME:
+                return timeInput(col, Long.parseLong(f.def == null || f.def.isEmpty() ? "0" : f.def));
+            case CHOICE: {
+                final String[] picked = {f.def};
+                TextView value = Ui.text(this, f.def + "  ›", 17f, Ui.GREEN, "sans-serif-medium");
+                value.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 8));
+                value.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle(f.label)
+                        .setItems(f.options, (dd, which) -> {
+                            picked[0] = f.options[which];
+                            value.setText(picked[0] + "  ›");
+                        }).show());
+                col.addView(value);
+                return () -> picked[0];
+            }
+            default: {
+                EditText e = new EditText(this);
+                e.setSingleLine(true);
+                e.setTextColor(Ui.TEXT);
+                e.setHintTextColor(Ui.FAINT);
+                e.setText(f.def);
+                e.setSelectAllOnFocus(true);
+                if (f.hint != null) e.setHint(f.hint);
+                if (f.type == StepTemplates.FieldType.NUMBER) e.setInputType(InputType.TYPE_CLASS_NUMBER);
+                else e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+                col.addView(e);
+                return () -> e.getText().toString();
+            }
+        }
+    }
+
+    /** Hours, minutes and seconds boxes starting at {@code seconds}; the answer is the total in seconds. */
+    private Supplier timeInput(LinearLayout col, long seconds) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        EditText[] boxes = new EditText[3];
+        String[] units = {"h", "min", "s"};
+        long[] start = {seconds / 3600, seconds % 3600 / 60, seconds % 60};
+        for (int i = 0; i < 3; i++) {
+            EditText e = new EditText(this);
+            e.setInputType(InputType.TYPE_CLASS_NUMBER);
+            e.setSingleLine(true);
+            e.setGravity(Gravity.CENTER);
+            e.setTextColor(Ui.TEXT);
+            e.setText(String.valueOf(start[i]));
+            e.setSelectAllOnFocus(true);
+            e.setEms(3);
+            boxes[i] = e;
+            row.addView(e);
+            TextView u = Ui.text(this, units[i], 14f, Ui.DIM, "sans-serif");
+            u.setPadding(Ui.dp(this, 4), 0, Ui.dp(this, 14), 0);
+            row.addView(u);
+        }
+        col.addView(row);
+        return () -> String.valueOf(StepTemplates.toSeconds(boxes[0].getText().toString(), boxes[1].getText().toString(),
+                boxes[2].getText().toString()));
+    }
+
+    private void insertLine(String line) {
+        StepTemplates.Insert r = StepTemplates.insertAfterCursor(steps.getText().toString(), steps.getSelectionEnd(), line);
+        steps.setText(r.text);
+        steps.setSelection(r.cursor);
+        steps.requestFocus();
     }
 
     /** Checks the steps and saves. Shows the first problem, with its line, and returns false. */
@@ -271,7 +377,9 @@ public class WorkflowEditActivity extends Activity {
             name.setError("Give it a name");
             return false;
         }
-        if (PinStore.find(this, wf.pinId) == null) {
+        boolean anyPage = false;
+        for (String id : wf.pinIds) anyPage |= PinStore.find(this, id) != null;
+        if (!anyPage) {
             Toast.makeText(this, "Choose the page this workflow opens.", Toast.LENGTH_LONG).show();
             return false;
         }

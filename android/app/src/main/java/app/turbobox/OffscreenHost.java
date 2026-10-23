@@ -79,6 +79,25 @@ final class OffscreenHost {
         }
     }
 
+    /**
+     * Nobody reads the pictures (the page is only being kept visible): hand each one back as it arrives, so the display
+     * never waits for a consumer.
+     */
+    void drain() {
+        ImageReader r = reader;
+        if (r == null) return;
+        r.setOnImageAvailableListener(rd -> {
+            Image i = null;
+            try {
+                i = rd.acquireLatestImage();
+            } catch (RuntimeException ignored) {
+                // The reader is closing.
+            } finally {
+                if (i != null) i.close();
+            }
+        }, new android.os.Handler(android.os.Looper.getMainLooper()));
+    }
+
     /** The newest picture the page has drawn since the last call (full size of the virtual display), or null when it has not changed. */
     Bitmap latest() {
         ImageReader r = reader;

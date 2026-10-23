@@ -18,6 +18,11 @@ final class Pin {
     int recordMode;         // recording when the page opens: 0 = follow the default in Settings, 1 = always, 2 = never
     boolean allowMic = true;      // privacy: may the page use the microphone (what it hears of you)
     boolean allowCamera;          // privacy: may the page use the camera (off until you allow it)
+    int aspect;                   // forced shape of the page's area: index into ASPECTS, 0 = fill the space
+
+    /** Shapes a page can be forced into: label, width, height. The first means "no forced shape". */
+    static final String[] ASPECT_LABELS = {"Off (fill the space)", "16:9 (video)", "4:3", "21:9 (ultrawide)", "1:1 (square)", "9:16 (portrait video)", "3:2"};
+    static final float[] ASPECTS = {0f, 16f / 9f, 4f / 3f, 21f / 9f, 1f, 9f / 16f, 3f / 2f};
 
     Pin(String id, String name, String url) {
         this.id = id;
@@ -33,7 +38,7 @@ final class Pin {
         try {
             return new JSONObject().put("id", id).put("name", name).put("url", url)
                     .put("zoom", zoom).put("volume", volume).put("recordMode", recordMode)
-                    .put("allowMic", allowMic).put("allowCamera", allowCamera);
+                    .put("allowMic", allowMic).put("allowCamera", allowCamera).put("aspect", aspect);
         } catch (JSONException e) {
             throw new IllegalStateException(e);
         }
@@ -47,6 +52,7 @@ final class Pin {
         p.recordMode = o.has("recordMode") ? o.optInt("recordMode") : o.optBoolean("autoRecord", false) ? 1 : 0;
         p.allowMic = o.optBoolean("allowMic", true);
         p.allowCamera = o.optBoolean("allowCamera", false);
+        p.aspect = Math.max(0, Math.min(ASPECTS.length - 1, o.optInt("aspect", 0)));
         return p;
     }
 

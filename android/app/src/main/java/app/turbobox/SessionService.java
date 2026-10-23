@@ -31,7 +31,8 @@ public class SessionService extends Service {
     static final String ACTION_TOGGLE_MUTE = "app.turbobox.TOGGLE_MUTE";
     static final String ACTION_STOP_STANDBY = "app.turbobox.STOP_STANDBY";
 
-    private static final String CHANNEL_ID = "sessions";
+    private static final String CHANNEL_ID = "sessions";           // something is happening: pages, a timer, a workflow
+    private static final String CHANNEL_STANDBY = "standby";        // nothing is: a quiet ongoing notice you can hide
     private static final int NOTIFICATION_ID = 2;
 
     private static SessionService instance;
@@ -86,19 +87,12 @@ public class SessionService extends Service {
         if (ACTION_CLOSE_ALL.equals(action)) {
             for (Session s : Sessions.active()) s.close("closed from the notification");
         } else if (ACTION_TOGGLE_MUTE.equals(action)) {
-            boolean target = !allMuted();
-            for (Session s : Sessions.active()) s.setMuted(target);
+            Sessions.toggleAllMuted();
         } else if (ACTION_STOP_STANDBY.equals(action)) {
             Prefs.setStandby(this, false);
         }
         apply(true);
         return Prefs.standby(this) ? START_STICKY : START_NOT_STICKY;
-    }
-
-    private static boolean allMuted() {
-        List<Session> list = Sessions.active();
-        for (Session s : list) if (!s.isMuted()) return false;
-        return !list.isEmpty();
     }
 
     /** Foreground with the current notification; stops itself when nothing needs it any more. */
@@ -111,6 +105,12 @@ public class SessionService extends Service {
         }
         NotificationManager nm = getSystemService(NotificationManager.class);
         nm.createNotificationChannel(new NotificationChannel(CHANNEL_ID, "Pages and workflows", NotificationManager.IMPORTANCE_LOW));
+        // Its own channel, as quiet as a channel gets (no sound, no status bar icon), so Android's notification settings can
+        // hide it ("Standby" off) while the service itself keeps running.
+        NotificationChannel standby = new NotificationChannel(CHANNEL_STANDBY, "Standby", NotificationManager.IMPORTANCE_MIN);
+        standby.setShowBadge(false);
+        standby.setDescription("Shown while TurboBox is only waiting for a workflow. Turn it off here to hide it; Standby keeps working.");
+        nm.createNotificationChannel(standby);
         Notification n = buildNotification();
         if (starting) {
             startForegroundCompat(n); // must happen within seconds of startForegroundService, even if we stop next
@@ -134,7 +134,7 @@ public class SessionService extends Service {
 
     /**
      * Microphone type when the phone allows it (the microphone permission is granted and the app was in the
-     * foreground when this service started), otherwise media playback, which still keeps a lecture playing and a
+     * foreground when this service started), otherwise media playback, which still keeps a video playing and a
      * workflow clicking with the screen off.
      */
     private void startForegroundCompat(Notification n) {
@@ -160,40 +160,38 @@ public class SessionService extends Service {
         List<String> lines = new ArrayList<>();
         long soonest = -1;
         for (Session s : active) {
-            StringBuilder sb = new StringBuilder((char) ('A' + s.slot) + "  " + s.title());
-            if (s.isMuted()) sb.append("  - mic muted");
+            lines.add(s.statusLine());
             long left = s.getRemainingMs();
-            if (left >= 0) {
-                sb.append("  - hangs up in ").append(Session.formatMinutes(left));
-                if (soonest < 0 || left < soonest) soonest = left;
-            }
-            if (s.isRecording()) sb.append("  - recording");
-            lines.add(sb.toString());
+            if (left >= 0 && (soonest < 0 || left < soonest)) soonest = left;
         }
-        lines.addAll(WorkflowRunner.statusLines());
-        if (lines.isEmpty()) {
+        List<String> workflows = WorkflowRunner.statusLines();
+        lines.addAll(workflows);
+        boolean idle = active.isEmpty() && workflows.isEmpty();
+        if (idle) {
             Object[] next = WorkflowScheduler.soonest(this);
-            lines.add(next == null ? "Standby: ready for workflows"
-                    : "Standby: next workflow " + next[0] + " at "
-                    + android.text.format.DateFormat.getTimeFormat(this).format((Long) next[1]));
+            lines.add(next == null ? "Ready for workflows"
+                    : "Next workflow " + next[0] + " at " + android.text.format.DateFormat.getTimeFormat(this).format((Long) next[1]));
         }
 
         Intent openIntent = new Intent(this, active.isEmpty() ? MainActivity.class : SessionActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
         PendingIntent open = PendingIntent.getActivity(this, 0, openIntent, PendingIntent.FLAG_IMMUTABLE);
-        Notification.Builder b = new Notification.Builder(this, CHANNEL_ID)
+        String title = idle ? "TurboBox standby"
+                : active.isEmpty() ? "TurboBox - workflow running"
+                : active.size() == 1 ? "TurboBox - 1 page" : "TurboBox - " + active.size() + " pages";
+        Notification.Builder b = new Notification.Builder(this, idle ? CHANNEL_STANDBY : CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_stat_box)
-                .setContentTitle(active.isEmpty() ? "TurboBox" : active.size() == 1 ? "TurboBox - 1 page" : "TurboBox - 2 pages")
+                .setContentTitle(title)
                 .setContentText(lines.get(0))
                 .setStyle(new Notification.BigTextStyle().bigText(String.join("\n", lines)))
                 .setContentIntent(open)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
-                .setCategory(active.isEmpty() ? Notification.CATEGORY_SERVICE : Notification.CATEGORY_CALL);
+                .setCategory(idle ? Notification.CATEGORY_SERVICE : Notification.CATEGORY_CALL);
         if (!active.isEmpty()) {
-            b.addAction(action(allMuted() ? "Unmute" : "Mute", ACTION_TOGGLE_MUTE, 4));
+            b.addAction(action(Sessions.allMuted() ? "Unmute" : "Mute", ACTION_TOGGLE_MUTE, 4));
             b.addAction(action(active.size() > 1 ? "Close all" : "Close page", ACTION_CLOSE_ALL, 3));
-        } else if (Prefs.standby(this)) {
+        } else if (idle && Prefs.standby(this)) {
             b.addAction(action("Stop standby", ACTION_STOP_STANDBY, 5));
         }
         if (soonest >= 0) {

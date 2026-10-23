@@ -1,9 +1,9 @@
 # Recording buffer: watch what you missed
 
-You are in a lecture stream and someone starts talking to you. Tap **Step away**, talk, tap **Back**: TurboBox plays what the page showed and played while you were away, faster if you like, until you are caught up.
+You are watching a stream and someone starts talking to you. Tap **Step away**, talk, tap **Back**: TurboBox plays what the page showed and played while you were away, faster if you like, until you are caught up.
 
 ## How it works
-While the buffer is on, TurboBox takes a picture of the page a few times a second and records the sound the page plays (the lecturer, the other people in the call), and writes both into 30-second video pieces in the phone's cache. Only the newest N minutes are kept (Settings > Recording buffer, 15 minutes to 4 hours, 60 by default), so it is a rolling window, not an ever-growing file. Nothing leaves the phone.
+While the buffer is on, TurboBox takes a picture of the page a few times a second and records the sound the page plays (the stream, the other people in a call), and writes both into 30-second video pieces in the phone's cache. Only the newest N minutes are kept (Settings > Recording buffer, 15 minutes to 4 hours, 60 by default), so it is a rolling window, not an ever-growing file. Nothing leaves the phone.
 
 **It is on by default**: every page records from the moment it opens, so Step away always has something to replay. Settings > Recording buffer > *Record every page when it opens* turns that off for all pages, and a pinned page can override it (long-press it > Edit > Recording: follow the default / always / never).
 
@@ -13,12 +13,12 @@ You can also start or stop it by hand:
 - A workflow step, `record start` ([WORKFLOWS](WORKFLOWS.md)).
 
 ## Step away and Back
-1. **Step away** adds a mark and keeps recording. On your phone the page **freezes on its last picture and goes silent** (a banner says so), so you can talk to someone without the lecture running over you; behind the freeze the recording keeps taking the live picture and sound. The button changes to **Back - play what I missed**.
+1. **Step away** adds a mark and keeps recording. On your phone the page **freezes on its last picture and goes silent** (a banner says so), so you can talk to someone without the page running over you; behind the freeze the recording keeps taking the live picture and sound. The button changes to **Back - play what I missed**.
 2. **Back** opens the player at the moment you stepped away. It first finishes the piece that was being written (a few seconds), then plays on. The live page stays frozen and silent behind the player, and comes back (picture and sound) when you leave the player.
 3. Pick a speed (1x, 1.25x, 1.5x, 2x, 2.5x, 3x) with the speed button. When playback reaches the newest piece it asks the recorder for what has been written since and goes on, until it says you are up to date.
 4. Seek anywhere in the bar, jump 10 seconds either way, open **Marks**, or tap **Latest**.
 
-**Recordings** on the home screen lists the last few recordings (3 by default; Settings changes it) so you can watch a lecture again after it ended.
+**Recordings** on the home screen lists the last few recordings (3 by default; Settings changes it) so you can watch something again after it ended.
 
 ## What it can and cannot record
 - **The picture, screen on:** taken from the TurboBox window while it is in front (a floating Mini window counts).

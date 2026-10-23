@@ -8,6 +8,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Base64;
+import android.view.View;
 import android.view.Window;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
@@ -51,6 +52,9 @@ final class Session {
         /** Countdown update; {@code remainingMs} is -1 when no timer is running. */
         default void onTimer(Session s, long remainingMs) {}
 
+        /** A page was opened in this slot (a workflow may do it while a screen is showing others). */
+        default void onOpened(Session s) {}
+
         /** The page was closed, by the timer, the Close button, the notification or a workflow. */
         default void onClosed(Session s, String reason) {}
 
@@ -74,6 +78,15 @@ final class Session {
 
         /** The recording buffer started or stopped. */
         default void onRecording(Session s, boolean on, String note) {}
+
+        /** The page asked for full screen (a video's full-screen button): show {@code view} over everything. {@code null} = leave it. */
+        default void onFullscreen(Session s, View view) {}
+
+        /** The page went to another address, or the back / forward history changed. */
+        default void onNavigation(Session s) {}
+
+        /** The forced shape of the page's area changed. */
+        default void onAspect(Session s) {}
     }
 
     interface StepCallback {
@@ -113,6 +126,11 @@ final class Session {
     private boolean micAllowed = true;    // privacy: the page may use the microphone
     private boolean cameraAllowed;        // privacy: the page may use the camera
     private int viewCssWidth;         // the page's own area in CSS pixels, so a small window lays out right
+    private int aspect;               // forced shape of the page's area, an index into Pin.ASPECTS (0 = fill)
+    private View customView;          // the page's full-screen view while it is full screen
+    private WebChromeClient.CustomViewCallback customCallback;
+    private OffscreenHost keepHost;   // the page on a private display while no screen shows it and it is not recording
+    private boolean keepHostFailed;
 
     Session(int slot) {
         this.slot = slot;
@@ -140,6 +158,26 @@ final class Session {
         return pin == null ? "Page" : pin.name;
     }
 
+    /** "A | Snapchat" while more than one page is open, just "Snapchat" for a single page. */
+    String label() {
+        return Sessions.tag(this) + title();
+    }
+
+    /** A page a workflow borrowed a slot for because A and B were busy: it goes away when it closes. */
+    boolean isTemporary() {
+        return slot >= Sessions.PERMANENT;
+    }
+
+    /** The label with its state in brackets: "A | Snapchat [muted] [recording] [hangs up in 42 min]". */
+    String statusLine() {
+        StringBuilder sb = new StringBuilder(label());
+        if (isMuted()) sb.append(" [muted]");
+        if (isRecording()) sb.append(" [recording]");
+        long left = getRemainingMs();
+        if (left >= 0) sb.append(" [hangs up in ").append(formatMinutes(left)).append(']');
+        return sb.toString();
+    }
+
     boolean isMuted() {
         return muted;
     }
@@ -154,6 +192,54 @@ final class Session {
 
     float zoom() {
         return zoom;
+    }
+
+    int aspect() {
+        return aspect;
+    }
+
+    /** Forces the page's area into a shape (an index into {@link Pin#ASPECTS}, 0 = fill the space); kept with the pin. */
+    void setAspect(int index) {
+        aspect = Math.max(0, Math.min(Pin.ASPECTS.length - 1, index));
+        if (pin != null) {
+            pin.aspect = aspect;
+            PinStore.put(app, pin);
+        }
+        for (Listener l : listeners) l.onAspect(this);
+    }
+
+    // ---- history ---------------------------------------------------------------------------------
+
+    boolean canGoBack() {
+        return webView != null && active && webView.canGoBack();
+    }
+
+    boolean canGoForward() {
+        return webView != null && active && webView.canGoForward();
+    }
+
+    void goBack() {
+        if (canGoBack()) webView.goBack();
+    }
+
+    void goForward() {
+        if (canGoForward()) webView.goForward();
+    }
+
+    // ---- full screen -----------------------------------------------------------------------------
+
+    boolean isFullscreen() {
+        return customView != null;
+    }
+
+    /** Leaves the page's full-screen view (the Back key does this first). */
+    void exitFullscreen() {
+        if (customView == null) return;
+        WebChromeClient.CustomViewCallback cb = customCallback;
+        customView = null;
+        customCallback = null;
+        for (Listener l : listeners) l.onFullscreen(this, null);
+        if (cb != null) cb.onCustomViewHidden();
     }
 
     /** The shared WebView if it exists; never creates one. */
@@ -470,7 +556,7 @@ final class Session {
 
     /** Release the activity so a stopped or destroyed screen is not leaked. */
     void detach() {
-        if (webView != null && app != null) ((MutableContextWrapper) webView.getContext()).setBaseContext(app);
+        if (keepHost == null && webView != null && app != null) ((MutableContextWrapper) webView.getContext()).setBaseContext(app);
     }
 
     /** A page that stays running when no screen is showing it. */
@@ -490,6 +576,7 @@ final class Session {
         aec = Prefs.aec(app);
         micGain = Prefs.micGain(app);
         zoom = page.zoom;
+        aspect = page.aspect;
         volume = page.volume;
         micAllowed = page.allowMic;
         cameraAllowed = page.allowCamera;
@@ -515,6 +602,12 @@ final class Session {
         wv.loadUrl(page.url);
         keepRunning();
         if (page.recordsOnOpen(Prefs.recordByDefault(app))) startRecording();
+        // Started by a workflow with no screen open: host it. (Posted, because a tap on a tile has the screen attach its window
+        // in this same call, and then there is nothing to host.)
+        main.post(() -> {
+            if (frameWindow == null) hostWithoutScreen();
+        });
+        for (Listener l : listeners) l.onOpened(this);
     }
 
     /** Load the pinned address again (a workflow's "open" step). */
@@ -538,6 +631,8 @@ final class Session {
         awayAtWall = 0;
         catchingUp = false;
         frozen = false;
+        exitFullscreen();
+        leaveHost();
         stopRecording();
         stopCapture();
         InputRoute.clear(app);
@@ -590,11 +685,53 @@ final class Session {
     void setFrameWindow(Window w) {
         frameWindow = w;
         if (recorder != null) recorder.setSource(w, webView);
+        if (w != null) leaveHost(); else hostWithoutScreen();
+    }
+
+    // ---- staying visible with no screen ----------------------------------------------------------
+
+    /**
+     * No screen shows the page (the phone's screen is off, another app is in front, or a workflow opened it) and it is
+     * not being recorded, which would host it already. Pages like YouTube stop their video when the browser says
+     * nobody can see them, so the page is moved onto a private display of our own that is composited whatever the
+     * physical screen does; nothing is drawn on the phone and nobody reads the pictures.
+     */
+    void hostWithoutScreen() {
+        if (!active || keepHost != null || keepHostFailed || webView == null || app == null || isRecording()) return;
+        if (!Prefs.keepPlaying(app)) return;
+        android.util.DisplayMetrics dm = app.getResources().getDisplayMetrics();
+        int srcW = webView.getWidth() >= 16 ? webView.getWidth() : dm.widthPixels;
+        int srcH = webView.getHeight() >= 16 ? webView.getHeight() : dm.heightPixels;
+        float k = Math.min(1f, 480f / srcW);
+        int dpi = Math.max(60, Math.round(dm.densityDpi * k));
+        OffscreenHost host = new OffscreenHost(app, "keep" + slot, webView, Math.max(16, Math.round(srcW * k)),
+                Math.max(16, Math.round(srcH * k)), dpi);
+        if (host.start()) {
+            host.drain();
+            keepHost = host;
+        } else {
+            keepHostFailed = true;
+            notice("The page cannot be kept visible with the screen off on this phone (" + host.error() + "), so a video may pause.");
+        }
+    }
+
+    /** Tells the page its visibility setting again and hosts it (or not) after the setting changed. */
+    void refreshVisibility() {
+        js("__turbobox.configure({keepVisible:" + Prefs.keepPlaying(app) + "})");
+        if (frameWindow == null) hostWithoutScreen();
+    }
+
+    /** A screen shows the page again (or it closed): take it off the private display. */
+    void leaveHost() {
+        OffscreenHost h = keepHost;
+        keepHost = null;
+        if (h != null) h.stop();
     }
 
     /** Starts the rolling recording of this page: what is on screen, and the sound the page plays. */
     void startRecording() {
         if (!active || isRecording() || app == null) return;
+        leaveHost();   // the recorder hosts the page itself when no screen can be copied
         int w = webView == null || webView.getWidth() < 16 ? 720 : webView.getWidth();
         int h = webView == null || webView.getHeight() < 16 ? 1280 : webView.getHeight();
         BufferRecorder r = new BufferRecorder(app, slot, title(), w, h, new BufferRecorder.Listener() {
@@ -657,6 +794,8 @@ final class Session {
         r.stop();
         for (Listener l : listeners) l.onRecording(this, false, "");
         SessionService.refresh();
+        // The recorder was hosting the page with no screen; its own clean-up is already queued, so host it after that.
+        if (frameWindow == null) main.post(this::hostWithoutScreen);
     }
 
     // ---- stepping away -----------------------------------------------------------------------------
@@ -699,6 +838,11 @@ final class Session {
         String mobileUa = st.getUserAgentString();
         st.setUserAgentString(desktopUserAgent(mobileUa));
         applyDesktopClientHints(st, mobileUa);
+        // WebView adds "X-Requested-With: <this app's package>" to every request. Google's sign-in (YouTube) and others read
+        // it to refuse "embedded browsers", so send it to no site at all.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
+            WebSettingsCompat.setRequestedWithHeaderOriginAllowList(st, Collections.<String>emptySet());
+        }
         st.setUseWideViewPort(true);
         st.setLoadWithOverviewMode(true);
         st.setSupportZoom(true);
@@ -740,6 +884,11 @@ final class Session {
                 pageLoaded = !"about:blank".equals(url);
                 view.evaluateJavascript(pageScript(), null);
             }
+
+            @Override
+            public void doUpdateVisitedHistory(WebView view, String url, boolean isReload) {
+                for (Listener l : listeners) l.onNavigation(Session.this);
+            }
         });
         wv.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -760,6 +909,23 @@ final class Session {
                 } else {
                     request.grant(allowed.toArray(new String[0]));
                 }
+            }
+
+            // The page's own full-screen button (a video's, YouTube's): the screen shows the view the page hands over.
+            @Override
+            public void onShowCustomView(View view, CustomViewCallback callback) {
+                if (customView != null || listeners.isEmpty()) {
+                    callback.onCustomViewHidden();   // nothing to show it on (no screen is open) or already full screen
+                    return;
+                }
+                customView = view;
+                customCallback = callback;
+                for (Listener l : listeners) l.onFullscreen(Session.this, view);
+            }
+
+            @Override
+            public void onHideCustomView() {
+                exitFullscreen();
             }
 
             @Override
@@ -791,7 +957,8 @@ final class Session {
             JSONObject settings = new JSONObject()
                     .put("muted", silenced()).put("volume", volume).put("aec", aec).put("zoom", zoom)
                     .put("micGain", micGain).put("virtual", !micKey.isEmpty()).put("micLabel", micLabel())
-                    .put("tap", isRecording()).put("micAllowed", micAllowed).put("cameraAllowed", cameraAllowed).put("localMute", frozen);
+                    .put("tap", isRecording()).put("micAllowed", micAllowed).put("cameraAllowed", cameraAllowed).put("localMute", frozen)
+                    .put("keepVisible", Prefs.keepPlaying(app));
             if (viewCssWidth > 0) settings.put("viewWidth", viewCssWidth);
             return sessionScript() + "\nwindow.__turbobox.configure(" + settings + ");"
                     + (callMeter ? "\nwindow.__turbobox.setMeter(true);" : "");

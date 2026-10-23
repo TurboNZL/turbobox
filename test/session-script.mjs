@@ -223,6 +223,21 @@ check('the camera is refused until it is allowed', cam === 'NotAllowedError', ca
 await page.evaluate(() => window.__turbobox.setViewWidth(400));
 const vp = await page.evaluate(() => document.querySelector('meta[name=viewport]').content);
 check('viewport scale fits the real area (400 css px of 1280)', /initial-scale=0\.313/.test(vp), vp);
+// the page always looks visible (a video keeps playing with the screen off), and desktop Chrome's window.chrome exists
+const vis = await page.evaluate(() => {
+  const heard = [];
+  document.addEventListener('visibilitychange', () => heard.push('page'));
+  document.dispatchEvent(new Event('visibilitychange'));
+  const on = { hidden: document.hidden, state: document.visibilityState, focus: document.hasFocus(), heard: heard.slice(), chrome: typeof window.chrome, load: typeof (window.chrome && window.chrome.loadTimes), app: typeof (window.chrome && window.chrome.app) };
+  window.__turbobox.configure({ keepVisible: false });
+  document.dispatchEvent(new Event('visibilitychange'));
+  const off = { heard: heard.slice() };
+  window.__turbobox.configure({ keepVisible: true });
+  return { on, off };
+});
+check('the page sees itself as visible and hears no visibilitychange', vis.on.hidden === false && vis.on.state === 'visible' && vis.on.focus === true && vis.on.heard.length === 0, vis.on);
+check('with keepVisible off the events come through again', vis.off.heard.length === 1, vis.off);
+check('window.chrome exists like a desktop Chrome', vis.on.chrome === 'object' && vis.on.load === 'function' && vis.on.app === 'object', vis.on);
 console.log(fails ? `${fails} FAILED` : 'all ok');
 await b.close();
 process.exit(fails ? 1 : 0);
