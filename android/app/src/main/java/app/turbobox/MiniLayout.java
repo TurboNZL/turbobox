@@ -21,6 +21,25 @@ final class MiniLayout {
     private MiniLayout() {
     }
 
+    /** The in-app split's own layout starts as four equal quarters. */
+    static float[][] splitDefaults() {
+        return new float[][]{{0f, 0f, 0.5f, 0.5f}, {0.5f, 0f, 0.5f, 0.5f}, {0f, 0.5f, 0.5f, 0.5f}, {0.5f, 0.5f, 0.5f, 0.5f}};
+    }
+
+    /** Equal rectangles for rows of panes (rows {1,1} = two stacked), for a split nobody has arranged yet. */
+    static float[][] fromRows(int[] rows) {
+        int n = 0;
+        for (int r : rows) n += r;
+        float[][] out = new float[n][];
+        int k = 0;
+        for (int i = 0; i < rows.length; i++) {
+            for (int j = 0; j < rows[i]; j++) {
+                out[k++] = new float[]{j / (float) rows[i], i / (float) rows.length, 1f / rows[i], 1f / rows.length};
+            }
+        }
+        return out;
+    }
+
     static float[][] defaults() {
         float[][] out = new float[PAGES][];
         for (int i = 0; i < PAGES; i++) out[i] = DEFAULTS[i].clone();
@@ -47,7 +66,10 @@ final class MiniLayout {
 
     /** The saved rectangles; anything missing or unreadable is the default for that page. */
     static float[][] decode(String s) {
-        float[][] out = defaults();
+        return decode(s, defaults());
+    }
+
+    static float[][] decode(String s, float[][] out) {
         if (s == null || s.isEmpty()) return out;
         String[] pages = s.split(";");
         for (int i = 0; i < PAGES && i < pages.length; i++) {

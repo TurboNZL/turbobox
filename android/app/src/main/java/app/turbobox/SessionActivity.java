@@ -582,12 +582,12 @@ public class SessionActivity extends Activity implements Session.Listener {
         List<Session> shown = new ArrayList<>(inPip ? pipPages() : split ? members() : new ArrayList<Session>());
         if (shown.isEmpty() && front() != null) shown.add(front());
         boolean together = split && shown.size() >= 2;
-        boolean custom0 = inPip && together && Prefs.pipLayout(this) == SplitLayout.OVERLAY;
+        boolean custom0 = together && (inPip ? Prefs.pipLayout(this) == SplitLayout.OVERLAY : Prefs.splitOwn(this));
         int[] rows = !together || custom0 ? new int[]{1}
                 : inPip ? SplitLayout.pipRows(shown.size(), Prefs.pipLayout(this), landscape)
                 : SplitLayout.rows(shown.size(), landscape);
 
-        boolean custom = inPip && together && Prefs.pipLayout(this) == SplitLayout.OVERLAY;
+        boolean custom = custom0;
         List<Session> placed = shown;
         for (int i = 0; i < Sessions.COUNT; i++) {
             Session s = Sessions.get(i);
@@ -612,9 +612,10 @@ public class SessionActivity extends Activity implements Session.Listener {
         grid = null;
         gridPages = shown;
         if (custom) {
-            // Your own arrangement from Settings: page 1 at the back, page 4 in front.
+            // Your own arrangement from Settings (the Mini window's and the split's are separate): page 1 at the back, page 4 in front.
             FractionLayout stack = new FractionLayout(this);
-            float[][] all = MiniLayout.decode(Prefs.miniRects(this));
+            float[][] all = inPip ? MiniLayout.decode(Prefs.miniRects(this))
+                    : MiniLayout.decode(Prefs.splitRects(this), Prefs.splitRects(this).isEmpty() ? padTo4(MiniLayout.fromRows(SplitLayout.rows(shown.size(), landscape))) : MiniLayout.splitDefaults());
             float[][] used = new float[Math.min(shown.size(), MiniLayout.PAGES)][];
             for (int k = 0; k < used.length; k++) {
                 used[k] = all[k];
@@ -655,6 +656,12 @@ public class SessionActivity extends Activity implements Session.Listener {
         updateControls();
         updateFreeze();
         updateLocks();
+    }
+
+    private static float[][] padTo4(float[][] r) {
+        float[][] out = MiniLayout.splitDefaults();
+        for (int i = 0; i < r.length && i < out.length; i++) out[i] = r[i];
+        return out;
     }
 
     private SplitGrid grid;

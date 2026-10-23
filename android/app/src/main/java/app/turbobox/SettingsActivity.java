@@ -123,6 +123,15 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         screen.addView(Ui.hint(this, "When a page in a split is held to a shape (a forced aspect ratio, or a video in full screen), it takes "
                 + "only the room that shape needs and the other pages grow into the rest, instead of black bars. The Mini window "
                 + "also takes the shape of a single page held to one. Drag the dividers between pages in a split to resize them."), Ui.lp(this, 0, 4));
+        Switch own = new Switch(this);
+        own.setText("Split uses your own layout");
+        own.setTextColor(Ui.TEXT);
+        own.setChecked(Prefs.splitOwn(this));
+        own.setOnCheckedChangeListener((b, on) -> Prefs.setSplitOwn(this, on));
+        screen.addView(own, Ui.lp(this, 8, 2));
+        screen.addView(choiceRow("Your own split layout", "Drag and resize the pages", this::editSplitLayout));
+        screen.addView(Ui.hint(this, "Instead of the grid with dividers, Split places each page where you put it (pages overlap if you let them). "
+                + "Separate from the Mini window's layout. Pages are numbered in the order of their tabs."), Ui.lp(this, 0, 4));
         TextView resetSplit = Ui.pill(this, "Reset split dividers", 0);
         resetSplit.setOnClickListener(v -> {
             Prefs.clearSplitLayouts(this);
@@ -235,21 +244,34 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
 
     /** A full-screen sheet with the Mini window as a box: drag each page where it should go, drag its corner to resize it. */
     private void editMiniLayout() {
+        editLayout(true);
+    }
+
+    private void editSplitLayout() {
+        editLayout(false);
+    }
+
+    /** The Mini window's layout (mini) or the in-app split's (not mini): separate rectangles, saved separately. */
+    private void editLayout(boolean mini) {
         android.app.Dialog d = new android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setBackgroundColor(Ui.BG);
         col.setPadding(Ui.dp(this, 16), Ui.dp(this, 24), Ui.dp(this, 16), Ui.dp(this, 16));
-        col.addView(Ui.text(this, "Your own Mini layout", 20f, Ui.TEXT, "semibold"), Ui.lp(this, 0, 4));
+        col.addView(Ui.text(this, mini ? "Your own Mini layout" : "Your own split layout", 20f, Ui.TEXT, "semibold"), Ui.lp(this, 0, 4));
         col.addView(Ui.hint(this, "Drag a page to move it, drag its corner to resize it. Page 1 is at the back, page 4 at the front. "
-                + "Used when the Mini window opens with Split on and more than one page chosen. Done switches the Mini window to this layout."), Ui.lp(this, 0, 8));
+                + (mini ? "Used when the Mini window opens with Split on and more than one page chosen. Done switches the Mini window to this layout."
+                : "Used by Split in the app when two or more pages are chosen (the Mini window has its own). Done switches Split to this layout.")),
+                Ui.lp(this, 0, 8));
         android.widget.FrameLayout holder = new android.widget.FrameLayout(this);
-        float[][][] current = {MiniLayout.decode(Prefs.miniRects(this))};
+        float[][][] current = {mini ? MiniLayout.decode(Prefs.miniRects(this)) : MiniLayout.decode(Prefs.splitRects(this), MiniLayout.splitDefaults())};
         TextView shape = Ui.text(this, "", 16f, Ui.GREEN, "sans-serif-medium");
         Runnable[] place = new Runnable[1];
         place[0] = () -> {
-            int[] sh = MiniLayout.shape(Prefs.miniShape(this));
-            shape.setText("Window shape: " + MiniLayout.SHAPE_LABELS[Math.max(0, Math.min(MiniLayout.SHAPE_LABELS.length - 1, Prefs.miniShape(this)))] + "  ›");
+            android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+            // The split fills the screen below the bar; the box takes roughly that shape.
+            int[] sh = mini ? MiniLayout.shape(Prefs.miniShape(this)) : new int[]{dm.widthPixels, Math.round(dm.heightPixels * 0.8f)};
+            if (mini) shape.setText("Window shape: " + MiniLayout.SHAPE_LABELS[Math.max(0, Math.min(MiniLayout.SHAPE_LABELS.length - 1, Prefs.miniShape(this)))] + "  ›");
             int maxW = getResources().getDisplayMetrics().widthPixels - Ui.dp(this, 32);
             int maxH = Math.round(getResources().getDisplayMetrics().heightPixels * 0.55f);
             int w = Math.min(maxW, Math.round(maxH * sh[0] / (float) sh[1]));
@@ -257,7 +279,8 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
             holder.removeAllViews();
             MiniLayoutEditor ed = new MiniLayoutEditor(this, rects -> {
                 current[0] = rects;
-                Prefs.setMiniRects(this, MiniLayout.encode(rects));
+                if (mini) Prefs.setMiniRects(this, MiniLayout.encode(rects));
+                else Prefs.setSplitRects(this, MiniLayout.encode(rects));
             });
             ed.set(current[0], MiniLayout.PAGES);
             holder.addView(ed, new android.widget.FrameLayout.LayoutParams(w, h, android.view.Gravity.CENTER));
@@ -269,20 +292,24 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
                     dd.dismiss();
                     place[0].run();
                 }).show());
-        col.addView(shape);
+        if (mini) col.addView(shape);
         col.addView(holder, new LinearLayout.LayoutParams(-1, 0, 1f));
         TextView reset = Ui.pill(this, "Reset to the default", 0);
         reset.setOnClickListener(v -> {
-            current[0] = MiniLayout.defaults();
-            Prefs.setMiniRects(this, "");
+            current[0] = mini ? MiniLayout.defaults() : MiniLayout.splitDefaults();
+            if (mini) Prefs.setMiniRects(this, "");
+            else Prefs.setSplitRects(this, "");
             place[0].run();
         });
         col.addView(reset, Ui.lp(this, 8, 0));
         TextView done = Ui.pill(this, "Done", Ui.GREEN);
         done.setOnClickListener(v -> {
             d.dismiss();
-            if (Prefs.pipLayout(this) != SplitLayout.OVERLAY) {
+            if (mini && Prefs.pipLayout(this) != SplitLayout.OVERLAY) {
                 Prefs.setPipLayout(this, SplitLayout.OVERLAY);
+                render();
+            } else if (!mini && !Prefs.splitOwn(this)) {
+                Prefs.setSplitOwn(this, true);
                 render();
             }
         });

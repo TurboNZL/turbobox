@@ -54,6 +54,11 @@ final class Prefs {
     /** The Mini window's shape in your own arrangement: index into MiniLayout.SHAPES. */
     static int miniShape(Context c) { return ps(c).getInt("miniShape", 0); }
     static void setMiniShape(Context c, int v) { ps(c).edit().putInt("miniShape", v).apply(); }
+    /** The in-app split view: false = the grid with draggable dividers, true = your own layout (see MiniLayout). */
+    static boolean splitOwn(Context c) { return ps(c).getBoolean("splitOwn", false); }
+    static void setSplitOwn(Context c, boolean v) { ps(c).edit().putBoolean("splitOwn", v).apply(); }
+    static String splitRects(Context c) { return ps(c).getString("splitRects", ""); }
+    static void setSplitRects(Context c, String v) { ps(c).edit().putString("splitRects", v).apply(); }
     /** Where the dividers of a split arrangement were left (see SplitGrid); the key names the arrangement. */
     static String splitLayout(Context c, String key) { return ps(c).getString("split_" + key, null); }
     static void setSplitLayout(Context c, String key, String v) { ps(c).edit().putString("split_" + key, v).apply(); }

@@ -91,6 +91,17 @@ public class SplitMathTest {
     }
 
     @Test
+    public void rowsBecomeEqualRectangles() {
+        float[][] r = MiniLayout.fromRows(new int[]{1, 1});
+        assertEquals(2, r.length);
+        assertEquals(0.5f, r[1][1], 1e-4);
+        assertEquals(1f, r[1][2], 1e-4);
+        float[][] q = MiniLayout.fromRows(new int[]{2, 2});
+        assertEquals(0.5f, q[3][0], 1e-4);
+        assertEquals(0.5f, q[3][1], 1e-4);
+    }
+
+    @Test
     public void miniShapesStayInsideWhatAndroidAccepts() {
         for (int i = 0; i < MiniLayout.SHAPES.length; i++) {
             int[] s = MiniLayout.shape(i);
