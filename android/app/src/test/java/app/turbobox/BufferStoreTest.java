@@ -29,7 +29,7 @@ public class BufferStoreTest {
 
     @Test
     public void segmentsComeBackOldestFirstWithTheirDurations() throws IOException {
-        BufferStore.Run run = BufferStore.newRun(root, 0, "Lecture", 1000);
+        BufferStore.Run run = BufferStore.newRun(root, 0, "Stream", 1000);
         segment(run, 40_000, 30_000);
         segment(run, 10_000, 30_000);
         BufferStore.partFile(run, 70_000).createNewFile(); // still being written: not listed
@@ -42,7 +42,7 @@ public class BufferStoreTest {
 
     @Test
     public void trimKeepsTheNewestAndAlwaysTheLast() throws IOException {
-        BufferStore.Run run = BufferStore.newRun(root, 0, "Lecture", 1000);
+        BufferStore.Run run = BufferStore.newRun(root, 0, "Stream", 1000);
         for (int i = 0; i < 5; i++) segment(run, i * 30_000L, 30_000);
         BufferStore.trim(run, 70_000); // room for two whole segments
         List<BufferStore.Segment> s = BufferStore.segments(run);
@@ -54,7 +54,7 @@ public class BufferStoreTest {
 
     @Test
     public void timelineSkipsGapsBetweenSegments() throws IOException {
-        BufferStore.Run run = BufferStore.newRun(root, 0, "Lecture", 1000);
+        BufferStore.Run run = BufferStore.newRun(root, 0, "Stream", 1000);
         segment(run, 0, 30_000);
         segment(run, 100_000, 30_000); // recording was off for 70 s
         List<BufferStore.Segment> s = BufferStore.segments(run);
@@ -70,7 +70,7 @@ public class BufferStoreTest {
 
     @Test
     public void locateClampsAtBothEnds() throws IOException {
-        BufferStore.Run run = BufferStore.newRun(root, 0, "Lecture", 1000);
+        BufferStore.Run run = BufferStore.newRun(root, 0, "Stream", 1000);
         segment(run, 0, 30_000);
         List<BufferStore.Segment> s = BufferStore.segments(run);
         assertEquals(0, BufferStore.locate(s, -5).offsetMs);
@@ -97,7 +97,7 @@ public class BufferStoreTest {
 
     @Test
     public void marksSurviveInOrder() {
-        BufferStore.Run run = BufferStore.newRun(root, 0, "Lecture", 1000);
+        BufferStore.Run run = BufferStore.newRun(root, 0, "Stream", 1000);
         BufferStore.addMark(run, 5000, "Stepped away");
         BufferStore.addMark(run, 9000, "Back");
         List<BufferStore.Mark> m = BufferStore.marks(run);
@@ -108,7 +108,7 @@ public class BufferStoreTest {
 
     @Test
     public void onlyOldUnfinishedSegmentsAreStrays() throws IOException {
-        BufferStore.Run run = BufferStore.newRun(root, 0, "Lecture", 1000);
+        BufferStore.Run run = BufferStore.newRun(root, 0, "Stream", 1000);
         File stray = BufferStore.partFile(run, 1);
         File writing = BufferStore.partFile(run, 2);
         assertTrue(stray.createNewFile());

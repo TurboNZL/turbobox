@@ -97,6 +97,35 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         }
         body.addView(power, Ui.lp(this, 12, 0));
 
+        // The session screen
+        LinearLayout screen = Ui.card(this);
+        screen.addView(Ui.text(this, "Pages on screen", 17f, Ui.TEXT, "sans-serif-medium"));
+        Switch keep = new Switch(this);
+        keep.setText("Keep video playing with the screen off");
+        keep.setTextColor(Ui.TEXT);
+        keep.setChecked(Prefs.keepPlaying(this));
+        keep.setOnCheckedChangeListener((b, on) -> {
+            Prefs.setKeepPlaying(this, on);
+            for (Session s : Sessions.active()) {
+                if (!on) s.leaveHost();
+                s.refreshVisibility();
+            }
+        });
+        screen.addView(keep, Ui.lp(this, 8, 2));
+        screen.addView(Ui.hint(this, "Sites like YouTube pause a video when the browser says nobody can see the page. With this on, the page "
+                + "is told it is visible and is kept on a private display of its own while the screen is off, so it carries on."), Ui.lp(this, 0, 8));
+        Switch floating = new Switch(this);
+        floating.setText("Options bar as a floating button");
+        floating.setTextColor(Ui.TEXT);
+        floating.setChecked(Prefs.floatingBar(this));
+        floating.setOnCheckedChangeListener((b, on) -> Prefs.setFloatingBar(this, on));
+        screen.addView(floating, Ui.lp(this, 0, 2));
+        screen.addView(Ui.hint(this, "The bar across the top (tabs, Close, Mute, Timer...) is replaced by a small round button you can drag "
+                + "anywhere. Tap it to open the bar over the page, tap it again to put it away. The page gets the whole screen."), Ui.lp(this, 0, 8));
+        screen.addView(choiceRow("Mini window with two pages", pipLayoutText(Prefs.pipLayout(this)), this::choosePipLayout));
+        screen.addView(Ui.hint(this, "What the small floating window shows when two pages are open. Also on the Mini button's long press."), Ui.lp(this, 0, 0));
+        body.addView(screen, Ui.lp(this, 12, 0));
+
         // Recording buffer
         LinearLayout buffer = Ui.card(this);
         buffer.addView(Ui.text(this, "Recording buffer", 17f, Ui.TEXT, "sans-serif-medium"));
@@ -183,6 +212,20 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         r.setClickable(true);
         r.setOnClickListener(v -> onTap.run());
         return r;
+    }
+
+    private static String pipLayoutText(int v) {
+        return v == 1 ? "Side by side" : v == 2 ? "Stacked" : "The page in front only";
+    }
+
+    private void choosePipLayout() {
+        String[] items = {pipLayoutText(0), pipLayoutText(1), pipLayoutText(2)};
+        new AlertDialog.Builder(this).setTitle("Mini window with two pages")
+                .setSingleChoiceItems(items, Prefs.pipLayout(this), (d, which) -> {
+                    Prefs.setPipLayout(this, which);
+                    d.dismiss();
+                    render();
+                }).show();
     }
 
     private static String minutesText(int m) {

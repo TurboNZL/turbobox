@@ -22,13 +22,13 @@ import java.util.regex.Pattern;
  * scroll down [600]          up, down, top, bottom
  * mute | unmute              the call's outgoing audio
  * volume 80                  0-200 (%), the page's audio
- * hangup 1h30m               hang up after that long (hangup off to cancel)
+ * hangup 1h30m | close 1h30m  close the page after that long (hangup off takes it back)
  * record start | record stop the screen buffer
  * step away | step back      freeze and silence the page here while it records / let go (no replay)
  * transcribe on | off        live captions (speech to text) saved as WebVTT with the recording
- * mark Lecture starts        a bookmark in the buffer
+ * mark Chapter 2 starts     a bookmark in the buffer
  * js document.title          run a script on the page
- * close                      close the page (hang up)
+ * hangup | close            close the page right now
  * </pre>
  * A target is {@code css:SELECTOR}, {@code text:WORDS}, or just the words (matched against visible text, labels,
  * placeholders and titles). A leading {@code ?} makes a step optional: if it fails the workflow carries on.
@@ -163,8 +163,19 @@ final class WorkflowParser {
                 if (s.number < 0 || s.number > 200) throw new ParseError(no, "volume is 0 to 200");
                 break;
             case "hangup":
-                s.kind = Kind.HANGUP;
-                s.seconds = rest.equalsIgnoreCase("off") ? 0 : durationOrFail(rest, no);
+            case "close":
+                // Two names for one thing. With a time: close the page after that long (a timer, the page stays open until
+                // then). With nothing (or 0): close it right now. "off" takes a timer back.
+                if (rest.isEmpty()) {
+                    s.kind = Kind.CLOSE;
+                } else if (rest.equalsIgnoreCase("off")) {
+                    s.kind = Kind.HANGUP;
+                    s.seconds = 0;
+                } else {
+                    long d = durationOrFail(rest, no);
+                    s.kind = d == 0 ? Kind.CLOSE : Kind.HANGUP;
+                    s.seconds = d;
+                }
                 break;
             case "record":
                 if (rest.equalsIgnoreCase("start")) s.kind = Kind.RECORD_START;
@@ -190,9 +201,6 @@ final class WorkflowParser {
                 if (rest.isEmpty()) throw new ParseError(no, "js needs some code");
                 s.text = rest;
                 s.withinMs = 5_000;
-                break;
-            case "close":
-                s.kind = Kind.CLOSE;
                 break;
             default:
                 throw new ParseError(no, "I do not know the step \"" + verb + "\"");

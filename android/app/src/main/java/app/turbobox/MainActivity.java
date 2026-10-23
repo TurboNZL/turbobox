@@ -11,9 +11,7 @@ import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.CheckBox;
 import android.widget.EditText;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -30,7 +28,7 @@ public class MainActivity extends Activity {
     private static final int REQUEST_PERMISSIONS = 1;
 
     private LinearLayout body;
-    private final java.util.Set<String> iconTried = new java.util.HashSet<>();   // looked up once per start, not on every redraw
+    private boolean reordering;   // the pinned pages show arrows to move them
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -109,8 +107,7 @@ public class MainActivity extends Activity {
         for (Session s : active) {
             LinearLayout row = new LinearLayout(this);
             row.setGravity(Gravity.CENTER_VERTICAL);
-            TextView name = Ui.text(this, (char) ('A' + s.slot) + "   " + s.title()
-                    + (s.isRecording() ? "   ● rec" : "") + (s.isMuted() ? "   muted" : ""), 16f, Ui.TEXT, "sans-serif-medium");
+            TextView name = Ui.text(this, s.statusLine(), 16f, Ui.TEXT, "sans-serif-medium");
             row.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
             TextView show = Ui.pill(this, "Open", Ui.GREEN);
             show.setPadding(Ui.dp(this, 14), Ui.dp(this, 8), Ui.dp(this, 14), Ui.dp(this, 8));
@@ -131,62 +128,56 @@ public class MainActivity extends Activity {
     }
 
     private void renderPins() {
-        body.addView(Ui.label(this, "Pinned pages"), Ui.lp(this, 22, 8));
         List<Pin> pins = PinStore.load(this);
-        LinearLayout row = null;
-        for (int i = 0; i <= pins.size(); i++) {
-            if (i % 2 == 0) {
-                row = new LinearLayout(this);
-                body.addView(row, Ui.lp(this, 0, 10));
-            }
-            View tile = i < pins.size() ? pinTile(pins.get(i)) : addTile(pins.size());
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            p.leftMargin = i % 2 == 0 ? 0 : Ui.dp(this, 10);
-            row.addView(tile, p);
+        LinearLayout head = new LinearLayout(this);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.addView(Ui.label(this, "Pinned pages"), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        if (pins.size() > 1) {
+            TextView reorder = Ui.pill(this, reordering ? "Done" : "Reorder", reordering ? Ui.GREEN : 0);
+            reorder.setPadding(Ui.dp(this, 12), Ui.dp(this, 6), Ui.dp(this, 12), Ui.dp(this, 6));
+            reorder.setOnClickListener(v -> {
+                reordering = !reordering;
+                render();
+            });
+            head.addView(reorder);
         }
-        if (pins.size() % 2 == 0) {
-            // The "+" tile started a new row on its own: keep it half-width like the others.
-            row.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
-        }
+        body.addView(head, Ui.lp(this, 22, 8));
+        if (reordering && pins.size() <= 1) reordering = false;
+
+        List<View> tiles = new ArrayList<>();
+        for (int i = 0; i < pins.size(); i++) tiles.add(pinTile(pins.get(i), i, pins.size()));
+        tiles.add(addTile());
+        body.addView(PinGrid.grid(this, tiles));
         if (pins.isEmpty()) {
-            body.addView(Ui.hint(this, "Pin the pages you use, like a meeting room or a lecture stream. One tap opens "
+            body.addView(Ui.hint(this, "Pin the pages you use, like a video, a stream or a document. One tap opens "
                     + "them here, and two can run at once."), Ui.lp(this, 2, 0));
         }
     }
 
-    private View pinTile(Pin pin) {
+    private View pinTile(Pin pin, int index, int count) {
         Session running = Sessions.forPin(pin.id);
-        LinearLayout t = Ui.card(this);
-        t.setGravity(Gravity.CENTER_HORIZONTAL);
-        android.graphics.Bitmap icon = Favicons.load(this, pin.id);
-        if (icon != null) {
-            // The page's own icon, on a light disc so dark icons stay visible on the dark card.
-            ImageView img = new ImageView(this);
-            img.setImageBitmap(icon);
-            img.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            int pad = Ui.dp(this, 8);
-            img.setPadding(pad, pad, pad, pad);
-            img.setBackground(Ui.rounded(this, 0xFFF2F2F5, 0, 100));
-            t.addView(img, new LinearLayout.LayoutParams(Ui.dp(this, 46), Ui.dp(this, 46)));
-        } else {
-            TextView badge = Ui.text(this, pin.initial(), 22f, Ui.BG, "semibold");
-            badge.setGravity(Gravity.CENTER);
-            badge.setBackground(Ui.rounded(this, Ui.GREEN, 0, 100));
-            t.addView(badge, new LinearLayout.LayoutParams(Ui.dp(this, 46), Ui.dp(this, 46)));
-            if (iconTried.add(pin.id)) Favicons.fetch(this, pin, () -> {
-                Shortcuts.refresh(this);
-                render();
-            });
+        String sub = running == null ? pin.host() : Sessions.active().size() > 1 ? "Running in " + (char) ('A' + running.slot) : "Running";
+        LinearLayout t = PinGrid.tile(this, pin, sub, running == null ? Ui.DIM : Ui.GREEN, false, () -> {
+            Shortcuts.refresh(this);
+            render();
+        });
+        if (reordering) {
+            // Move earlier / later in the list (the list reads left to right, then down).
+            LinearLayout arrows = new LinearLayout(this);
+            arrows.setGravity(Gravity.CENTER);
+            TextView earlier = Ui.pill(this, "‹", 0);
+            TextView later = Ui.pill(this, "›", 0);
+            earlier.setTextSize(20f);
+            later.setTextSize(20f);
+            earlier.setAlpha(index == 0 ? 0.3f : 1f);
+            later.setAlpha(index == count - 1 ? 0.3f : 1f);
+            earlier.setOnClickListener(v -> move(pin, -1));
+            later.setOnClickListener(v -> move(pin, 1));
+            arrows.addView(earlier, Ui.weight(this, 0));
+            arrows.addView(later, Ui.weight(this, 8));
+            t.addView(arrows, Ui.lp(this, 10, 0));
+            return t;
         }
-        TextView name = Ui.text(this, pin.name, 16f, Ui.TEXT, "sans-serif-medium");
-        name.setSingleLine(true);
-        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        t.addView(name, Ui.lp(this, 10, 0));
-        TextView host = Ui.text(this, running == null ? pin.host() : "Running in " + (char) ('A' + running.slot), 12f,
-                running == null ? Ui.DIM : Ui.GREEN, "sans-serif");
-        host.setSingleLine(true);
-        host.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        t.addView(host, Ui.lp(this, 2, 0));
         t.setClickable(true);
         t.setOnClickListener(v -> open(pin));
         t.setOnLongClickListener(v -> {
@@ -196,22 +187,22 @@ public class MainActivity extends Activity {
         return t;
     }
 
-    private View addTile(int count) {
+    private void move(Pin pin, int delta) {
+        PinStore.moveSaved(this, pin.id, delta);
+        Shortcuts.refresh(this);   // the first pins are the launcher's long-press menu, in this order
+        render();
+    }
+
+    private View addTile() {
         LinearLayout t = Ui.card(this);
         t.setGravity(Gravity.CENTER);
         TextView plus = Ui.text(this, "+", 30f, Ui.GREEN, "semibold");
         plus.setGravity(Gravity.CENTER);
         t.addView(plus, new LinearLayout.LayoutParams(Ui.dp(this, 46), Ui.dp(this, 46)));
-        t.addView(Ui.text(this, count >= PinStore.MAX ? "Full" : "Pin a page", 15f, Ui.DIM, "sans-serif-medium"), Ui.lp(this, 10, 0));
+        t.addView(Ui.text(this, "Pin a page", 15f, Ui.DIM, "sans-serif-medium"), Ui.lp(this, 10, 0));
         t.setMinimumHeight(Ui.dp(this, 118));
         t.setClickable(true);
-        t.setOnClickListener(v -> {
-            if (count >= PinStore.MAX) {
-                Toast.makeText(this, "You can pin up to " + PinStore.MAX + " pages. Long-press one to remove it.", Toast.LENGTH_LONG).show();
-            } else {
-                editPin(null);
-            }
-        });
+        t.setOnClickListener(v -> editPin(null));
         return t;
     }
 
@@ -284,11 +275,11 @@ public class MainActivity extends Activity {
         int p = Ui.dp(this, 20);
         form.setPadding(p, Ui.dp(this, 8), p, 0);
         EditText name = new EditText(this);
-        name.setHint("Name (Lecture, Standup, ...)");
+        name.setHint("Name (Music, News, Work chat, ...)");
         name.setSingleLine(true);
         name.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         EditText url = new EditText(this);
-        url.setHint("Address (meet.example.com/room)");
+        url.setHint("Address (example.com/page)");
         url.setSingleLine(true);
         url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         final int[] mode = {existing == null ? 0 : existing.recordMode};
@@ -315,22 +306,20 @@ public class MainActivity extends Activity {
             String address = Pin.normalizeUrl(url.getText().toString());
             String label = name.getText().toString().trim();
             if (address == null) {
-                url.setError("Type a web address, like meet.example.com/room");
+                url.setError("Type a web address, like example.com/page");
                 return;
             }
             if (label.isEmpty()) label = Pin.create("", address).host();
+            boolean addressChanged = existing == null || !existing.url.equals(address);
             Pin pin = existing != null ? existing : Pin.create(label, address);
             pin.name = label;
             pin.url = address;
             pin.recordMode = mode[0];
-            if (!PinStore.put(this, pin)) {
-                Toast.makeText(this, "You can pin up to " + PinStore.MAX + " pages.", Toast.LENGTH_LONG).show();
-                return;
-            }
-            if (existing == null || !existing.url.equals(address)) {
+            if (addressChanged) {
                 Favicons.delete(this, pin.id);
-                iconTried.remove(pin.id);
+                PinGrid.forget(pin.id);
             }
+            PinStore.put(this, pin);
             Shortcuts.refresh(this);
             d.dismiss();
             render();

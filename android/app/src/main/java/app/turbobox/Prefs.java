@@ -26,6 +26,22 @@ final class Prefs {
     static boolean standby(Context c) { return sp(c).getBoolean("standby", false); }
     static void setStandby(Context c, boolean v) { sp(c).edit().putBoolean("standby", v).apply(); }
 
+    /** Keep a page visible to the browser with the screen off, so a video (YouTube) keeps playing. On by default. */
+    static boolean keepPlaying(Context c) { return sp(c).getBoolean("keepPlaying", true); }
+    static void setKeepPlaying(Context c, boolean v) { sp(c).edit().putBoolean("keepPlaying", v).apply(); }
+
+    // ---- the session screen ----
+    /** The options bar as a floating button instead of rows across the top. */
+    static boolean floatingBar(Context c) { return sp(c).getBoolean("floatingBar", false); }
+    static void setFloatingBar(Context c, boolean v) { sp(c).edit().putBoolean("floatingBar", v).apply(); }
+    /** Where the floating button was left, as fractions of the screen (x, y). */
+    static float floatX(Context c) { return sp(c).getFloat("floatX", 0.88f); }
+    static float floatY(Context c) { return sp(c).getFloat("floatY", 0.12f); }
+    static void setFloatPos(Context c, float x, float y) { sp(c).edit().putFloat("floatX", x).putFloat("floatY", y).apply(); }
+    /** What the Mini (picture in picture) window shows when two pages are open: 0 = the page in front, 1 = side by side, 2 = stacked. */
+    static int pipLayout(Context c) { return sp(c).getInt("pipLayout", 0); }
+    static void setPipLayout(Context c, int v) { sp(c).edit().putInt("pipLayout", v).apply(); }
+
     // ---- recording buffer ----
     static int bufferMinutes(Context c) { return sp(c).getInt("bufferMinutes", 60); }
     static void setBufferMinutes(Context c, int v) { sp(c).edit().putInt("bufferMinutes", v).apply(); }

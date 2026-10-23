@@ -6,7 +6,7 @@ import static org.junit.Assert.assertNull;
 import org.junit.Test;
 
 public class FaviconsTest {
-    private static final String BASE = "https://uni.example.com/lectures/live";
+    private static final String BASE = "https://video.example.com/shows/live";
 
     @Test
     public void biggestDeclaredIconWinsAndAddressesAreResolved() {
@@ -14,15 +14,15 @@ public class FaviconsTest {
                 + "<link rel='icon' href='icons/big.png' sizes='96x96'>"
                 + "<link rel=\"apple-touch-icon\" href=\"/touch.png\"></head>";
         // apple-touch without sizes counts as 180
-        assertEquals("https://uni.example.com/touch.png", Favicons.pickIconUrl(html, BASE));
+        assertEquals("https://video.example.com/touch.png", Favicons.pickIconUrl(html, BASE));
         String noTouch = "<link rel=\"icon\" href=\"/favicon-16.png\" sizes=\"16x16\"><link rel='shortcut icon' href='icons/big.png' sizes='96x96'>";
-        assertEquals("https://uni.example.com/lectures/icons/big.png", Favicons.pickIconUrl(noTouch, BASE));
+        assertEquals("https://video.example.com/shows/icons/big.png", Favicons.pickIconUrl(noTouch, BASE));
     }
 
     @Test
     public void svgAndMaskIconsAreSkipped() {
         assertNull(Favicons.pickIconUrl("<link rel=\"icon\" href=\"/a.svg\"><link rel=\"mask-icon\" href=\"/m.png\">", BASE));
-        assertEquals("https://uni.example.com/b.png", Favicons.pickIconUrl("<link rel=\"icon\" href=\"/a.svg\"><link rel=\"icon\" href=\"/b.png\">", BASE));
+        assertEquals("https://video.example.com/b.png", Favicons.pickIconUrl("<link rel=\"icon\" href=\"/a.svg\"><link rel=\"icon\" href=\"/b.png\">", BASE));
     }
 
     @Test

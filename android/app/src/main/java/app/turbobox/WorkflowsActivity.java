@@ -38,7 +38,7 @@ public class WorkflowsActivity extends Activity {
 
     private void render() {
         body.removeAllViews();
-        body.addView(Ui.hint(this, "A workflow opens one of your pinned pages and follows the steps you write: click this, "
+        body.addView(Ui.hint(this, "A workflow opens one or more of your pinned pages and follows the steps you write: click this, "
                 + "type that, wait, record, hang up. It can start by itself at a time you choose, with the screen off."));
 
         TextView add = Ui.pill(this, "New workflow", Ui.GREEN);
@@ -93,9 +93,13 @@ public class WorkflowsActivity extends Activity {
         LinearLayout names = new LinearLayout(this);
         names.setOrientation(LinearLayout.VERTICAL);
         names.addView(Ui.text(this, w.name.isEmpty() ? "(no name)" : w.name, 17f, Ui.TEXT, "sans-serif-medium"));
-        Pin pin = PinStore.find(this, w.pinId);
-        names.addView(Ui.text(this, (pin == null ? "No page chosen" : pin.name) + "  -  " + w.scheduleText(this), 13f, Ui.DIM, "sans-serif"),
-                Ui.lp(this, 3, 0));
+        List<String> pageNames = new java.util.ArrayList<>();
+        for (String id : w.pinIds) {
+            Pin pin = PinStore.find(this, id);
+            if (pin != null) pageNames.add(pin.name);
+        }
+        names.addView(Ui.text(this, (pageNames.isEmpty() ? "No page chosen" : String.join(", ", pageNames)) + "  -  " + w.scheduleText(this),
+                13f, Ui.DIM, "sans-serif"), Ui.lp(this, 3, 0));
         head.addView(names, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         if (w.timed) {
             Switch on = new Switch(this);

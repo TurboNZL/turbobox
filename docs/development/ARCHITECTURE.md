@@ -6,11 +6,13 @@
 ## Components (`android/app/src/main/java/app/turbobox/`)
 | File | Job |
 |---|---|
-| `Session`, `Sessions` | One running page per slot: WebView (desktop emulation, document-start script), timer, mute lock, native microphone, volume/zoom, recorder, `evalStep`. `Sessions` holds slots A and B. |
+| `Session`, `Sessions` | One running page per slot: WebView (desktop emulation, document-start script), timer, mute lock, native microphone, volume/zoom, recorder, `evalStep`. `Sessions` holds the permanent slots A and B and four temporary ones (C-F) that a workflow borrows when A and B are busy. |
 | `SessionService` | Foreground service: notification (Mute, Close all, countdown), wake lock and Wi-Fi lock while anything runs, Standby. Microphone foreground type when Android allows it, media playback otherwise. |
 | `SessionActivity`, `SessionSheet` | The screen: tabs, Split, controls, Mini (PiP), settings sheet (mic test, volumes, zoom, info). Pages live in `Session`, so the activity can come and go. |
-| `MainActivity`, `Pin`, `PinStore`, `Shortcuts` | Home screen, pinned pages, launcher shortcuts. |
+| `MainActivity`, `Pin`, `PinStore`, `PinGrid`, `Shortcuts` | Home screen, pinned pages (no limit; reorderable), launcher shortcuts. `PinGrid` draws the tiles and the page picker sheet that the workflow editor reuses. |
 | `BufferRecorder`, `BufferStore`, `MissedActivity` | The recording buffer and its player (below). |
+| `StepTemplates` | Every workflow step as a form (fields -> the line of text). Pure; the editor's "Add a step" buttons are built from it. |
+| `AspectFrame`, `PocketLockView` | A box that fits the page to a chosen shape; the pocket lock's face (two circles to hold). |
 | `WorkflowParser`, `Workflow`, `WorkflowStore`, `WorkflowScheduler`, `WorkflowReceiver`, `WorkflowRunner`, `WorkflowsActivity`, `WorkflowEditActivity` | Workflows (below). |
 | `SettingsActivity`, `AppUpdater`, `Releases`, `HelpActivity` | Settings, self-update, guides. |
 | `Prefs`, `Devices`, `Ui`, `LevelMeterView` | Shared helpers. |
@@ -65,3 +67,18 @@ CI's Chromium 131 failed the test "the tap still records the page while it is lo
 
 ## Page audio tap B (fourth round)
 Owner report: no audio in the recording after Step away. The recorder only heard tracks and media elements (tap A); sound a page makes with its own Web Audio graph never reached it, and a page that routes its element through `createMediaElementSource` itself leaves nothing for `captureStream` to capture. Every live context's destination connection now goes page nodes -> `pre` gain -> master gain (local mute) -> destination (`preFor`), and tap B is a ScriptProcessor on `pre` in each page context (not our own, `__tbOwn`), resampled to 24 kHz. `deliver()` uses A while A had sound in the last 3 s, else B if B had, so the two are never summed (tested: one tone's level, not two). Elements the page routed itself are left unmuted during Step away (`__tbPageRouted`): their sound already ends at our master gain. The listener on `pre` is before the mute, so the recording is unaffected by it.
+
+## Features added in the third round (owner list of 2026-10-23; none of it run on a device)
+- **Pins are unlimited** (`PinStore.MAX` is gone) and can be reordered (`PinStore.move`, arrows on the tiles in a Reorder mode). `PinGrid` is the one tile layout; the workflow editor's page picker is `PinGrid.pick`.
+- **Workflows run on several pages**: `Workflow.pinIds`; `WorkflowRunner` keeps one `Run` per workflow and page (key `workflowId:pinId`), the result of a start is reported once by a `Group` when the last run ends. A run takes the page's open session, else a free permanent slot, else a **temporary slot** (`Sessions.firstFreeAnySlot`, slots C-F); the temporary page is closed when its run finishes OK unless a hang-up timer is armed (a failed run leaves it open). `Session.Listener.onOpened` makes an open screen add the tab.
+- **`hangup` and `close` are one step**: no time (or 0) closes now, a time is the old timer, `off` cancels it.
+- **Step buttons**: `StepTemplates` is the single table of steps with their questions; `StepTemplatesTest` parses every line it can produce, so the parser and the buttons cannot drift apart.
+- **Sign-in pages**: `X-Requested-With` is no longer sent (`WebSettingsCompat.setRequestedWithHeaderOriginAllowList(empty)`; it carries the package name and Google's sign-in refuses embedded browsers by it), and `session.js` gives the page desktop Chrome's `window.chrome` members and `pdfViewerEnabled`. Not verified on Google or Twitch themselves (needs a real sign-in on a phone).
+- **Full screen**: `WebChromeClient.onShowCustomView` hands the page's view to `Session.Listener.onFullscreen`; `SessionActivity` shows it in `fullscreenHolder` (above the page, below the brightness veil), hides the bars and turns with the sensor; Back leaves it.
+- **Video with the screen off**: two layers. `session.js` reports the page as visible (`document.hidden`, `visibilityState`, `hasFocus`, and drops `visibilitychange`; Chromium-tested) and `Session.hostWithoutScreen` moves the WebView onto a private `OffscreenHost` display (drained, never read) whenever no activity window shows it and the recorder is not already hosting it. Before this the page was only kept visible while recording, which is why Step away + record kept YouTube playing and a plain screen-off did not. `Prefs.keepPlaying` (Settings) turns both off.
+- **Aspect ratio**: `Pin.aspect`, `AspectFrame` (centred, exact-size child, so the page lays out to the box). The recorder letterboxes whatever shape it is given.
+- **History box** in the page settings (`Session.goBack/goForward`, enabled state follows `doUpdateVisitedHistory`).
+- **Mini window**: a microphone `RemoteAction` (same toggle as the notification, `Sessions.toggleAllMuted`; a dynamic receiver while the activity is started) and a two-page layout (`Prefs.pipLayout`: front page / side by side 21:9 / stacked 8:9, Android only allows shapes up to 2.39:1).
+- **Pocket lock**: a `Dialog` of its own above the activity (so it is above the freeze cover and never in the recording), swallowing every touch and Back; unlock = hold two circles together for 1.5 s (`PocketLockView`). The flag is static so it outlives the activity, and the dialog stays up across the screen going off.
+- **Floating bar** (`Prefs.floatingBar`): `chromeBox` leaves the layout and is shown in a `PopupWindow` opened by a draggable round `PopupWindow` button, both windows of their own so a recording never shows them.
+- **Notification**: idle = ongoing, `IMPORTANCE_MIN` channel "Standby" (the user can hide the channel in Android while the service runs); anything open or running = the "Pages and workflows" channel, with `A | Name [muted] [recording] [hangs up in 42 min]` lines, the letter only when two or more pages are open.
