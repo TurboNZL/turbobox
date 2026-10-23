@@ -89,6 +89,9 @@ final class Session {
 
         /** The forced shape of the page's area changed. */
         default void onAspect(Session s) {}
+
+        /** Something started or stopped playing on the page. */
+        default void onMedia(Session s) {}
     }
 
     interface StepCallback {
@@ -129,6 +132,7 @@ final class Session {
     private boolean cameraAllowed;        // privacy: the page may use the camera
     private int viewCssWidth;         // the page's own area in CSS pixels, so a small window lays out right
     private int aspect;               // forced shape of the page's area, an index into Pin.ASPECTS (0 = fill)
+    private boolean mediaPlaying;      // the page says something is playing
     private boolean locked;           // page lock: the screen covers this page until it is unlocked
     private float fullscreenRatio;    // shape of the full-screen video, 0 = not known
     private View customView;          // the page's full-screen view while it is full screen
@@ -276,6 +280,21 @@ final class Session {
 
     boolean isFullscreen() {
         return customView != null;
+    }
+
+    /** Is a video or audio element on the page playing (as the page reports it)? */
+    boolean isMediaPlaying() {
+        return mediaPlaying;
+    }
+
+    /** Play or pause the page's main video (the one playing, else the biggest on screen). */
+    void mediaToggle() {
+        js("__turbobox.mediaToggle()");
+    }
+
+    /** Jump the page's main video forward or back by this many seconds. */
+    void mediaSeek(int seconds) {
+        js("__turbobox.mediaSeek(" + seconds + ")");
     }
 
     /** Width over height of the video that is full screen (as the page reports it), 0 when not known. */
@@ -1015,6 +1034,7 @@ final class Session {
         // screen), so it lays out to fit instead of showing one corner.
         wv.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
             int w = r - l;
+            if ((or - ol) > 0 && (ob - ot) > 0 && (w != or - ol || (b - t) != ob - ot)) js("__turbobox.resized()");   // keeps the scroll position
             if (w > 0 && w != or - ol) {
                 viewCssWidth = Math.round(w / v.getResources().getDisplayMetrics().density);
                 js("__turbobox.setViewWidth(" + viewCssWidth + ")");
@@ -1028,6 +1048,10 @@ final class Session {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 allowSite(url);
+                if (mediaPlaying) {
+                    mediaPlaying = false;
+                    for (Listener l : listeners) l.onMedia(Session.this);
+                }
                 if (!wipeProfile) SiteData.seen(app, profileName == null ? "" : profileName, url);
                 pageLoaded = false;
                 muteMisses = 0;
@@ -1151,6 +1175,10 @@ final class Session {
                     }
                     break;
                 }
+                case "media":
+                    mediaPlaying = "1".equals(data);
+                    for (Listener l : listeners) l.onMedia(this);
+                    break;
                 case "fsratio": {
                     float r = Float.parseFloat(data);
                     fullscreenRatio = customView != null && r > 0.2f && r < 6f ? r : 0f;
