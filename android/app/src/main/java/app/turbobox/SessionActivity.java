@@ -131,6 +131,11 @@ public class SessionActivity extends Activity implements Session.Listener {
         }
         if (ACTION_OPEN_PIN.equals(intent.getAction()) && pinId != null) {
             Pin pin = PinStore.find(this, pinId);
+            if (pin != null && Profiles.isLocked(this, pin.profileId) && Sessions.forPin(pin.id) == null) {
+                Toast.makeText(this, "That page is in a locked profile. Unlock it in TurboBox first.", Toast.LENGTH_LONG).show();
+                startActivity(new Intent(this, MainActivity.class));
+                return false;
+            }
             if (pin != null) {
                 openPin(pin);
                 return !Sessions.active().isEmpty();
@@ -199,6 +204,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     @Override
     protected void onResume() {
         super.onResume();
+        Profiles.returning();
         // After the screen was off or locked a page recorded off screen is put back into its pane.
         if (!Sessions.active().isEmpty()) rebuild();
         // Back from the replay of what was missed: the live page is shown and heard again.
@@ -213,6 +219,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     @Override
     protected void onPause() {
         super.onPause();
+        Profiles.leaving();
         keepPagesRunning();
     }
 

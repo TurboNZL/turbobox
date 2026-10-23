@@ -23,6 +23,12 @@ final class Profiles {
     static final class Profile {
         final String id;
         String name;
+        String salt = "";   // with hash: the password, if it has one
+        String hash = "";
+
+        boolean hasPassword() {
+            return !hash.isEmpty();
+        }
 
         Profile(String id, String name) {
             this.id = id;
@@ -36,13 +42,21 @@ final class Profiles {
     /** All profiles, the default first. */
     static List<Profile> load(Context c) {
         List<Profile> out = new ArrayList<>();
-        out.add(new Profile(DEFAULT, nameOfDefault(c)));
+        Profile def = new Profile(DEFAULT, nameOfDefault(c));
+        def.salt = Prefs.sp(c).getString("defaultProfileSalt", "");
+        def.hash = Prefs.sp(c).getString("defaultProfileHash", "");
+        out.add(def);
         try {
             JSONArray a = new JSONArray(Prefs.sp(c).getString(KEY, "[]"));
             for (int i = 0; i < a.length(); i++) {
                 JSONObject o = a.getJSONObject(i);
                 String id = o.optString("id");
-                if (!id.isEmpty() && !id.equals(DEFAULT)) out.add(new Profile(id, o.optString("name", "Profile")));
+                if (!id.isEmpty() && !id.equals(DEFAULT)) {
+                    Profile p = new Profile(id, o.optString("name", "Profile"));
+                    p.salt = o.optString("salt");
+                    p.hash = o.optString("hash");
+                    out.add(p);
+                }
             }
         } catch (JSONException ignored) {
             // A damaged list reads as just the default.
@@ -58,11 +72,12 @@ final class Profiles {
         JSONArray a = new JSONArray();
         for (Profile p : list) {
             if (p.id.equals(DEFAULT)) {
-                Prefs.sp(c).edit().putString("defaultProfileName", p.name).apply();
+                Prefs.sp(c).edit().putString("defaultProfileName", p.name).putString("defaultProfileSalt", p.salt)
+                        .putString("defaultProfileHash", p.hash).apply();
                 continue;
             }
             try {
-                a.put(new JSONObject().put("id", p.id).put("name", p.name));
+                a.put(new JSONObject().put("id", p.id).put("name", p.name).put("salt", p.salt).put("hash", p.hash));
             } catch (JSONException e) {
                 throw new IllegalStateException(e);
             }
@@ -105,6 +120,69 @@ final class Profiles {
         c.getApplicationContext().deleteSharedPreferences("turbobox_p_" + id);
         Session.deleteProfileData(id);
         if (id.equals(filter(c))) setFilter(c, DEFAULT);
+    }
+
+    // ---- passwords ----------------------------------------------------------------------------------------------
+    // A profile with a password is locked until it is opened with it. Unlocked is remembered in memory only, so it is
+    // locked again when the app is restarted, by Lock now, and after the app has been left alone for a couple of minutes.
+
+    private static final java.util.Set<String> UNLOCKED = new java.util.HashSet<>();
+    private static final long RELOCK_AFTER_MS = 2 * 60_000;
+    private static long leftAt;
+
+    static boolean isLocked(Context c, String id) {
+        return !UNLOCKED.contains(id) && find(c, id).hasPassword();
+    }
+
+    /** True (and unlocked) when the password is right. */
+    static boolean unlock(Context c, String id, String password) {
+        Profile p = find(c, id);
+        if (!p.hasPassword() || Passwords.verify(password, p.salt, p.hash)) {
+            UNLOCKED.add(id);
+            return true;
+        }
+        return false;
+    }
+
+    /** Sets a password (null or empty removes it). The profile stays unlocked for now. */
+    static void setPassword(Context c, String id, String password) {
+        List<Profile> list = load(c);
+        for (Profile p : list) {
+            if (!p.id.equals(id)) continue;
+            if (password == null || password.isEmpty()) {
+                p.salt = "";
+                p.hash = "";
+            } else {
+                String[] h = Passwords.create(password);
+                p.salt = h[0];
+                p.hash = h[1];
+            }
+        }
+        save(c, list);
+        UNLOCKED.add(id);
+    }
+
+    static boolean verify(Context c, String id, String password) {
+        Profile p = find(c, id);
+        return !p.hasPassword() || Passwords.verify(password, p.salt, p.hash);
+    }
+
+    static void lock(String id) {
+        UNLOCKED.remove(id);
+    }
+
+    static void lockAll() {
+        UNLOCKED.clear();
+    }
+
+    /** The app's screens call this when they go to the background and when they come back. */
+    static void leaving() {
+        leftAt = System.currentTimeMillis();
+    }
+
+    static void returning() {
+        if (leftAt != 0 && System.currentTimeMillis() - leftAt > RELOCK_AFTER_MS) lockAll();
+        leftAt = 0;
     }
 
     /** The profile the home screen shows, or "" for all of them. */

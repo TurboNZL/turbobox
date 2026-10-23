@@ -42,11 +42,14 @@ public class MainActivity extends Activity {
         scroll.addView(body, new ViewGroup.LayoutParams(-1, -2));
         setContentView(scroll);
         askPermissions();
+        String saved = Profiles.filter(this);   // the profile you were looking at last time
+        Prefs.activate(saved.isEmpty() ? Profiles.DEFAULT : saved);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        Profiles.returning();
         String filter = Profiles.filter(this);
         if (!filter.isEmpty() && Profiles.find(this, filter).id.equals(Profiles.DEFAULT) && !filter.equals(Profiles.DEFAULT)) filter = Profiles.DEFAULT;   // its profile was removed
         Profiles.setFilter(this, filter);
@@ -54,6 +57,12 @@ public class MainActivity extends Activity {
         Shortcuts.refresh(this);
         WorkflowScheduler.scheduleAll(this);   // keeps the alarms right even after an update
         SessionService.ensure(this);           // standby, if it is on
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        Profiles.leaving();
     }
 
     private void askPermissions() {
@@ -129,9 +138,18 @@ public class MainActivity extends Activity {
     }
 
     private TextView profileChip(String label, boolean selected, Profiles.Profile profile) {
-        TextView chip = Ui.pill(this, label, selected ? Ui.GREEN : 0);
+        boolean locked = profile != null && Profiles.isLocked(this, profile.id);
+        TextView chip = Ui.pill(this, (profile != null && profile.hasPassword() ? (locked ? "🔒 " : "🔓 ") : "") + label, selected ? Ui.GREEN : 0);
         chip.setPadding(Ui.dp(this, 14), Ui.dp(this, 7), Ui.dp(this, 14), Ui.dp(this, 7));
         chip.setOnClickListener(v -> {
+            if (profile != null && Profiles.isLocked(this, profile.id)) {
+                askPassword(profile, () -> {
+                    Profiles.setFilter(this, profile.id);
+                    Shortcuts.refresh(this);
+                    render();
+                });
+                return;
+            }
             Profiles.setFilter(this, profile == null ? "" : profile.id);
             render();
         });
@@ -150,11 +168,20 @@ public class MainActivity extends Activity {
     private void profileMenu(Profiles.Profile profile) {
         List<String> items = new ArrayList<>();
         items.add("Rename");
+        items.add(profile.hasPassword() ? "Change or remove the password" : "Set a password");
+        if (profile.hasPassword() && !Profiles.isLocked(this, profile.id)) items.add("Lock now");
         if (!profile.id.equals(Profiles.DEFAULT)) items.add("Remove, with its pages and sign-ins");
         new AlertDialog.Builder(this).setTitle(profile.name)
                 .setItems(items.toArray(new String[0]), (d, which) -> {
-                    if (which == 0) {
+                    String chosen = items.get(which);
+                    if (chosen.equals("Rename")) {
                         nameProfile(profile);
+                    } else if (chosen.equals("Set a password") || chosen.startsWith("Change")) {
+                        if (profile.hasPassword()) askPassword(profile, () -> newPassword(profile)); else newPassword(profile);
+                    } else if (chosen.equals("Lock now")) {
+                        Profiles.lock(profile.id);
+                        Shortcuts.refresh(this);
+                        render();
                     } else {
                         new AlertDialog.Builder(this).setTitle("Remove " + profile.name + "?")
                                 .setMessage("Its pinned pages, signed-in sessions and settings are deleted.")
@@ -166,6 +193,56 @@ public class MainActivity extends Activity {
                                 .setNegativeButton("Keep", null).show();
                     }
                 }).show();
+    }
+
+    /** Asks for the profile's password and runs {@code then} when it is right. */
+    private void askPassword(Profiles.Profile profile, Runnable then) {
+        EditText pw = new EditText(this);
+        pw.setHint("Password");
+        pw.setSingleLine(true);
+        pw.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        AlertDialog d = new AlertDialog.Builder(this).setTitle("Unlock " + profile.name).setView(pw)
+                .setPositiveButton("Unlock", null).setNegativeButton("Cancel", null).create();
+        d.setOnShowListener(x -> d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            if (Profiles.unlock(this, profile.id, pw.getText().toString())) {
+                d.dismiss();
+                then.run();
+            } else {
+                pw.setError("Wrong password");
+            }
+        }));
+        d.show();
+    }
+
+    /** A new password for a profile, typed twice; leaving both empty removes the password. */
+    private void newPassword(Profiles.Profile profile) {
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        int p = Ui.dp(this, 20);
+        form.setPadding(p, Ui.dp(this, 8), p, 0);
+        EditText one = new EditText(this);
+        one.setHint("New password (empty removes it)");
+        EditText two = new EditText(this);
+        two.setHint("Again");
+        for (EditText e : new EditText[]{one, two}) {
+            e.setSingleLine(true);
+            e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+            form.addView(e);
+        }
+        form.addView(Ui.hint(this, "It only hides this profile's pages here; it cannot be recovered if you forget it (removing the profile is the way out)."), Ui.lp(this, 6, 0));
+        AlertDialog d = new AlertDialog.Builder(this).setTitle("Password for " + profile.name).setView(form)
+                .setPositiveButton("Save", null).setNegativeButton("Cancel", null).create();
+        d.setOnShowListener(x -> d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            if (!one.getText().toString().equals(two.getText().toString())) {
+                two.setError("They do not match");
+                return;
+            }
+            Profiles.setPassword(this, profile.id, one.getText().toString());
+            Shortcuts.refresh(this);
+            d.dismiss();
+            render();
+        }));
+        d.show();
     }
 
     private void nameProfile(Profiles.Profile existing) {
@@ -189,7 +266,8 @@ public class MainActivity extends Activity {
     }
 
     private void renderRunning() {
-        List<Session> active = Sessions.active();
+        List<Session> active = new ArrayList<>();
+        for (Session s : Sessions.active()) if (!Profiles.isLocked(this, s.profileId())) active.add(s);
         if (active.isEmpty()) return;
         body.addView(Ui.label(this, "Running"), Ui.lp(this, 22, 8));
         LinearLayout card = Ui.card(this);
@@ -219,7 +297,11 @@ public class MainActivity extends Activity {
     private void renderPins() {
         String filter = Profiles.filter(this);
         List<Pin> pins = new ArrayList<>();
-        for (Pin p : PinStore.load(this)) if (filter.isEmpty() || p.profileId.equals(filter)) pins.add(p);
+        int hidden = 0;
+        for (Pin p : PinStore.load(this)) {
+            if (!(filter.isEmpty() || p.profileId.equals(filter))) continue;
+            if (Profiles.isLocked(this, p.profileId)) hidden++; else pins.add(p);
+        }
         LinearLayout head = new LinearLayout(this);
         head.setGravity(Gravity.CENTER_VERTICAL);
         head.addView(Ui.label(this, "Pinned pages"), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -235,11 +317,26 @@ public class MainActivity extends Activity {
         body.addView(head, Ui.lp(this, 22, 8));
         if (reordering && pins.size() <= 1) reordering = false;
 
+        if (!filter.isEmpty() && Profiles.isLocked(this, filter)) {
+            LinearLayout locked = Ui.card(this);
+            locked.addView(Ui.text(this, "🔒 This profile is locked", 16f, Ui.TEXT, "sans-serif-medium"));
+            TextView unlock = Ui.pill(this, "Unlock", Ui.GREEN);
+            unlock.setOnClickListener(v -> askPassword(Profiles.find(this, filter), () -> {
+                Shortcuts.refresh(this);
+                render();
+            }));
+            locked.addView(unlock, Ui.lp(this, 10, 0));
+            body.addView(locked);
+            return;
+        }
         List<View> tiles = new ArrayList<>();
         for (int i = 0; i < pins.size(); i++) tiles.add(pinTile(pins.get(i), i, pins.size()));
         tiles.add(addTile());
         tiles.add(quickTile());
         body.addView(PinGrid.grid(this, tiles));
+        if (hidden > 0) {
+            body.addView(Ui.hint(this, hidden + (hidden == 1 ? " page is" : " pages are") + " hidden in locked profiles. Tap the profile to unlock it."), Ui.lp(this, 2, 0));
+        }
         if (pins.isEmpty()) {
             body.addView(Ui.hint(this, "Pin the pages you use, like a video, a stream or a document. One tap opens "
                     + "them here, and two can run at once."), Ui.lp(this, 2, 0));
