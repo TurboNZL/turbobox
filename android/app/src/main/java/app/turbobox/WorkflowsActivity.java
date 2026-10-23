@@ -74,7 +74,7 @@ public class WorkflowsActivity extends Activity {
             card.addView(Ui.text(this, "Standby is off", 15f, Ui.AMBER, "sans-serif-medium"));
             card.addView(Ui.hint(this, "A workflow that starts while the phone is locked can click and play, but Android may keep "
                     + "the microphone away from it. Standby keeps TurboBox ready (one small notification, almost no battery) so "
-                    + "scheduled calls can use the microphone."), Ui.lp(this, 2, 6));
+                    + "scheduled workflows can use the microphone."), Ui.lp(this, 2, 6));
             TextView on = Ui.pill(this, "Turn Standby on", Ui.GREEN);
             on.setOnClickListener(v -> {
                 Prefs.setStandby(this, true);

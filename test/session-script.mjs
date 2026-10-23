@@ -223,6 +223,10 @@ check('the camera is refused until it is allowed', cam === 'NotAllowedError', ca
 await page.evaluate(() => window.__turbobox.setViewWidth(400));
 const vp = await page.evaluate(() => document.querySelector('meta[name=viewport]').content);
 check('viewport scale fits the real area (400 css px of 1280)', /initial-scale=0\.313/.test(vp), vp);
+// a site that starts its video muted: one call turns the sound on
+const um = await page.evaluate(() => { const a = document.getElementById('a'); a.muted = true; const before = window.__turbobox.realMuted(a); const n = window.__turbobox.unmuteMedia(); return { before, after: window.__turbobox.realMuted(a), n, page: a.muted }; });
+check('unmuteMedia switches a muted element on', um.before === true && um.after === false && um.page === false && um.n >= 1, um);
+
 // the page always looks visible (a video keeps playing with the screen off), and desktop Chrome's window.chrome exists
 const vis = await page.evaluate(() => {
   const heard = [];

@@ -18,6 +18,11 @@ final class Pin {
     int recordMode;         // recording when the page opens: 0 = follow the default in Settings, 1 = always, 2 = never
     boolean allowMic = true;      // privacy: may the page use the microphone (what it hears of you)
     boolean allowCamera;          // privacy: may the page use the camera (off until you allow it)
+    String profileId = Profiles.DEFAULT;   // the profile it belongs to: its own sign-ins and settings
+    boolean temporary;            // opened from "Open a page": never saved, no icon kept
+    boolean wipeOnClose;          // incognito only: delete its cookies and data when it closes (otherwise the separate profile is kept for next time)
+    boolean incognito;            // its own cookies and storage, thrown away when it closes
+    boolean mobile;               // ask sites for their phone layout instead of the desktop one (desktop is the default)
     int aspect;                   // forced shape of the page's area: index into ASPECTS, 0 = fill the space
 
     /** Shapes a page can be forced into: label, width, height. The first means "no forced shape". */
@@ -38,7 +43,7 @@ final class Pin {
         try {
             return new JSONObject().put("id", id).put("name", name).put("url", url)
                     .put("zoom", zoom).put("volume", volume).put("recordMode", recordMode)
-                    .put("allowMic", allowMic).put("allowCamera", allowCamera).put("aspect", aspect);
+                    .put("allowMic", allowMic).put("allowCamera", allowCamera).put("aspect", aspect).put("mobile", mobile).put("profile", profileId);
         } catch (JSONException e) {
             throw new IllegalStateException(e);
         }
@@ -52,6 +57,9 @@ final class Pin {
         p.recordMode = o.has("recordMode") ? o.optInt("recordMode") : o.optBoolean("autoRecord", false) ? 1 : 0;
         p.allowMic = o.optBoolean("allowMic", true);
         p.allowCamera = o.optBoolean("allowCamera", false);
+        p.mobile = o.optBoolean("mobile", false);
+        p.profileId = o.optString("profile", Profiles.DEFAULT);
+        if (p.profileId.isEmpty()) p.profileId = Profiles.DEFAULT;
         p.aspect = Math.max(0, Math.min(ASPECTS.length - 1, o.optInt("aspect", 0)));
         return p;
     }

@@ -61,7 +61,10 @@ public class PinTest {
     public void aspectSurvivesJsonAndIsClamped() throws Exception {
         Pin p = Pin.create("x", "https://x.y");
         p.aspect = 2;
+        p.mobile = true;
         assertEquals(2, Pin.fromJson(p.toJson()).aspect);
+        assertTrue(Pin.fromJson(p.toJson()).mobile);
+        assertTrue(!Pin.fromJson(new org.json.JSONObject("{\"id\":\"a\"}")).mobile);   // desktop unless asked
         assertEquals(0, Pin.fromJson(new org.json.JSONObject("{\"id\":\"a\"}")).aspect);
         assertEquals(Pin.ASPECTS.length - 1, Pin.fromJson(new org.json.JSONObject("{\"id\":\"a\",\"aspect\":99}")).aspect);
         assertEquals(Pin.ASPECTS.length, Pin.ASPECT_LABELS.length);
@@ -86,5 +89,21 @@ public class PinTest {
         StringBuilder sb = new StringBuilder();
         for (Pin p : l) sb.append(sb.length() == 0 ? "" : ",").append(p.id);
         return sb.toString();
+    }
+
+    @Test
+    public void profilesKeepTheirOwnPinsAndOrder() throws Exception {
+        java.util.List<Pin> l = new java.util.ArrayList<>();
+        for (String id : new String[]{"a", "b", "c", "d"}) l.add(new Pin(id, id, "https://x.y"));
+        l.get(1).profileId = "work";
+        l.get(3).profileId = "work";
+        assertTrue(PinStore.moveAmong(l, "d", -1, "work"));   // swaps with b, skipping the default profile's c
+        assertEquals("a,d,b,c", ids(l));
+        assertTrue(PinStore.moveAmong(l, "d", 1, "work"));   // and back: after b
+        assertEquals("a,b,d,c", ids(l));
+        assertTrue(!PinStore.moveAmong(l, "d", 1, "work"));   // last of its profile
+        assertEquals("default", Pin.fromJson(new org.json.JSONObject("{\"id\":\"a\"}")).profileId);
+        l.get(0).profileId = "work";
+        assertEquals("work", Pin.fromJson(l.get(0).toJson()).profileId);
     }
 }

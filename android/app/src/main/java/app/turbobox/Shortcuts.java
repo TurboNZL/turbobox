@@ -51,6 +51,7 @@ final class Shortcuts {
         int max = Math.min(sm.getMaxShortcutCountPerActivity(), 4);
         for (Pin p : PinStore.load(c)) {
             if (list.size() >= max) break;
+            if (Profiles.isLocked(c, p.profileId)) continue;   // a locked profile's pages are not in the launcher either
             list.add(build(c, p));
         }
         try {

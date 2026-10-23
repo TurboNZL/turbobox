@@ -188,13 +188,13 @@ final class WorkflowRunner {
                 }
                 session = Sessions.get(slot);
                 ownsTemporary = session.isTemporary();
-                log("Opening " + pin.name + " in slot " + (char) ('A' + slot)
-                        + (ownsTemporary ? ", a temporary extra page (A and B are busy). Open it from the tabs." : ""));
+                log("Opening " + pin.name + " in a slot"
+                        + (ownsTemporary ? ", a temporary extra page (all four page slots are busy). Open it from the tabs." : ""));
                 session.open(app, pin);
                 waitUntil = System.currentTimeMillis() + OPEN_TIMEOUT_MS;
                 awaitLoad(this::next);
             } else {
-                log("Using " + pin.name + ", already open in slot " + (char) ('A' + session.slot));
+                log("Using " + pin.name + ", already open");
                 next();
             }
         }

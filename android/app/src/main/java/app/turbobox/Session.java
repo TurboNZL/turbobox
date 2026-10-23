@@ -9,6 +9,7 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Base64;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
@@ -18,6 +19,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import androidx.webkit.ProfileStore;
 import androidx.webkit.UserAgentMetadata;
 import androidx.webkit.WebSettingsCompat;
 import androidx.webkit.WebViewCompat;
@@ -131,6 +133,13 @@ final class Session {
     private WebChromeClient.CustomViewCallback customCallback;
     private OffscreenHost keepHost;   // the page on a private display while no screen shows it and it is not recording
     private boolean keepHostFailed;
+    private static int seqCounter;
+    private int openedSeq;            // the order pages were opened in; the first one open is "A"
+    private boolean mobile;           // the phone layout of sites instead of the desktop one
+    private String mobileUa = "";
+    private androidx.webkit.ScriptHandler startScript;
+    private boolean wipeProfile;      // delete the profile's data when the page closes
+    private String profileName;       // the incognito profile this WebView lives in, null for the shared one
 
     Session(int slot) {
         this.slot = slot;
@@ -196,6 +205,41 @@ final class Session {
 
     int aspect() {
         return aspect;
+    }
+
+    int openedSeq() {
+        return openedSeq;
+    }
+
+    boolean isMobile() {
+        return mobile;
+    }
+
+    /** Desktop sites (the default) or the phone layout; kept with the pin. The page is loaded again to take it. */
+    void setMobile(boolean value) {
+        mobile = value;
+        if (pin != null) {
+            pin.mobile = value;
+            PinStore.put(app, pin);
+        }
+        if (webView == null) return;
+        applyMode(webView.getSettings());
+        registerStartScript(webView);
+        if (active) reload();
+    }
+
+    private void applyMode(WebSettings st) {
+        st.setUserAgentString(mobile ? mobileUserAgent(mobileUa) : desktopUserAgent(mobileUa));
+        applyClientHints(st, mobileUa, !mobile);
+        st.setLoadWithOverviewMode(true);
+    }
+
+    /** (Re)registers the script that runs before the page's own scripts, with the layout mode it should assume. */
+    private void registerStartScript(WebView wv) {
+        if (wv == null || !WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return;
+        if (startScript != null) startScript.remove();
+        startScript = WebViewCompat.addDocumentStartJavaScript(wv,
+                (mobile ? "window.__tbMobile=true;\n" : "") + sessionScript(), Collections.singleton("*"));
     }
 
     /** Forces the page's area into a shape (an index into {@link Pin#ASPECTS}, 0 = fill the space); kept with the pin. */
@@ -347,7 +391,7 @@ final class Session {
                 muteMisses = 0;
                 if (!silent) {
                     js("__turbobox.setMute(true)"); // lock it again
-                    notice("MUTE LEAK FIXED - something tried to un-mute the call.");
+                    notice("MUTE LEAK FIXED - something tried to un-mute the microphone.");
                 }
                 return;
             }
@@ -394,7 +438,7 @@ final class Session {
             PinStore.put(app, pin);
         }
         js("__turbobox.configure({cameraAllowed:" + allowed + "})");
-        notice(allowed ? "The page may ask for the camera." : "Camera blocked for this page. A call that already has it keeps it until the page reloads.");
+        notice(allowed ? "The page may ask for the camera." : "Camera blocked for this page. A page that already has it keeps it until the page reloads.");
     }
 
     /** What the outgoing audio is locked to: muted by the user, or the microphone is blocked. */
@@ -438,6 +482,11 @@ final class Session {
      */
     void startLoopback(int seconds) {
         js("__turbobox.loopback(" + seconds + ")");
+    }
+
+    /** Turns the sound on for the page's own videos and audio when it started them muted. */
+    void unmutePageMedia() {
+        js("__turbobox.unmuteMedia()");
     }
 
     /** Gain on the page's audio, 0..2 (above 1 boosts it). */
@@ -567,16 +616,81 @@ final class Session {
         }
     }
 
+    /** The WebView profile name this page's cookies live in, or null for the shared store. */
+    private String profileFor(Pin p) {
+        if (p.incognito) {
+            return p.wipeOnClose ? "tb_incognito_" + slot + "_" + openedSeq
+                    : "tb_site_" + startHost.replaceAll("[^A-Za-z0-9]", "_");
+        }
+        return Profiles.webProfileName(p.profileId);
+    }
+
+    /** Deletes the sign-ins and storage of a removed profile. */
+    static void deleteProfileData(String profileId) {
+        String name = Profiles.webProfileName(profileId);
+        if (name == null || !WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) return;
+        try {
+            androidx.webkit.Profile p = ProfileStore.getInstance().getProfile(name);
+            if (p != null) {
+                p.getCookieManager().removeAllCookies(null);
+                p.getWebStorage().deleteAllData();
+            }
+            ProfileStore.getInstance().deleteProfile(name);
+        } catch (RuntimeException ignored) {
+            // In use by a page that is still open; the data was wiped above.
+        }
+    }
+
+    String profileId() {
+        return pin == null ? Profiles.DEFAULT : pin.profileId;
+    }
+
+    /** Throws the WebView away (an incognito page's, with everything it stored), so the next page starts in a fresh one. */
+    private void discardWebView() {
+        if (webView == null) return;
+        leaveHost();
+        WebView old = webView;
+        webView = null;
+        startScript = null;
+        if (old.getParent() instanceof ViewGroup) ((ViewGroup) old.getParent()).removeView(old);
+        old.destroy();
+        String name = profileName;
+        profileName = null;
+        if (name != null && wipeProfile) {
+            try {
+                androidx.webkit.Profile p = ProfileStore.getInstance().getProfile(name);
+                if (p != null) {
+                    p.getCookieManager().removeAllCookies(null);
+                    p.getWebStorage().deleteAllData();
+                }
+                ProfileStore.getInstance().deleteProfile(name);
+            } catch (RuntimeException ignored) {
+                // Still in use; the data is wiped above and the empty profile is harmless.
+            }
+        }
+    }
+
     /** Open the pinned page and keep it alive in the background until {@link #close}. */
     void open(Context context, Pin page) {
         app = context.getApplicationContext();
         pin = page;
+        // An incognito page lives in a WebView of its own; so does the first normal page after one.
+        Prefs.activate(page.profileId);   // this page's microphone, volumes and recording settings are its profile's
+        startHost = Uri.parse(page.url).getHost() == null ? "" : Uri.parse(page.url).getHost();
+        if (webView != null && (page.incognito || !java.util.Objects.equals(profileFor(page), profileName))) discardWebView();
         Devices.ensureMicChoice(app);
         micKey = Prefs.micKey(app);
         aec = Prefs.aec(app);
         micGain = Prefs.micGain(app);
         zoom = page.zoom;
         aspect = page.aspect;
+        openedSeq = ++seqCounter;
+        boolean modeChanged = mobile != page.mobile;
+        mobile = page.mobile;
+        if (modeChanged && webView != null) {
+            applyMode(webView.getSettings());
+            registerStartScript(webView);
+        }
         volume = page.volume;
         micAllowed = page.allowMic;
         cameraAllowed = page.allowCamera;
@@ -640,6 +754,7 @@ final class Session {
         if (webView != null) {
             webView.loadUrl("about:blank");
             webView.clearHistory();
+            if (profileName != null && wipeProfile) main.post(this::discardWebView);   // everything an incognito page stored goes with it
         }
         for (Listener l : listeners) {
             l.onTimer(this, -1);
@@ -686,6 +801,16 @@ final class Session {
         frameWindow = w;
         if (recorder != null) recorder.setSource(w, webView);
         if (w != null) leaveHost(); else hostWithoutScreen();
+    }
+
+    /** Like {@link #setFrameWindow} but does not take the page off its private display (it is not on screen, just open). */
+    void setFrameWindowQuietly(Window w) {
+        frameWindow = w;
+        if (recorder != null) recorder.setSource(w, webView);
+    }
+
+    boolean isHosted() {
+        return keepHost != null;
     }
 
     // ---- staying visible with no screen ----------------------------------------------------------
@@ -830,14 +955,27 @@ final class Session {
 
     private WebView createWebView() {
         WebView wv = new WebView(new MutableContextWrapper(app));
+        // The profile first: it has to be chosen before the WebView is used for anything else.
+        String wantedProfile = pin == null ? null : profileFor(pin);
+        if (wantedProfile != null) {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+                ProfileStore.getInstance().getOrCreateProfile(wantedProfile);
+                WebViewCompat.setProfile(wv, wantedProfile);
+                profileName = wantedProfile;
+                wipeProfile = pin.incognito && pin.wipeOnClose;
+            } else {
+                pin.incognito = false;
+                main.post(() -> notice("This phone's WebView is too old for separate profiles or incognito: this page shares sign-ins with the others."));
+            }
+        }
         WebSettings st = wv.getSettings();
         st.setJavaScriptEnabled(true);
         st.setDomStorageEnabled(true);
         st.setMediaPlaybackRequiresUserGesture(false);
         // Ask for the desktop layout of the site, and let it be pinch-zoomed on a phone.
-        String mobileUa = st.getUserAgentString();
-        st.setUserAgentString(desktopUserAgent(mobileUa));
-        applyDesktopClientHints(st, mobileUa);
+        mobileUa = st.getUserAgentString();
+        mobile = pin != null && pin.mobile;
+        applyMode(st);
         // WebView adds "X-Requested-With: <this app's package>" to every request. Google's sign-in (YouTube) and others read
         // it to refuse "embedded browsers", so send it to no site at all.
         if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
@@ -849,6 +987,7 @@ final class Session {
         st.setBuiltInZoomControls(true);
         st.setDisplayZoomControls(false);
         CookieManager cookies = CookieManager.getInstance();
+        if (profileName != null) cookies = ProfileStore.getInstance().getProfile(profileName).getCookieManager();
         cookies.setAcceptCookie(true);
         cookies.setAcceptThirdPartyCookies(wv, true);
 
@@ -864,9 +1003,7 @@ final class Session {
         wv.addJavascriptInterface(new Bridge(), "TurboBoxBridge");
         // Before any page script runs, where the browser supports it; the callbacks below cover the rest
         // (the script is idempotent).
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
-            WebViewCompat.addDocumentStartJavaScript(wv, sessionScript(), Collections.singleton("*"));
-        }
+        registerStartScript(wv);
         wv.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
@@ -930,7 +1067,7 @@ final class Session {
 
             @Override
             public void onReceivedIcon(WebView view, android.graphics.Bitmap icon) {
-                if (pin != null && icon != null) Favicons.saveIfBetter(app, pin.id, icon);
+                if (pin != null && !pin.temporary && icon != null) Favicons.saveIfBetter(app, pin.id, icon);
             }
         });
         return wv;
@@ -958,7 +1095,7 @@ final class Session {
                     .put("muted", silenced()).put("volume", volume).put("aec", aec).put("zoom", zoom)
                     .put("micGain", micGain).put("virtual", !micKey.isEmpty()).put("micLabel", micLabel())
                     .put("tap", isRecording()).put("micAllowed", micAllowed).put("cameraAllowed", cameraAllowed).put("localMute", frozen)
-                    .put("keepVisible", Prefs.keepPlaying(app));
+                    .put("keepVisible", Prefs.keepPlaying(app)).put("desktop", !mobile);
             if (viewCssWidth > 0) settings.put("viewWidth", viewCssWidth);
             return sessionScript() + "\nwindow.__turbobox.configure(" + settings + ");"
                     + (callMeter ? "\nwindow.__turbobox.setMeter(true);" : "");
@@ -1056,7 +1193,12 @@ final class Session {
     }
 
     /** Client hints say "desktop Linux Chrome" too, since some sites read them instead of the UA string. */
-    private static void applyDesktopClientHints(WebSettings st, String mobileUa) {
+    private static String mobileUserAgent(String mobile) {
+        // WebView's own string carries "; wv" and "Version/4.0", which sign-in pages read as "embedded browser".
+        return (mobile == null ? "" : mobile).replace("; wv)", ")").replace("Version/4.0 ", "");
+    }
+
+    private static void applyClientHints(WebSettings st, String mobileUa, boolean desktop) {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) return;
         Matcher m = Pattern.compile("Chrome/(\\d+)").matcher(mobileUa == null ? "" : mobileUa);
         String major = m.find() ? m.group(1) : "120";
@@ -1071,12 +1213,12 @@ final class Session {
         UserAgentMetadata md = new UserAgentMetadata.Builder()
                 .setBrandVersionList(brands)
                 .setFullVersion(full)
-                .setPlatform("Linux")
-                .setPlatformVersion("6.5.0")
-                .setArchitecture("x86")
-                .setBitness(64)
+                .setPlatform(desktop ? "Linux" : "Android")
+                .setPlatformVersion(desktop ? "6.5.0" : "14.0.0")
+                .setArchitecture(desktop ? "x86" : "")
+                .setBitness(desktop ? 64 : 0)
                 .setModel("")
-                .setMobile(false)
+                .setMobile(!desktop)
                 .build();
         WebSettingsCompat.setUserAgentMetadata(st, md);
     }

@@ -50,6 +50,12 @@ public class SessionActivity extends Activity implements Session.Listener {
     static final String ACTION_OPEN_PIN = "app.turbobox.OPEN_PIN";
     static final String EXTRA_PIN = "pin";
     static final String EXTRA_SLOT = "slot";
+    static final String ACTION_OPEN_URL = "app.turbobox.OPEN_URL";   // a page that is not pinned
+    static final String EXTRA_URL = "url";
+    static final String EXTRA_INCOGNITO = "incognito";
+    static final String EXTRA_MOBILE = "mobile";
+    static final String EXTRA_WIPE = "wipe";
+    static final String EXTRA_PROFILE = "profile";
     private static final int[] TIMER_MINUTES = {0, 15, 30, 45, 60, 90, 120, 180, 240, 360, 480};
 
     /** Set while the pocket lock is on. Static so it outlives this screen (home, screen off, a new instance of the activity). */
@@ -61,12 +67,9 @@ public class SessionActivity extends Activity implements Session.Listener {
     private final TextView[] tabs = new TextView[Sessions.COUNT];
     private LinearLayout root;
     private LinearLayout chromeBox;
-    private FrameLayout fullscreenHolder;
     private Session fullscreenSession;
     private Dialog lockDialog;
     private PopupWindow floatButton;
-    private PopupWindow floatPanel;
-    private boolean panelOpen;
     private boolean pipReceiverOn;
     private LinearLayout paneHolder;
     private TextView splitButton;
@@ -79,10 +82,12 @@ public class SessionActivity extends Activity implements Session.Listener {
     private View dim;
     private int focus;
     private boolean split;
+    private final java.util.Set<Integer> splitSet = new java.util.TreeSet<>();   // the slots shown together while Split is on (up to four)
     private boolean inPip;
     private SessionSheet sheet;
     private final PopupWindow[] freezePopups = new PopupWindow[Sessions.COUNT];
     private final Bitmap[] frozenPictures = new Bitmap[Sessions.COUNT];
+    private final View[] fullscreenViews = new View[Sessions.COUNT];
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @Override
@@ -107,8 +112,30 @@ public class SessionActivity extends Activity implements Session.Listener {
     /** Opens the pin or focuses the slot the intent names. False when there is nothing to show. */
     private boolean handleIntent(Intent intent) {
         String pinId = intent.getStringExtra(EXTRA_PIN);
+        if (ACTION_OPEN_URL.equals(intent.getAction())) {
+            intent.setAction(null);   // handled once: a recreated activity must not open it again
+            String address = Pin.normalizeUrl(intent.getStringExtra(EXTRA_URL));
+            if (address != null) {
+                Pin quick = Pin.create("", address);
+                quick.name = quick.host();
+                quick.temporary = true;
+                quick.incognito = intent.getBooleanExtra(EXTRA_INCOGNITO, true);
+                quick.mobile = intent.getBooleanExtra(EXTRA_MOBILE, false);
+                String profile = intent.getStringExtra(EXTRA_PROFILE);
+                if (profile != null && !profile.isEmpty()) quick.profileId = profile;
+                quick.wipeOnClose = quick.incognito && intent.getBooleanExtra(EXTRA_WIPE, true);
+                quick.recordMode = quick.wipeOnClose ? 2 : 0;   // a page that leaves nothing behind is not recorded either
+                openPin(quick);
+                return !Sessions.active().isEmpty();
+            }
+        }
         if (ACTION_OPEN_PIN.equals(intent.getAction()) && pinId != null) {
             Pin pin = PinStore.find(this, pinId);
+            if (pin != null && Profiles.isLocked(this, pin.profileId) && Sessions.forPin(pin.id) == null) {
+                Toast.makeText(this, "That page is in a locked profile. Unlock it in TurboBox first.", Toast.LENGTH_LONG).show();
+                startActivity(new Intent(this, MainActivity.class));
+                return false;
+            }
             if (pin != null) {
                 openPin(pin);
                 return !Sessions.active().isEmpty();
@@ -177,6 +204,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     @Override
     protected void onResume() {
         super.onResume();
+        Profiles.returning();
         // After the screen was off or locked a page recorded off screen is put back into its pane.
         if (!Sessions.active().isEmpty()) rebuild();
         // Back from the replay of what was missed: the live page is shown and heard again.
@@ -191,6 +219,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     @Override
     protected void onPause() {
         super.onPause();
+        Profiles.leaving();
         keepPagesRunning();
     }
 
@@ -254,18 +283,23 @@ public class SessionActivity extends Activity implements Session.Listener {
         return Build.VERSION.SDK_INT >= 26 && getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE);
     }
 
-    /** 0 = the page in front, 1 = two pages side by side, 2 = two pages stacked (the choice in Settings, used with two pages open). */
-    private int pipLayout() {
-        return Sessions.active().size() >= 2 ? Prefs.pipLayout(this) : 0;
+    /** The pages the Mini window shows: only while Split is on is it more than the page in front. */
+    private List<Session> pipPages() {
+        if (!split) {
+            List<Session> one = new ArrayList<>();
+            if (front() != null) one.add(front());
+            return one;
+        }
+        return members();
     }
 
     private PictureInPictureParams.Builder pipParams() {
-        int layout = pipLayout();
-        // Android only accepts shapes between 1:2.39 and 2.39:1, so two 16:9 pages next to each other (32:9) cannot be had.
-        Rational shape = layout == 1 ? new Rational(21, 9) : layout == 2 ? new Rational(8, 9) : new Rational(16, 9);
-        PictureInPictureParams.Builder b = new PictureInPictureParams.Builder().setAspectRatio(shape);
-        // The mic button works for any page: it is the same mute as the notification's (for a page that is not in a call it
-        // simply keeps the microphone from being sent when one is asked for).
+        List<Session> pages = pipPages();
+        boolean wide = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+        int[] shape = SplitLayout.shape(SplitLayout.pipRows(pages.size(), Prefs.pipLayout(this), wide));
+        PictureInPictureParams.Builder b = new PictureInPictureParams.Builder().setAspectRatio(new Rational(shape[0], shape[1]));
+        // The mic button works for any page: it is the same mute as the notification's (for a page that is not using the
+        // microphone it simply keeps it from being sent when one is asked for).
         if (!Sessions.active().isEmpty()) {
             boolean muted = Sessions.allMuted();
             Icon icon = Icon.createWithResource(this, muted ? R.drawable.ic_mic_off : R.drawable.ic_mic);
@@ -327,13 +361,13 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     /** Which layout the Mini window should have, asked from the Mini button's long press. */
     private void choosePipLayout() {
-        String[] items = {"The page in front only", "Two pages side by side", "Two pages stacked"};
-        new AlertDialog.Builder(this).setTitle("Mini window with two pages")
+        String[] items = {"Like the split view", "Side by side", "Stacked", "One page floating over the other"};
+        new AlertDialog.Builder(this).setTitle("Mini window while Split is on")
                 .setSingleChoiceItems(items, Prefs.pipLayout(this), (d, which) -> {
                     Prefs.setPipLayout(this, which);
                     d.dismiss();
                     updatePip();
-                    Toast.makeText(this, "Used the next time the Mini window opens with two pages running.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Used when the Mini window opens while Split is on.", Toast.LENGTH_SHORT).show();
                 }).show();
     }
 
@@ -370,18 +404,12 @@ public class SessionActivity extends Activity implements Session.Listener {
         for (int i = 0; i < Sessions.COUNT; i++) {
             final int slot = i;
             TextView t = Ui.pill(this, "", 0);
-            t.setOnClickListener(v -> {
-                focus = slot;
-                rebuild();
-            });
+            t.setOnClickListener(v -> tabTapped(slot));
             tabs[i] = t;
             tabRow.addView(t, Ui.weight(this, i == 0 ? 0 : gap));
         }
         splitButton = Ui.pill(this, "Split", 0);
-        splitButton.setOnClickListener(v -> {
-            split = !split;
-            rebuild();
-        });
+        splitButton.setOnClickListener(v -> toggleSplit());
         tabRow.addView(splitButton, Ui.weight(this, gap));
         chromeBox.addView(tabRow, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -438,6 +466,15 @@ public class SessionActivity extends Activity implements Session.Listener {
             });
             row3.addView(pip);
         }
+        TextView hide = Ui.pill(this, "Hide bar", 0);
+        hide.setPadding(Ui.dp(this, 14), Ui.dp(this, 7), Ui.dp(this, 14), Ui.dp(this, 7));
+        hide.setOnClickListener(v -> {
+            Prefs.setBarHidden(this, true);
+            applyBarMode();
+        });
+        LinearLayout.LayoutParams hideParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hideParams.leftMargin = Ui.dp(this, gap);
+        row3.addView(hide, hideParams);
         TextView lock = Ui.pill(this, "Lock", 0);
         lock.setPadding(Ui.dp(this, 14), Ui.dp(this, 7), Ui.dp(this, 14), Ui.dp(this, 7));
         lock.setOnClickListener(v -> startPocketLock());
@@ -460,15 +497,9 @@ public class SessionActivity extends Activity implements Session.Listener {
         }
         root.addView(paneHolder, new LinearLayout.LayoutParams(-1, 0, 1f));
 
-        // A page's own full-screen view (a video's full-screen button) goes over everything but the veil.
-        fullscreenHolder = new FrameLayout(this);
-        fullscreenHolder.setBackgroundColor(Color.BLACK);
-        fullscreenHolder.setVisibility(View.GONE);
-
         // Brightness veil over everything, the same trick as Tether's main screen.
         FrameLayout frame = new FrameLayout(this);
         frame.addView(root, new FrameLayout.LayoutParams(-1, -1));
-        frame.addView(fullscreenHolder, new FrameLayout.LayoutParams(-1, -1));
         dim = new View(this);
         dim.setBackgroundColor(Color.BLACK);
         dim.setClickable(false);
@@ -487,17 +518,42 @@ public class SessionActivity extends Activity implements Session.Listener {
         return s.isActive() ? s : null;
     }
 
-    /** The pages shown together: the first two open ones, or the focused one with the first other. Slot order. */
-    private List<Session> pair() {
+    /** The pages in the split view, in slot order (at least the page in front). */
+    private List<Session> members() {
         List<Session> out = new ArrayList<>();
-        Session f = front();
-        if (f != null) out.add(f);
-        for (Session s : Sessions.active()) {
-            if (out.size() >= 2) break;
-            if (s != f) out.add(s);
-        }
-        java.util.Collections.sort(out, (a, b) -> a.slot - b.slot);
+        for (Session s : Sessions.active()) if (splitSet.contains(s.slot)) out.add(s);
+        if (out.isEmpty() && front() != null) out.add(front());
         return out;
+    }
+
+    private void toggleSplit() {
+        split = !split;
+        if (split) {
+            splitSet.clear();
+            for (Session s : Sessions.active()) if (splitSet.size() < 4) splitSet.add(s.slot);
+            Toast.makeText(this, "Tap tabs to choose which pages share the screen. Tap the highlighted tab again to take it out.", Toast.LENGTH_LONG).show();
+        }
+        rebuild();
+    }
+
+    /** A tab was tapped: the page in front, or (with Split on) in or out of the split. */
+    private void tabTapped(int slot) {
+        if (!split) {
+            focus = slot;
+        } else if (!splitSet.contains(slot)) {
+            if (splitSet.size() >= 4) {
+                Toast.makeText(this, "Four pages is the most that share the screen.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            splitSet.add(slot);
+            focus = slot;
+        } else if (focus != slot) {
+            focus = slot;
+        } else if (splitSet.size() > 1) {
+            splitSet.remove(slot);
+            focus = splitSet.iterator().next();
+        }
+        rebuild();
     }
 
     /** Puts the pages in their panes and brings every control up to date. */
@@ -506,19 +562,39 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (active.isEmpty()) return;
         if (!Sessions.get(focus).isActive()) focus = active.get(0).slot;
         if (active.size() < 2) split = false;
+        if (split) {
+            java.util.Iterator<Integer> it = splitSet.iterator();
+            while (it.hasNext()) if (!Sessions.get(it.next()).isActive()) it.remove();
+            if (!splitSet.contains(focus)) {
+                if (splitSet.size() >= 4) splitSet.remove(splitSet.iterator().next());
+                splitSet.add(focus);
+            }
+        }
 
         boolean landscape = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
-        int layout = inPip ? pipLayout() : 0;
-        boolean together = (split && !inPip) || layout != 0;
-        boolean horizontal = inPip && layout != 0 ? layout == 1 : landscape;
-        List<Session> shownTogether = together ? pair() : new ArrayList<Session>();
-        paneHolder.removeAllViews();
-        paneHolder.setOrientation(horizontal ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+        List<Session> shown = new ArrayList<>(inPip ? pipPages() : split ? members() : new ArrayList<Session>());
+        if (shown.isEmpty() && front() != null) shown.add(front());
+        boolean together = split && shown.size() >= 2;
+        boolean overlay = inPip && together && Prefs.pipLayout(this) == SplitLayout.OVERLAY;
+        int[] rows = !together || overlay ? new int[]{1}
+                : inPip ? SplitLayout.pipRows(shown.size(), Prefs.pipLayout(this), landscape)
+                : SplitLayout.rows(shown.size(), landscape);
+
+        Session base = null, inset = null;
+        List<Session> placed = shown;
+        if (overlay) {
+            base = front() != null && shown.contains(front()) ? front() : shown.get(0);
+            inset = shown.get(0) == base ? shown.get(1) : shown.get(0);
+            placed = new ArrayList<>();
+            placed.add(base);
+            placed.add(inset);
+        }
         for (int i = 0; i < Sessions.COUNT; i++) {
             Session s = Sessions.get(i);
-            FrameLayout p = panes[i];
             WebView wv = s.peekWebView();
-            if (s.isActive()) {
+            if (s.isActive() && !placed.contains(s) && s.isHosted()) {
+                s.attach(this);   // already on its private display; leave it there
+            } else if (s.isActive()) {
                 wv = s.webView(this);
                 s.attach(this);
                 if (wv.getParent() != boxes[i]) {
@@ -526,19 +602,50 @@ public class SessionActivity extends Activity implements Session.Listener {
                     boxes[i].addView(wv, new FrameLayout.LayoutParams(-1, -1));
                 }
                 boxes[i].setRatio(Pin.ASPECTS[s.aspect()]);
-                s.setFrameWindow(getWindow());
             } else if (wv != null && wv.getParent() == boxes[i]) {
                 boxes[i].removeView(wv);
             }
-            boolean shown = s.isActive() && (together ? shownTogether.contains(s) : i == focus);
-            if (p.getParent() != null) ((ViewGroup) p.getParent()).removeView(p);
-            if (shown) {
-                paneHolder.addView(p, horizontal ? new LinearLayout.LayoutParams(0, -1, 1f) : new LinearLayout.LayoutParams(-1, 0, 1f));
+            if (panes[i].getParent() != null) ((ViewGroup) panes[i].getParent()).removeView(panes[i]);
+        }
+        paneHolder.removeAllViews();
+        paneHolder.setOrientation(LinearLayout.VERTICAL);
+        if (overlay) {
+            FrameLayout stack = new FrameLayout(this);
+            stack.addView(panes[base.slot], new FrameLayout.LayoutParams(-1, -1));
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(Ui.dp(this, 96), Ui.dp(this, 64), Gravity.BOTTOM | Gravity.END);
+            lp.setMargins(0, 0, Ui.dp(this, 6), Ui.dp(this, 6));
+            stack.addView(panes[inset.slot], lp);
+            paneHolder.addView(stack, new LinearLayout.LayoutParams(-1, 0, 1f));
+        } else {
+            int next = 0;
+            for (int rowSize : rows) {
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                for (int c = 0; c < rowSize && next < shown.size(); c++, next++) {
+                    row.addView(panes[shown.get(next).slot], new LinearLayout.LayoutParams(0, -1, 1f));
+                }
+                paneHolder.addView(row, new LinearLayout.LayoutParams(-1, 0, 1f));
+            }
+        }
+        // A page that is open but not on screen (another tab is in front) keeps running on a private display; one that
+        // simply left the screen would be treated as hidden, and a video would pause.
+        for (int i = 0; i < Sessions.COUNT; i++) {
+            Session s = Sessions.get(i);
+            if (!s.isActive()) continue;
+            if (panes[i].getParent() != null) {
+                s.setFrameWindow(getWindow());                      // leaves the private display if it was on one
+            } else {
+                s.setFrameWindowQuietly(getWindow());
+                s.hostWithoutScreen();
             }
             if (i != focus) s.setCallMeter(false);
         }
         Session f = front();
         if (f != null && !inPip) f.setCallMeter(true);
+        if (f != null) {
+            Prefs.activate(f.profileId());   // the screen options (brightness...) are the front page's profile's
+            applyBrightness();
+        }
         updatePip();
         updateControls();
         updateFreeze();
@@ -553,7 +660,7 @@ public class SessionActivity extends Activity implements Session.Listener {
             tabs[i].setText(s.label());
             tabs[i].setSingleLine(true);
             tabs[i].setEllipsize(android.text.TextUtils.TruncateAt.END);
-            Ui.tint(this, tabs[i], i == focus ? Ui.GREEN : 0);
+            Ui.tint(this, tabs[i], i == focus ? Ui.GREEN : split && splitSet.contains(i) ? 0xFF6B8F1F : 0);
         }
         splitButton.setVisibility(Sessions.active().size() > 1 ? View.VISIBLE : View.GONE);
         Ui.tint(this, splitButton, split ? Ui.GREEN : 0);
@@ -568,40 +675,30 @@ public class SessionActivity extends Activity implements Session.Listener {
         awayButton.setText(f.awayAtWall != 0 ? "Back - play what I missed" : "Step away");
     }
 
-    // ---- the options bar as a floating button ------------------------------------------------
+    // ---- the options bar, retracted into a button ---------------------------------------------
 
     /**
-     * Docked: the bar sits across the top. Floating (a setting): the bar leaves the layout so the page gets the whole
-     * screen, and a small round button you can drag opens it over the page. Both the button and the opened bar are windows of
-     * their own, like the freeze cover, so a recording of the page never shows them.
+     * The bar across the top can be put away with its Hide bar button: the page then gets the whole screen and a small round
+     * button you can drag stays over it; tapping that brings the bar back. The button is a window of its own, like the freeze
+     * cover, so a recording of the page never shows it.
      */
     private void applyBarMode() {
         dismissFloat();
-        boolean floating = Prefs.floatingBar(this) && !inPip && !isFinishing() && fullscreenSession == null;
-        if (chromeBox.getParent() instanceof ViewGroup) ((ViewGroup) chromeBox.getParent()).removeView(chromeBox);
-        if (!floating) {
-            chromeBox.setBackground(null);
-            chromeBox.setPadding(0, 0, 0, 0);
-            root.addView(chromeBox, 0, new LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT));
-            chromeBox.setVisibility(inPip ? View.GONE : View.VISIBLE);
-            return;
-        }
-        chromeBox.setVisibility(View.VISIBLE);
-        chromeBox.setBackground(Ui.rounded(this, Ui.withAlpha(Ui.BG, 0.96f), Ui.STROKE, 0));
-        chromeBox.setPadding(0, 0, 0, Ui.dp(this, 6));
+        boolean hidden = Prefs.barHidden(this) && !inPip && !isFinishing();
+        chromeBox.setVisibility(inPip || hidden ? View.GONE : View.VISIBLE);
+        if (!hidden) return;
         View decor = getWindow().getDecorView();
         if (decor.getWidth() < 8) {
             decor.post(this::applyBarMode);
             return;
         }
-        int size = Ui.dp(this, 48);
-        TextView button = Ui.text(this, "☰", 22f, Ui.BG, "semibold");
+        int size = Ui.dp(this, 44);
+        TextView button = Ui.text(this, "▼", 18f, Ui.BG, "semibold");
         button.setGravity(Gravity.CENTER);
+        button.setContentDescription("Show the options bar");
         button.setBackground(Ui.rounded(this, Ui.withAlpha(Ui.GREEN, 0.92f), 0, 100));
         floatButton = new PopupWindow(button, size, size, false);
         floatButton.setClippingEnabled(false);
-        int[] origin = new int[2];
-        decor.getLocationOnScreen(origin);
         final int maxX = Math.max(0, decor.getWidth() - size), maxY = Math.max(0, decor.getHeight() - size);
         final int[] pos = {Math.round(Prefs.floatX(this) * maxX), Math.round(Prefs.floatY(this) * maxY)};
         final float[] down = new float[4];
@@ -628,7 +725,8 @@ public class SessionActivity extends Activity implements Session.Listener {
                     if (dragged[0]) {
                         Prefs.setFloatPos(this, maxX == 0 ? 0f : pos[0] / (float) maxX, maxY == 0 ? 0f : pos[1] / (float) maxY);
                     } else {
-                        togglePanel();
+                        Prefs.setBarHidden(this, false);
+                        applyBarMode();
                     }
                     return true;
                 default:
@@ -639,48 +737,10 @@ public class SessionActivity extends Activity implements Session.Listener {
             floatButton.showAtLocation(decor, Gravity.TOP | Gravity.START, pos[0], pos[1]);
         } catch (RuntimeException e) {
             floatButton = null;   // the window is going away
-            return;
-        }
-        if (panelOpen) showPanel();
-    }
-
-    private void togglePanel() {
-        panelOpen = !panelOpen;
-        if (panelOpen) showPanel(); else hidePanel();
-    }
-
-    private void showPanel() {
-        hidePanel();
-        View decor = getWindow().getDecorView();
-        floatPanel = new PopupWindow(chromeBox, decor.getWidth(), ViewGroup.LayoutParams.WRAP_CONTENT, false);
-        floatPanel.setClippingEnabled(false);
-        int[] at = new int[2];
-        root.getLocationOnScreen(at);
-        int[] origin = new int[2];
-        decor.getLocationOnScreen(origin);
-        try {
-            floatPanel.showAtLocation(decor, Gravity.TOP | Gravity.START, at[0] - origin[0], at[1] - origin[1]);
-        } catch (RuntimeException e) {
-            floatPanel = null;
-            panelOpen = false;
         }
     }
 
-    private void hidePanel() {
-        PopupWindow p = floatPanel;
-        floatPanel = null;
-        if (p != null) {
-            try {
-                p.dismiss();
-            } catch (RuntimeException ignored) {
-                // Already gone.
-            }
-        }
-    }
-
-    /** Takes both floating windows down (the bar view itself stays ours and goes back to a parent in {@link #applyBarMode}). */
     private void dismissFloat() {
-        hidePanel();
         PopupWindow b = floatButton;
         floatButton = null;
         if (b != null) {
@@ -698,8 +758,6 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (Sessions.active().isEmpty()) return;
         pocketLocked = true;
         if (sheet != null) sheet.dismiss();
-        panelOpen = false;
-        hidePanel();
         showLock();
         updatePip();
     }
@@ -744,13 +802,12 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     // ---- actions -----------------------------------------------------------------------------
 
-    /** Ending the call is one tap away from the page, so ask first. */
+    /** Closing is one tap away from a page that may be in use, so ask first. */
     private void confirmClose() {
         Session s = front();
         if (s == null) return;
         new AlertDialog.Builder(this)
                 .setTitle("Close " + s.title() + "?")
-                .setMessage("This ends the call on your end.")
                 .setPositiveButton("Close page", (d, w) -> s.close("you closed the page"))
                 .setNegativeButton("Keep it open", null)
                 .show();
@@ -1007,49 +1064,22 @@ public class SessionActivity extends Activity implements Session.Listener {
         updateFreeze();
     }
 
+    /** The page's own full-screen view (a video's button) fills that page's area only, not the phone's screen. */
     @Override
     public void onFullscreen(Session s, View view) {
+        FrameLayout pane = panes[s.slot];
         if (view == null) {
             if (fullscreenSession == s) fullscreenSession = null;
-            fullscreenHolder.removeAllViews();
-            fullscreenHolder.setVisibility(View.GONE);
-            setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
-            setSystemBars(true);
+            View old = fullscreenViews[s.slot];
+            if (old != null && old.getParent() == pane) pane.removeView(old);
+            fullscreenViews[s.slot] = null;
         } else {
             fullscreenSession = s;
             if (view.getParent() instanceof ViewGroup) ((ViewGroup) view.getParent()).removeView(view);
-            fullscreenHolder.removeAllViews();
-            fullscreenHolder.addView(view, new FrameLayout.LayoutParams(-1, -1));
-            fullscreenHolder.setVisibility(View.VISIBLE);
-            // A video wants to be turned sideways even when the phone's own rotation lock is on.
-            setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR);
-            setSystemBars(false);
+            view.setBackgroundColor(Color.BLACK);
+            pane.addView(view, new FrameLayout.LayoutParams(-1, -1));
+            fullscreenViews[s.slot] = view;
         }
-        getWindow().getDecorView().post(this::applyBarMode);
-    }
-
-    /** Status and navigation bars shown, or hidden for full screen (they come back with a swipe from the edge). */
-    @SuppressWarnings("deprecation")
-    private void setSystemBars(boolean visible) {
-        if (Build.VERSION.SDK_INT >= 30) {
-            android.view.WindowInsetsController c = getWindow().getInsetsController();
-            if (c == null) return;
-            if (visible) {
-                c.show(android.view.WindowInsets.Type.systemBars());
-            } else {
-                c.hide(android.view.WindowInsets.Type.systemBars());
-                c.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-            }
-        } else {
-            getWindow().getDecorView().setSystemUiVisibility(visible ? View.SYSTEM_UI_FLAG_VISIBLE
-                    : View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
-        }
-    }
-
-    @Override
-    public void onLevel(Session s, float rms) {
-        if (s.slot == focus) strip.setRms(rms);
     }
 
     @Override
