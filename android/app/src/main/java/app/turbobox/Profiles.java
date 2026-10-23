@@ -11,8 +11,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Profiles: separate identities inside the app, like a browser's. Each has its own pinned pages, its own sign-ins (cookies
- * and storage live in a WebView profile of their own) and its own settings (see {@link Prefs#activate}). Nothing is shared
+ * Profiles: separate identities inside the app, like a browser's. Each has its own pinned pages and its own sign-ins (cookies
+ * and storage live in a WebView profile of their own). App settings are global. Nothing else is shared
  * between profiles. The default profile is the one everything belonged to before profiles existed.
  */
 final class Profiles {
@@ -117,7 +117,7 @@ final class Profiles {
             PinStore.remove(c, pin.id);
             Favicons.delete(c, pin.id);
         }
-        c.getApplicationContext().deleteSharedPreferences("turbobox_p_" + id);
+        c.getApplicationContext().deleteSharedPreferences("turbobox_p_" + id);   // settings files of an earlier version
         Session.deleteProfileData(id);
         if (id.equals(filter(c))) setFilter(c, DEFAULT);
     }
@@ -192,7 +192,6 @@ final class Profiles {
 
     static void setFilter(Context c, String id) {
         Prefs.sp(c).edit().putString(FILTER, id).apply();
-        Prefs.activate(id.isEmpty() ? DEFAULT : id);
     }
 
     /** The name of the WebView profile that holds this profile's cookies, or null for the shared default store. */

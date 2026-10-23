@@ -25,7 +25,8 @@ final class PocketLockView extends View {
     private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final OnUnlock onUnlock;
-    private final float radius;
+    private float radius;
+    private final float baseRadius;
     private final boolean[] held = new boolean[2];
     private long heldSince;   // when both dots were first down together, 0 = not both
     private boolean done;
@@ -33,7 +34,8 @@ final class PocketLockView extends View {
     PocketLockView(Context c, OnUnlock onUnlock) {
         super(c);
         this.onUnlock = onUnlock;
-        radius = Ui.dpf(c, 44);
+        baseRadius = Ui.dpf(c, 44);
+        radius = baseRadius;
         setBackgroundColor(0xFF000000);
         ring.setStyle(Paint.Style.STROKE);
         ring.setStrokeWidth(Ui.dpf(c, 3));
@@ -43,6 +45,13 @@ final class PocketLockView extends View {
         text.setColor(0xFF4A4A56);
         text.setTextAlign(Paint.Align.CENTER);
         text.setTextSize(Ui.dpf(c, 14));
+    }
+
+    @Override
+    protected void onSizeChanged(int w, int h, int ow, int oh) {
+        // A small page (one pane of a split) gets smaller circles that still fit side by side.
+        radius = Math.max(Ui.dpf(getContext(), 16), Math.min(baseRadius, Math.min(w / 6f, h / 6f)));
+        text.setTextSize(Math.max(Ui.dpf(getContext(), 10), Math.min(Ui.dpf(getContext(), 14), w / 22f)));
     }
 
     private float cx(int dot) {

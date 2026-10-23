@@ -42,8 +42,6 @@ public class MainActivity extends Activity {
         scroll.addView(body, new ViewGroup.LayoutParams(-1, -2));
         setContentView(scroll);
         askPermissions();
-        String saved = Profiles.filter(this);   // the profile you were looking at last time
-        Prefs.activate(saved.isEmpty() ? Profiles.DEFAULT : saved);
     }
 
     @Override
@@ -112,7 +110,7 @@ public class MainActivity extends Activity {
         renderShortcuts();
     }
 
-    /** A row of profile chips: tap to show that profile's pages (and use its settings), All to see every page. */
+    /** A row of profile chips: tap to show that profile's pages, All to see every page. */
     private void renderProfiles() {
         List<Profiles.Profile> all = Profiles.load(this);
         String filter = Profiles.filter(this);
@@ -133,7 +131,7 @@ public class MainActivity extends Activity {
         scroll.addView(row);
         body.addView(scroll, Ui.lp(this, 14, 0));
         if (all.size() > 1) {
-            body.addView(Ui.hint(this, "Each profile has its own pinned pages, sign-ins and settings. Long-press a profile to rename or remove it."), Ui.lp(this, 6, 0));
+            body.addView(Ui.hint(this, "Each profile has its own pinned pages and sign-ins; the app's settings are the same for all. Long-press a profile to rename or remove it."), Ui.lp(this, 6, 0));
         }
     }
 

@@ -58,8 +58,6 @@ public class SessionActivity extends Activity implements Session.Listener {
     static final String EXTRA_PROFILE = "profile";
     private static final int[] TIMER_MINUTES = {0, 15, 30, 45, 60, 90, 120, 180, 240, 360, 480};
 
-    /** Set while the pocket lock is on. Static so it outlives this screen (home, screen off, a new instance of the activity). */
-    private static boolean pocketLocked;
     private static final String ACTION_PIP_MUTE = "app.turbobox.PIP_MUTE";
 
     private final FrameLayout[] panes = new FrameLayout[Sessions.COUNT];
@@ -68,7 +66,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     private LinearLayout root;
     private LinearLayout chromeBox;
     private Session fullscreenSession;
-    private Dialog lockDialog;
+    private final PopupWindow[] lockPopups = new PopupWindow[Sessions.COUNT];
     private PopupWindow floatButton;
     private boolean pipReceiverOn;
     private LinearLayout paneHolder;
@@ -196,8 +194,6 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (f != null && !inPip) f.setCallMeter(true);
         updateControls();
         registerPipReceiver();
-        if (Sessions.active().isEmpty()) pocketLocked = false;
-        if (pocketLocked) showLock();
         getWindow().getDecorView().post(this::applyBarMode);
     }
 
@@ -246,7 +242,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         // The pages and the timers outlive this screen; only the view of them goes away.
         for (int i = 0; i < freezePopups.length; i++) dismissFreeze(i);
         dismissFloat();
-        dismissLock();
+        dismissLocks();
         for (Session s : Sessions.all()) {
             s.removeListener(this);
             s.exitFullscreen();
@@ -260,7 +256,7 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     @Override
     public void onBackPressed() {
-        if (pocketLocked) return;   // locked: nothing gets through
+        if (allShownLocked()) return;   // locked: nothing gets through
         if (fullscreenSession != null) {
             fullscreenSession.exitFullscreen();
             return;
@@ -297,6 +293,13 @@ public class SessionActivity extends Activity implements Session.Listener {
         List<Session> pages = pipPages();
         boolean wide = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
         int[] shape = SplitLayout.shape(SplitLayout.pipRows(pages.size(), Prefs.pipLayout(this), wide));
+        if (pages.size() >= 2 && Prefs.pipLayout(this) == SplitLayout.OVERLAY) {
+            shape = MiniLayout.shape(Prefs.miniShape(this));   // your own arrangement has the shape you chose
+        } else if (pages.size() == 1 && Prefs.reclaimEmpty(this) && shapeOf(pages.get(0)) > 0) {
+            // A page held to a shape: the window takes that shape instead of showing black bars around it.
+            int[] fit = SplitLayout.shapeOfRatio(shapeOf(pages.get(0)));
+            shape = fit;
+        }
         PictureInPictureParams.Builder b = new PictureInPictureParams.Builder().setAspectRatio(new Rational(shape[0], shape[1]));
         // The mic button works for any page: it is the same mute as the notification's (for a page that is not using the
         // microphone it simply keeps it from being sent when one is asked for).
@@ -310,7 +313,7 @@ public class SessionActivity extends Activity implements Session.Listener {
             b.setActions(actions);
         }
         // From Android 12 the window shrinks by itself when you go Home with a page open.
-        if (Build.VERSION.SDK_INT >= 31) b.setAutoEnterEnabled(!Sessions.active().isEmpty() && !pocketLocked);
+        if (Build.VERSION.SDK_INT >= 31) b.setAutoEnterEnabled(!Sessions.active().isEmpty() && !allShownLocked());
         return b;
     }
 
@@ -350,7 +353,7 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     /** Shrinks the page in front into a small floating window, which also keeps Android from unloading the app. */
     private void enterPip() {
-        if (!canPip() || isInPictureInPictureMode() || Sessions.active().isEmpty() || pocketLocked) return;
+        if (!canPip() || isInPictureInPictureMode() || Sessions.active().isEmpty() || allShownLocked()) return;
         if (sheet != null) sheet.dismiss();
         try {
             enterPictureInPictureMode(pipParams().build());
@@ -361,7 +364,7 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     /** Which layout the Mini window should have, asked from the Mini button's long press. */
     private void choosePipLayout() {
-        String[] items = {"Like the split view", "Side by side", "Stacked", "One page floating over the other"};
+        String[] items = {"Like the split view", "Side by side", "Stacked", "Your own layout (set in Settings)"};
         new AlertDialog.Builder(this).setTitle("Mini window while Split is on")
                 .setSingleChoiceItems(items, Prefs.pipLayout(this), (d, which) -> {
                     Prefs.setPipLayout(this, which);
@@ -538,6 +541,10 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     /** A tab was tapped: the page in front, or (with Split on) in or out of the split. */
     private void tabTapped(int slot) {
+        if (Sessions.get(slot).isLocked()) {
+            Toast.makeText(this, "That page is locked. Hold both circles on it to unlock.", Toast.LENGTH_SHORT).show();
+            return;
+        }
         if (!split) {
             focus = slot;
         } else if (!splitSet.contains(slot)) {
@@ -575,20 +582,13 @@ public class SessionActivity extends Activity implements Session.Listener {
         List<Session> shown = new ArrayList<>(inPip ? pipPages() : split ? members() : new ArrayList<Session>());
         if (shown.isEmpty() && front() != null) shown.add(front());
         boolean together = split && shown.size() >= 2;
-        boolean overlay = inPip && together && Prefs.pipLayout(this) == SplitLayout.OVERLAY;
-        int[] rows = !together || overlay ? new int[]{1}
+        boolean custom0 = inPip && together && Prefs.pipLayout(this) == SplitLayout.OVERLAY;
+        int[] rows = !together || custom0 ? new int[]{1}
                 : inPip ? SplitLayout.pipRows(shown.size(), Prefs.pipLayout(this), landscape)
                 : SplitLayout.rows(shown.size(), landscape);
 
-        Session base = null, inset = null;
+        boolean custom = inPip && together && Prefs.pipLayout(this) == SplitLayout.OVERLAY;
         List<Session> placed = shown;
-        if (overlay) {
-            base = front() != null && shown.contains(front()) ? front() : shown.get(0);
-            inset = shown.get(0) == base ? shown.get(1) : shown.get(0);
-            placed = new ArrayList<>();
-            placed.add(base);
-            placed.add(inset);
-        }
         for (int i = 0; i < Sessions.COUNT; i++) {
             Session s = Sessions.get(i);
             WebView wv = s.peekWebView();
@@ -609,23 +609,31 @@ public class SessionActivity extends Activity implements Session.Listener {
         }
         paneHolder.removeAllViews();
         paneHolder.setOrientation(LinearLayout.VERTICAL);
-        if (overlay) {
-            FrameLayout stack = new FrameLayout(this);
-            stack.addView(panes[base.slot], new FrameLayout.LayoutParams(-1, -1));
-            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(Ui.dp(this, 96), Ui.dp(this, 64), Gravity.BOTTOM | Gravity.END);
-            lp.setMargins(0, 0, Ui.dp(this, 6), Ui.dp(this, 6));
-            stack.addView(panes[inset.slot], lp);
+        grid = null;
+        gridPages = shown;
+        if (custom) {
+            // Your own arrangement from Settings: page 1 at the back, page 4 in front.
+            FractionLayout stack = new FractionLayout(this);
+            float[][] all = MiniLayout.decode(Prefs.miniRects(this));
+            float[][] used = new float[Math.min(shown.size(), MiniLayout.PAGES)][];
+            for (int k = 0; k < used.length; k++) {
+                used[k] = all[k];
+                stack.addView(panes[shown.get(k).slot]);
+            }
+            stack.setRects(used);
             paneHolder.addView(stack, new LinearLayout.LayoutParams(-1, 0, 1f));
         } else {
-            int next = 0;
-            for (int rowSize : rows) {
-                LinearLayout row = new LinearLayout(this);
-                row.setOrientation(LinearLayout.HORIZONTAL);
-                for (int c = 0; c < rowSize && next < shown.size(); c++, next++) {
-                    row.addView(panes[shown.get(next).slot], new LinearLayout.LayoutParams(0, -1, 1f));
-                }
-                paneHolder.addView(row, new LinearLayout.LayoutParams(-1, 0, 1f));
-            }
+            grid = new SplitGrid(this);
+            String key = joinRows(rows);
+            grid.configure(rows, key, Prefs.splitLayout(this, key), together && !inPip);
+            grid.setOnSaved((k, v) -> {
+                Prefs.setSplitLayout(this, k, v);
+                updateFreeze();   // the covers follow the panes to where the divider left them
+                updateLocks();
+            });
+            for (Session s : shown) grid.addView(panes[s.slot]);
+            paneHolder.addView(grid, new LinearLayout.LayoutParams(-1, 0, 1f));
+            updateRatios();
         }
         // A page that is open but not on screen (another tab is in front) keeps running on a private display; one that
         // simply left the screen would be treated as hidden, and a video would pause.
@@ -642,13 +650,34 @@ public class SessionActivity extends Activity implements Session.Listener {
         }
         Session f = front();
         if (f != null && !inPip) f.setCallMeter(true);
-        if (f != null) {
-            Prefs.activate(f.profileId());   // the screen options (brightness...) are the front page's profile's
-            applyBrightness();
-        }
+        if (f != null) applyBrightness();
         updatePip();
         updateControls();
         updateFreeze();
+        updateLocks();
+    }
+
+    private SplitGrid grid;
+    private List<Session> gridPages = new ArrayList<>();
+
+    private static String joinRows(int[] rows) {
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < rows.length; i++) b.append(i == 0 ? "" : "-").append(rows[i]);
+        return b.toString();
+    }
+
+    /** The shape a page is held to: its forced aspect ratio, or the video that is full screen in it. 0 = free. */
+    private static float shapeOf(Session s) {
+        float full = s.fullscreenRatio();
+        return full > 0 ? full : Pin.ASPECTS[s.aspect()];
+    }
+
+    /** Tells the split which panes are held to a shape (so the rest can use what they leave empty). */
+    private void updateRatios() {
+        if (grid == null) return;
+        float[] r = new float[gridPages.size()];
+        for (int i = 0; i < r.length; i++) r[i] = shapeOf(gridPages.get(i));
+        grid.setRatios(r, Prefs.reclaimEmpty(this));
     }
 
     private void updateControls() {
@@ -657,7 +686,7 @@ public class SessionActivity extends Activity implements Session.Listener {
             Session s = Sessions.get(i);
             tabs[i].setVisibility(s.isActive() ? View.VISIBLE : View.GONE);
             if (!s.isActive()) continue;
-            tabs[i].setText(s.label());
+            tabs[i].setText(s.label() + (s.isLocked() ? " (locked)" : ""));
             tabs[i].setSingleLine(true);
             tabs[i].setEllipsize(android.text.TextUtils.TruncateAt.END);
             Ui.tint(this, tabs[i], i == focus ? Ui.GREEN : split && splitSet.contains(i) ? 0xFF6B8F1F : 0);
@@ -752,50 +781,96 @@ public class SessionActivity extends Activity implements Session.Listener {
         }
     }
 
-    // ---- pocket lock -------------------------------------------------------------------------------
+    // ---- page lock ----------------------------------------------------------------------------------
 
+    /** Locks the page in front: its area ignores every touch until both circles are held. */
     private void startPocketLock() {
-        if (Sessions.active().isEmpty()) return;
-        pocketLocked = true;
+        Session f = front();
+        if (f == null) return;
+        if (f.isLocked()) {
+            Toast.makeText(this, "Hold both circles on the page to unlock it.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        f.setLocked(true);
         if (sheet != null) sheet.dismiss();
-        showLock();
-        updatePip();
+        if (split) {
+            // Keep the bar working on a page that is not locked.
+            for (Session s : members()) {
+                if (!s.isLocked()) {
+                    focus = s.slot;
+                    break;
+                }
+            }
+        }
+        rebuild();
+    }
+
+    /** Every page on screen is locked (then the bar and tabs are covered too and Back does nothing). */
+    private boolean allShownLocked() {
+        if (gridPages.isEmpty()) return false;
+        for (Session s : gridPages) if (!s.isLocked()) return false;
+        return true;
     }
 
     /**
-     * The lock is a window of its own above everything (so the recording, which copies this activity's window, never shows
-     * it, and Step away's cover underneath is covered too). Touches stop there; Back does nothing. To unlock, hold both
-     * circles at once for a moment.
+     * A locked page is covered by a window of its own (so the recording, which copies this activity's window, never shows
+     * it, and Step away's cover underneath is covered too). Touches stop there. When every page on screen is locked the
+     * cover takes the whole screen, bar included; with a split, only the locked page's area. To unlock, hold both circles at
+     * once for a moment.
      */
-    private void showLock() {
-        if (lockDialog != null) return;
-        Dialog d = new Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
-        d.setCancelable(false);
-        d.setCanceledOnTouchOutside(false);
-        d.setContentView(new PocketLockView(this, () -> {
-            pocketLocked = false;
-            dismissLock();
-            updatePip();
-            Toast.makeText(this, "Unlocked", Toast.LENGTH_SHORT).show();
-        }));
-        d.setOnKeyListener((dd, code, ev) -> code == android.view.KeyEvent.KEYCODE_BACK
-                || code == android.view.KeyEvent.KEYCODE_APP_SWITCH || code == android.view.KeyEvent.KEYCODE_MENU);
-        lockDialog = d;
-        try {
-            d.show();
-        } catch (RuntimeException e) {
-            lockDialog = null;
-        }
+    private void updateLocks() {
+        dismissLocks();
+        if (inPip) return;
+        paneHolder.post(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            View decor = getWindow().getDecorView();
+            boolean everything = allShownLocked();
+            for (Session s : gridPages) {
+                if (!s.isLocked() || lockPopups[s.slot] != null) continue;
+                FrameLayout pane = panes[s.slot];
+                if (pane.getParent() == null || pane.getWidth() < 8 || decor.getWidth() < 8) continue;
+                int[] at = new int[2];
+                int w = pane.getWidth(), h = pane.getHeight();
+                if (everything) {
+                    at[0] = 0;
+                    at[1] = 0;
+                    w = decor.getWidth();
+                    h = decor.getHeight();
+                } else {
+                    pane.getLocationOnScreen(at);
+                }
+                final Session locked = s;
+                PocketLockView face = new PocketLockView(this, () -> {
+                    locked.setLocked(false);
+                    updateLocks();
+                    updateControls();
+                    updatePip();
+                    Toast.makeText(this, "Unlocked", Toast.LENGTH_SHORT).show();
+                });
+                PopupWindow popup = new PopupWindow(face, w, h, false);
+                popup.setClippingEnabled(false);
+                try {
+                    popup.showAtLocation(decor, Gravity.TOP | Gravity.START, at[0], at[1]);
+                    lockPopups[s.slot] = popup;
+                } catch (RuntimeException ignored) {
+                    // The window is going away.
+                }
+            }
+        });
+        updateControls();
+        updatePip();
     }
 
-    private void dismissLock() {
-        Dialog d = lockDialog;
-        lockDialog = null;
-        if (d != null) {
-            try {
-                d.dismiss();
-            } catch (RuntimeException ignored) {
-                // Already gone.
+    private void dismissLocks() {
+        for (int i = 0; i < lockPopups.length; i++) {
+            PopupWindow d = lockPopups[i];
+            lockPopups[i] = null;
+            if (d != null) {
+                try {
+                    d.dismiss();
+                } catch (RuntimeException ignored) {
+                    // Already gone.
+                }
             }
         }
     }
@@ -1061,7 +1136,9 @@ public class SessionActivity extends Activity implements Session.Listener {
     @Override
     public void onAspect(Session s) {
         boxes[s.slot].setRatio(Pin.ASPECTS[s.aspect()]);
+        updateRatios();
         updateFreeze();
+        updatePip();
     }
 
     /** The page's own full-screen view (a video's button) fills that page's area only, not the phone's screen. */
@@ -1073,12 +1150,16 @@ public class SessionActivity extends Activity implements Session.Listener {
             View old = fullscreenViews[s.slot];
             if (old != null && old.getParent() == pane) pane.removeView(old);
             fullscreenViews[s.slot] = null;
+            updateRatios();
+            updateFreeze();
         } else {
             fullscreenSession = s;
             if (view.getParent() instanceof ViewGroup) ((ViewGroup) view.getParent()).removeView(view);
             view.setBackgroundColor(Color.BLACK);
             pane.addView(view, new FrameLayout.LayoutParams(-1, -1));
             fullscreenViews[s.slot] = view;
+            updateRatios();
+            updateFreeze();
         }
     }
 
@@ -1108,7 +1189,6 @@ public class SessionActivity extends Activity implements Session.Listener {
     public void onClosed(Session s, String reason) {
         Toast.makeText(getApplicationContext(), s.title() + " closed: " + reason, Toast.LENGTH_LONG).show();
         if (Sessions.active().isEmpty()) {
-            pocketLocked = false;
             if (sheet != null) sheet.dismiss();
             finish();
         } else {

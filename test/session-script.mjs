@@ -242,6 +242,23 @@ const vis = await page.evaluate(() => {
 check('the page sees itself as visible and hears no visibilitychange', vis.on.hidden === false && vis.on.state === 'visible' && vis.on.focus === true && vis.on.heard.length === 0, vis.on);
 check('with keepVisible off the events come through again', vis.off.heard.length === 1, vis.off);
 check('window.chrome exists like a desktop Chrome', vis.on.chrome === 'object' && vis.on.load === 'function' && vis.on.app === 'object', vis.on);
+// a video that goes full screen tells the native side its shape, so the split can give the empty space to other pages
+posts.length = 0;
+await page.evaluate(async () => {
+  const c = document.createElement('canvas'); c.width = 640; c.height = 360;
+  const g = c.getContext('2d'); setInterval(() => { g.fillStyle = '#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0'); g.fillRect(0, 0, 640, 360); }, 50);
+  const v = document.createElement('video'); v.id = 'fsv'; v.muted = true; v.srcObject = c.captureStream(20); document.body.appendChild(v);
+  await v.play();
+  await new Promise(r => setTimeout(r, 300));
+  Object.defineProperty(document, 'fullscreenElement', { get: () => v, configurable: true });
+  document.dispatchEvent(new Event('fullscreenchange'));
+  Object.defineProperty(document, 'fullscreenElement', { get: () => null, configurable: true });
+  document.dispatchEvent(new Event('fullscreenchange'));
+});
+await page.waitForTimeout(900);
+const fs = posts.filter(p => p[0] === 'fsratio').map(p => Number(p[1]));
+check('a full-screen video reports its shape (16:9), and 0 when it leaves', fs.length >= 2 && Math.abs(fs[0] - 640 / 360) < 0.01 && fs[fs.length - 1] === 0, fs);
+
 console.log(fails ? `${fails} FAILED` : 'all ok');
 await b.close();
 process.exit(fails ? 1 : 0);

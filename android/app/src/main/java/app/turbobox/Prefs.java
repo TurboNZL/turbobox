@@ -3,34 +3,19 @@ package app.turbobox;
 import android.content.Context;
 import android.content.SharedPreferences;
 
-/** The app's settings. Microphone, echo cancellation and mic volume are shared by every session. */
+/** The app's settings. They are global: the same for every page and every profile (only a pinned page's own settings differ). */
 final class Prefs {
     private Prefs() {
     }
 
-    /** App-wide settings: Standby, updates, and the list of profiles. The same whichever profile is in use. */
+    /** The settings file. */
     static SharedPreferences sp(Context c) {
         return c.getApplicationContext().getSharedPreferences("turbobox", Context.MODE_PRIVATE);
     }
 
-    private static String activeProfile = Profiles.DEFAULT;
-
-    /**
-     * Switches which profile's settings the getters below read and write (microphone, volumes, recording, screen options...).
-     * Each profile has its own, and a new profile starts from the defaults, so nothing carries over between them. The
-     * default profile keeps the file the app always used.
-     */
-    static void activate(String profileId) {
-        activeProfile = profileId == null || profileId.isEmpty() ? Profiles.DEFAULT : profileId;
-    }
-
-    static String activeProfile() {
-        return activeProfile;
-    }
-
+    /** Every setting below is the app's, whichever profile a page belongs to. */
     static SharedPreferences ps(Context c) {
-        if (Profiles.DEFAULT.equals(activeProfile)) return sp(c);
-        return c.getApplicationContext().getSharedPreferences("turbobox_p_" + activeProfile, Context.MODE_PRIVATE);
+        return sp(c);
     }
 
     // ---- microphone (the same keys' meaning as in Tether's web session) ----
@@ -63,13 +48,31 @@ final class Prefs {
     static int pipLayout(Context c) { return ps(c).getInt("pipLayout", 0); }
     static void setPipLayout(Context c, int v) { ps(c).edit().putInt("pipLayout", v).apply(); }
 
+    /** Your own arrangement of the Mini window (see MiniLayout), "" = the default. */
+    static String miniRects(Context c) { return ps(c).getString("miniRects", ""); }
+    static void setMiniRects(Context c, String v) { ps(c).edit().putString("miniRects", v).apply(); }
+    /** The Mini window's shape in your own arrangement: index into MiniLayout.SHAPES. */
+    static int miniShape(Context c) { return ps(c).getInt("miniShape", 0); }
+    static void setMiniShape(Context c, int v) { ps(c).edit().putInt("miniShape", v).apply(); }
+    /** Where the dividers of a split arrangement were left (see SplitGrid); the key names the arrangement. */
+    static String splitLayout(Context c, String key) { return ps(c).getString("split_" + key, null); }
+    static void setSplitLayout(Context c, String key, String v) { ps(c).edit().putString("split_" + key, v).apply(); }
+    static void clearSplitLayouts(Context c) {
+        SharedPreferences.Editor e = ps(c).edit();
+        for (String k : ps(c).getAll().keySet()) if (k.startsWith("split_")) e.remove(k);
+        e.apply();
+    }
+    /** A page held to a shape (forced ratio, full-screen video) gives the empty space around it to the other pages in a split. On by default. */
+    static boolean reclaimEmpty(Context c) { return ps(c).getBoolean("reclaimEmpty", true); }
+    static void setReclaimEmpty(Context c, boolean v) { ps(c).edit().putBoolean("reclaimEmpty", v).apply(); }
+
     // ---- recording buffer ----
     static int bufferMinutes(Context c) { return ps(c).getInt("bufferMinutes", 60); }
     static void setBufferMinutes(Context c, int v) { ps(c).edit().putInt("bufferMinutes", v).apply(); }
     static int bufferQuality(Context c) { return ps(c).getInt("bufferQuality", 1); }
     static void setBufferQuality(Context c, int v) { ps(c).edit().putInt("bufferQuality", v).apply(); }
-    /** Start the recording buffer by itself whenever a page opens (a pin can override it either way). On by default. */
-    static boolean recordByDefault(Context c) { return ps(c).getBoolean("recordByDefault", true); }
+    /** Start the recording buffer by itself whenever a page opens (a pin can override it either way). Off by default. */
+    static boolean recordByDefault(Context c) { return ps(c).getBoolean("recordByDefault", false); }
     static void setRecordByDefault(Context c, boolean v) { ps(c).edit().putBoolean("recordByDefault", v).apply(); }
     /** What to do when a recording reaches its length: false = keep recording and drop the oldest, true = stop. */
     static boolean bufferStopAtLimit(Context c) { return ps(c).getBoolean("bufferStop", false); }

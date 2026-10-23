@@ -13,6 +13,7 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.Switch;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.util.Locale;
 
@@ -56,12 +57,6 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
 
     private void render() {
         body.removeAllViews();
-        if (Profiles.load(this).size() > 1) {
-            body.addView(Ui.hint(this, "These settings (microphone, volumes, recording, screen options) are for the profile \""
-                    + Profiles.find(this, Prefs.activeProfile()).name + "\". Pick another profile on the home screen to change its own. "
-                    + "Standby and updates are shared."), Ui.lp(this, 0, 6));
-        }
-
         // Standby
         LinearLayout standby = Ui.card(this);
         Switch sw = new Switch(this);
@@ -119,8 +114,25 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         screen.addView(keep, Ui.lp(this, 8, 2));
         screen.addView(Ui.hint(this, "Sites like YouTube pause a video when the browser says nobody can see the page. With this on, the page "
                 + "is told it is visible and is kept on a private display of its own while the screen is off, so it carries on."), Ui.lp(this, 0, 8));
+        Switch reclaim = new Switch(this);
+        reclaim.setText("Let other pages use the empty space");
+        reclaim.setTextColor(Ui.TEXT);
+        reclaim.setChecked(Prefs.reclaimEmpty(this));
+        reclaim.setOnCheckedChangeListener((b, on) -> Prefs.setReclaimEmpty(this, on));
+        screen.addView(reclaim, Ui.lp(this, 4, 2));
+        screen.addView(Ui.hint(this, "When a page in a split is held to a shape (a forced aspect ratio, or a video in full screen), it takes "
+                + "only the room that shape needs and the other pages grow into the rest, instead of black bars. The Mini window "
+                + "also takes the shape of a single page held to one. Drag the dividers between pages in a split to resize them."), Ui.lp(this, 0, 4));
+        TextView resetSplit = Ui.pill(this, "Reset split dividers", 0);
+        resetSplit.setOnClickListener(v -> {
+            Prefs.clearSplitLayouts(this);
+            Toast.makeText(this, "Dividers back in the middle", Toast.LENGTH_SHORT).show();
+        });
+        screen.addView(resetSplit, Ui.lp(this, 4, 8));
         screen.addView(choiceRow("Mini window while Split is on", pipLayoutText(Prefs.pipLayout(this)), this::choosePipLayout));
         screen.addView(Ui.hint(this, "With Split on, the Mini window shows the pages you chose to split. Without Split it shows the page in front. Also on the Mini button's long press."), Ui.lp(this, 0, 0));
+        screen.addView(choiceRow("Your own Mini layout", "Drag and resize the pages", this::editMiniLayout));
+        screen.addView(Ui.hint(this, "Used when the Mini window layout above is \"Your own layout\". Pages are numbered in the order of their tabs."), Ui.lp(this, 0, 0));
         body.addView(screen, Ui.lp(this, 12, 0));
 
         // Recording buffer
@@ -134,8 +146,9 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         auto.setChecked(Prefs.recordByDefault(this));
         auto.setOnCheckedChangeListener((b, on) -> Prefs.setRecordByDefault(this, on));
         buffer.addView(auto, Ui.lp(this, 0, 2));
-        buffer.addView(Ui.hint(this, "On by default: the page's picture and sound are kept as soon as it opens, so Step away always has "
-                + "something to replay. A pinned page can override this (long-press it > Edit)."), Ui.lp(this, 0, 8));
+        buffer.addView(Ui.hint(this, "Off by default: a page only records when you press Rec, a workflow says so, or the page is set to "
+                + "always record. Turn this on and every page records as soon as it opens, so Step away always has something to "
+                + "replay. A pinned page can override this (long-press it > Page settings)."), Ui.lp(this, 0, 8));
         buffer.addView(choiceRow("Record up to", minutesText(Prefs.bufferMinutes(this)), this::chooseMinutes));
         buffer.addView(choiceRow("When that is reached", Prefs.bufferStopAtLimit(this) ? "Stop recording" : "Keep recording, drop the oldest",
                 this::chooseAtLimit));
@@ -149,6 +162,15 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
                 + "%s is roughly %d MB.", mb, perMin, minutesText(Prefs.bufferMinutes(this)), Math.round(perMin * Prefs.bufferMinutes(this)))),
                 Ui.lp(this, 6, 0));
         body.addView(buffer, Ui.lp(this, 12, 0));
+
+        // Site data
+        LinearLayout sites = Ui.card(this);
+        sites.addView(Ui.text(this, "Site data", 17f, Ui.TEXT, "sans-serif-medium"));
+        sites.addView(Ui.hint(this, "Sign-ins and what sites keep in this app's browser, listed by site, each with a button to clear it."), Ui.lp(this, 4, 8));
+        TextView openSites = Ui.pill(this, "Manage site data", Ui.GREEN);
+        openSites.setOnClickListener(v -> startActivity(new Intent(this, SiteDataActivity.class)));
+        sites.addView(openSites);
+        body.addView(sites, Ui.lp(this, 12, 0));
 
         // Transcription
         LinearLayout tr = Ui.card(this);
@@ -211,8 +233,67 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         return r;
     }
 
+    /** A full-screen sheet with the Mini window as a box: drag each page where it should go, drag its corner to resize it. */
+    private void editMiniLayout() {
+        android.app.Dialog d = new android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setBackgroundColor(Ui.BG);
+        col.setPadding(Ui.dp(this, 16), Ui.dp(this, 24), Ui.dp(this, 16), Ui.dp(this, 16));
+        col.addView(Ui.text(this, "Your own Mini layout", 20f, Ui.TEXT, "semibold"), Ui.lp(this, 0, 4));
+        col.addView(Ui.hint(this, "Drag a page to move it, drag its corner to resize it. Page 1 is at the back, page 4 at the front. "
+                + "Used when the Mini window opens with Split on and more than one page chosen. Done switches the Mini window to this layout."), Ui.lp(this, 0, 8));
+        android.widget.FrameLayout holder = new android.widget.FrameLayout(this);
+        float[][][] current = {MiniLayout.decode(Prefs.miniRects(this))};
+        TextView shape = Ui.text(this, "", 16f, Ui.GREEN, "sans-serif-medium");
+        Runnable[] place = new Runnable[1];
+        place[0] = () -> {
+            int[] sh = MiniLayout.shape(Prefs.miniShape(this));
+            shape.setText("Window shape: " + MiniLayout.SHAPE_LABELS[Math.max(0, Math.min(MiniLayout.SHAPE_LABELS.length - 1, Prefs.miniShape(this)))] + "  ›");
+            int maxW = getResources().getDisplayMetrics().widthPixels - Ui.dp(this, 32);
+            int maxH = Math.round(getResources().getDisplayMetrics().heightPixels * 0.55f);
+            int w = Math.min(maxW, Math.round(maxH * sh[0] / (float) sh[1]));
+            int h = Math.round(w * sh[1] / (float) sh[0]);
+            holder.removeAllViews();
+            MiniLayoutEditor ed = new MiniLayoutEditor(this, rects -> {
+                current[0] = rects;
+                Prefs.setMiniRects(this, MiniLayout.encode(rects));
+            });
+            ed.set(current[0], MiniLayout.PAGES);
+            holder.addView(ed, new android.widget.FrameLayout.LayoutParams(w, h, android.view.Gravity.CENTER));
+        };
+        shape.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 8));
+        shape.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("Window shape")
+                .setSingleChoiceItems(MiniLayout.SHAPE_LABELS, Prefs.miniShape(this), (dd, which) -> {
+                    Prefs.setMiniShape(this, which);
+                    dd.dismiss();
+                    place[0].run();
+                }).show());
+        col.addView(shape);
+        col.addView(holder, new LinearLayout.LayoutParams(-1, 0, 1f));
+        TextView reset = Ui.pill(this, "Reset to the default", 0);
+        reset.setOnClickListener(v -> {
+            current[0] = MiniLayout.defaults();
+            Prefs.setMiniRects(this, "");
+            place[0].run();
+        });
+        col.addView(reset, Ui.lp(this, 8, 0));
+        TextView done = Ui.pill(this, "Done", Ui.GREEN);
+        done.setOnClickListener(v -> {
+            d.dismiss();
+            if (Prefs.pipLayout(this) != SplitLayout.OVERLAY) {
+                Prefs.setPipLayout(this, SplitLayout.OVERLAY);
+                render();
+            }
+        });
+        col.addView(done, Ui.lp(this, 8, 0));
+        d.setContentView(col);
+        d.show();
+        place[0].run();
+    }
+
     private static String pipLayoutText(int v) {
-        return v == 1 ? "Side by side" : v == 2 ? "Stacked" : v == 3 ? "One page floating over the other" : "Like the split view";
+        return v == 1 ? "Side by side" : v == 2 ? "Stacked" : v == 3 ? "Your own layout (edit below)" : "Like the split view";
     }
 
     private void choosePipLayout() {
