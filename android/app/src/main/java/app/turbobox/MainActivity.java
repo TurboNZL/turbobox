@@ -232,13 +232,19 @@ public class MainActivity extends Activity {
         url.setSingleLine(true);
         url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         android.widget.Switch incognito = new android.widget.Switch(this);
-        incognito.setText("Incognito");
+        incognito.setText("Incognito (own cookies, apart from your pinned pages)");
         incognito.setChecked(true);
+        android.widget.Switch wipe = new android.widget.Switch(this);
+        wipe.setText("Delete them when the page closes");
+        wipe.setChecked(true);
+        incognito.setOnCheckedChangeListener((b, on) -> wipe.setEnabled(on));
         android.widget.Switch mobile = new android.widget.Switch(this);
         mobile.setText("Mobile site");
         form.addView(url);
         form.addView(incognito, Ui.lp(this, 12, 0));
-        form.addView(Ui.hint(this, "Incognito: no saved sign-ins, history or recording; everything is deleted when you close the page."), Ui.lp(this, 2, 0));
+        form.addView(wipe, Ui.lp(this, 8, 0));
+        form.addView(Ui.hint(this, "Incognito keeps this page's sign-ins away from your pinned pages. With deleting on it also leaves no history and is not recorded. "
+                + "Turn deleting off to stay signed in to that site next time (it keeps its own cookies for it). Without Incognito the page shares cookies with everything else."), Ui.lp(this, 2, 0));
         form.addView(mobile, Ui.lp(this, 10, 0));
         AlertDialog d = new AlertDialog.Builder(this)
                 .setTitle("Open a page")
@@ -255,6 +261,7 @@ public class MainActivity extends Activity {
             d.dismiss();
             startActivity(new Intent(this, SessionActivity.class).setAction(SessionActivity.ACTION_OPEN_URL)
                     .putExtra(SessionActivity.EXTRA_URL, address).putExtra(SessionActivity.EXTRA_INCOGNITO, incognito.isChecked())
+                    .putExtra(SessionActivity.EXTRA_WIPE, wipe.isChecked())
                     .putExtra(SessionActivity.EXTRA_MOBILE, mobile.isChecked()));
         }));
         d.show();

@@ -54,6 +54,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     static final String EXTRA_URL = "url";
     static final String EXTRA_INCOGNITO = "incognito";
     static final String EXTRA_MOBILE = "mobile";
+    static final String EXTRA_WIPE = "wipe";
     private static final int[] TIMER_MINUTES = {0, 15, 30, 45, 60, 90, 120, 180, 240, 360, 480};
 
     /** Set while the pocket lock is on. Static so it outlives this screen (home, screen off, a new instance of the activity). */
@@ -119,7 +120,8 @@ public class SessionActivity extends Activity implements Session.Listener {
                 quick.temporary = true;
                 quick.incognito = intent.getBooleanExtra(EXTRA_INCOGNITO, true);
                 quick.mobile = intent.getBooleanExtra(EXTRA_MOBILE, false);
-                quick.recordMode = quick.incognito ? 2 : 0;   // an incognito page leaves nothing behind, recordings included
+                quick.wipeOnClose = quick.incognito && intent.getBooleanExtra(EXTRA_WIPE, true);
+                quick.recordMode = quick.wipeOnClose ? 2 : 0;   // a page that leaves nothing behind is not recorded either
                 openPin(quick);
                 return !Sessions.active().isEmpty();
             }
@@ -406,10 +408,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         row1.setGravity(Gravity.CENTER_VERTICAL);
         row1.setPadding(side, Ui.dp(this, 6), side, 0);
         TextView close = Ui.pill(this, "Close", Ui.RED);
-        close.setOnClickListener(v -> {
-            Session s = front();
-            if (s != null) s.close("you closed the page");
-        });
+        close.setOnClickListener(v -> confirmClose());
         row1.addView(close, Ui.weight(this, 0));
         muteButton = Ui.pill(this, "Mute", 0);
         muteButton.setOnClickListener(v -> {
@@ -788,6 +787,17 @@ public class SessionActivity extends Activity implements Session.Listener {
     }
 
     // ---- actions -----------------------------------------------------------------------------
+
+    /** Closing is one tap away from a page that may be in use, so ask first. */
+    private void confirmClose() {
+        Session s = front();
+        if (s == null) return;
+        new AlertDialog.Builder(this)
+                .setTitle("Close " + s.title() + "?")
+                .setPositiveButton("Close page", (d, w) -> s.close("you closed the page"))
+                .setNegativeButton("Keep it open", null)
+                .show();
+    }
 
     private void showSettings() {
         Session s = front();

@@ -138,6 +138,7 @@ final class Session {
     private boolean mobile;           // the phone layout of sites instead of the desktop one
     private String mobileUa = "";
     private androidx.webkit.ScriptHandler startScript;
+    private boolean wipeProfile;      // delete the profile's data when the page closes
     private String profileName;       // the incognito profile this WebView lives in, null for the shared one
 
     Session(int slot) {
@@ -483,6 +484,11 @@ final class Session {
         js("__turbobox.loopback(" + seconds + ")");
     }
 
+    /** Turns the sound on for the page's own videos and audio when it started them muted. */
+    void unmutePageMedia() {
+        js("__turbobox.unmuteMedia()");
+    }
+
     /** Gain on the page's audio, 0..2 (above 1 boosts it). */
     void setVolume(float gain) {
         volume = Math.max(0f, Math.min(2f, gain));
@@ -621,7 +627,7 @@ final class Session {
         old.destroy();
         String name = profileName;
         profileName = null;
-        if (name != null) {
+        if (name != null && wipeProfile) {
             try {
                 androidx.webkit.Profile p = ProfileStore.getInstance().getProfile(name);
                 if (p != null) {
@@ -940,7 +946,10 @@ final class Session {
         if (pin != null && pin.incognito) {
             // Its own profile: cookies, storage and cache that no other page shares, deleted when the page closes.
             if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
-                profileName = "tb_incognito_" + slot + "_" + openedSeq;
+                // Wiped on close: a profile no one else uses. Kept: one per site, so signing in once is enough next time.
+                profileName = pin.wipeOnClose ? "tb_incognito_" + slot + "_" + openedSeq
+                        : "tb_site_" + startHost.replaceAll("[^A-Za-z0-9]", "_");
+                wipeProfile = pin.wipeOnClose;
                 ProfileStore.getInstance().getOrCreateProfile(profileName);
                 WebViewCompat.setProfile(wv, profileName);
                 cookies = ProfileStore.getInstance().getProfile(profileName).getCookieManager();

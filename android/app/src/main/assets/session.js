@@ -924,6 +924,17 @@
   function relayToFrames(msg) {
     for (var i = 0; i < window.frames.length; i++) { try { window.frames[i].postMessage(msg, '*'); } catch (e) { /* gone */ } }
   }
+  // For a page that starts its video muted and gives no way (or a way that fails in this browser) to turn the sound on.
+  T.unmuteMedia = function () {
+    var n = 0;
+    Array.prototype.slice.call(document.querySelectorAll('audio,video')).concat(media || []).forEach(function (el) {
+      el.__tbWant = false;
+      if (!cfg.localMute) mutedDesc.set.call(el, false);
+      if (el.volume === 0) el.volume = 1;
+      n++;
+    });
+    return n;
+  };
   T.setLocalMute = function (on) {
     cfg.localMute = !!on;
     localMuteSweep();

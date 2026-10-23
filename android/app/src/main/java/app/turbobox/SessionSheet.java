@@ -206,7 +206,12 @@ final class SessionSheet implements Session.Listener {
                 PinStore.put(act, pin);
             }
         }), new LinearLayout.LayoutParams(-1, -2));
-        col.addView(Ui.hint(act, "Only this page's sound. Past 100% boosts it. Kept with the pinned page."), Ui.lp(act, 0, 14));
+        col.addView(Ui.hint(act, "Only this page's sound. Past 100% boosts it. Kept with the pinned page."), Ui.lp(act, 0, 8));
+        TextView unmute = Ui.pill(act, "Turn the page's sound on", 0);
+        unmute.setOnClickListener(v -> session.unmutePageMedia());
+        col.addView(unmute, Ui.lp(act, 0, 4));
+        col.addView(Ui.hint(act, "For a video the site started muted. This switches the page's own mute off (the page's other mute "
+                + "buttons keep working). Your microphone's Mute is separate."), Ui.lp(act, 2, 14));
 
         // Brightness (shared)
         float bright = Prefs.brightness(act);
