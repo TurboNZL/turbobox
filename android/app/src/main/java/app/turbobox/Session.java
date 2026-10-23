@@ -9,6 +9,7 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Base64;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
@@ -18,6 +19,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import androidx.webkit.ProfileStore;
 import androidx.webkit.UserAgentMetadata;
 import androidx.webkit.WebSettingsCompat;
 import androidx.webkit.WebViewCompat;
@@ -136,6 +138,7 @@ final class Session {
     private boolean mobile;           // the phone layout of sites instead of the desktop one
     private String mobileUa = "";
     private androidx.webkit.ScriptHandler startScript;
+    private String profileName;       // the incognito profile this WebView lives in, null for the shared one
 
     Session(int slot) {
         this.slot = slot;
@@ -607,10 +610,37 @@ final class Session {
         }
     }
 
+    /** Throws the WebView away (an incognito page's, with everything it stored), so the next page starts in a fresh one. */
+    private void discardWebView() {
+        if (webView == null) return;
+        leaveHost();
+        WebView old = webView;
+        webView = null;
+        startScript = null;
+        if (old.getParent() instanceof ViewGroup) ((ViewGroup) old.getParent()).removeView(old);
+        old.destroy();
+        String name = profileName;
+        profileName = null;
+        if (name != null) {
+            try {
+                androidx.webkit.Profile p = ProfileStore.getInstance().getProfile(name);
+                if (p != null) {
+                    p.getCookieManager().removeAllCookies(null);
+                    p.getWebStorage().deleteAllData();
+                }
+                ProfileStore.getInstance().deleteProfile(name);
+            } catch (RuntimeException ignored) {
+                // Still in use; the data is wiped above and the empty profile is harmless.
+            }
+        }
+    }
+
     /** Open the pinned page and keep it alive in the background until {@link #close}. */
     void open(Context context, Pin page) {
         app = context.getApplicationContext();
         pin = page;
+        // An incognito page lives in a WebView of its own; so does the first normal page after one.
+        if (webView != null && (page.incognito || profileName != null)) discardWebView();
         Devices.ensureMicChoice(app);
         micKey = Prefs.micKey(app);
         aec = Prefs.aec(app);
@@ -687,6 +717,7 @@ final class Session {
         if (webView != null) {
             webView.loadUrl("about:blank");
             webView.clearHistory();
+            if (profileName != null) main.post(this::discardWebView);   // everything an incognito page stored goes with it
         }
         for (Listener l : listeners) {
             l.onTimer(this, -1);
@@ -906,6 +937,18 @@ final class Session {
         st.setBuiltInZoomControls(true);
         st.setDisplayZoomControls(false);
         CookieManager cookies = CookieManager.getInstance();
+        if (pin != null && pin.incognito) {
+            // Its own profile: cookies, storage and cache that no other page shares, deleted when the page closes.
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+                profileName = "tb_incognito_" + slot + "_" + openedSeq;
+                ProfileStore.getInstance().getOrCreateProfile(profileName);
+                WebViewCompat.setProfile(wv, profileName);
+                cookies = ProfileStore.getInstance().getProfile(profileName).getCookieManager();
+            } else {
+                pin.incognito = false;
+                main.post(() -> notice("This phone's WebView is too old for incognito pages; this one is open without it."));
+            }
+        }
         cookies.setAcceptCookie(true);
         cookies.setAcceptThirdPartyCookies(wv, true);
 
@@ -985,7 +1028,7 @@ final class Session {
 
             @Override
             public void onReceivedIcon(WebView view, android.graphics.Bitmap icon) {
-                if (pin != null && icon != null) Favicons.saveIfBetter(app, pin.id, icon);
+                if (pin != null && !pin.temporary && icon != null) Favicons.saveIfBetter(app, pin.id, icon);
             }
         });
         return wv;

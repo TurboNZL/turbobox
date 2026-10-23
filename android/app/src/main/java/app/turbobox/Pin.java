@@ -18,6 +18,8 @@ final class Pin {
     int recordMode;         // recording when the page opens: 0 = follow the default in Settings, 1 = always, 2 = never
     boolean allowMic = true;      // privacy: may the page use the microphone (what it hears of you)
     boolean allowCamera;          // privacy: may the page use the camera (off until you allow it)
+    boolean temporary;            // opened from "Open a page": never saved, no icon kept
+    boolean incognito;            // its own cookies and storage, thrown away when it closes
     boolean mobile;               // ask sites for their phone layout instead of the desktop one (desktop is the default)
     int aspect;                   // forced shape of the page's area: index into ASPECTS, 0 = fill the space
 

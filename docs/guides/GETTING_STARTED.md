@@ -17,6 +17,8 @@ you pin; **Reorder** (above the tiles) shows ‹ › on each tile to move it ear
 
 A tile shows the page's own icon (found when you pin it, and updated whenever the page reports one; a letter until then).
 
+**Open a page** (the tile next to *Pin a page*) opens an address without pinning it. It is **incognito** by default: its own cookies and storage (a separate WebView profile, so your signed-in pages are untouched), no recording, and everything is deleted when you close it. Switch Incognito off for a plain unpinned page. Needs a reasonably recent Android System WebView; otherwise the page opens without the incognito part and says so. Desktop or mobile site is chosen per page, for pinned pages in their page settings.
+
 Long-press a tile for: Edit, **Page settings** (volume, zoom, aspect ratio, desktop or mobile site, microphone and camera, recording: the same settings as on the session screen, without opening the page), **Add an icon to the home screen** (the launcher puts the page next to your other apps), Remove. The first four pins are
 also in the long-press menu of the TurboBox icon.
 

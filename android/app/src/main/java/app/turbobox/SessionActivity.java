@@ -50,6 +50,10 @@ public class SessionActivity extends Activity implements Session.Listener {
     static final String ACTION_OPEN_PIN = "app.turbobox.OPEN_PIN";
     static final String EXTRA_PIN = "pin";
     static final String EXTRA_SLOT = "slot";
+    static final String ACTION_OPEN_URL = "app.turbobox.OPEN_URL";   // a page that is not pinned
+    static final String EXTRA_URL = "url";
+    static final String EXTRA_INCOGNITO = "incognito";
+    static final String EXTRA_MOBILE = "mobile";
     private static final int[] TIMER_MINUTES = {0, 15, 30, 45, 60, 90, 120, 180, 240, 360, 480};
 
     /** Set while the pocket lock is on. Static so it outlives this screen (home, screen off, a new instance of the activity). */
@@ -106,6 +110,20 @@ public class SessionActivity extends Activity implements Session.Listener {
     /** Opens the pin or focuses the slot the intent names. False when there is nothing to show. */
     private boolean handleIntent(Intent intent) {
         String pinId = intent.getStringExtra(EXTRA_PIN);
+        if (ACTION_OPEN_URL.equals(intent.getAction())) {
+            intent.setAction(null);   // handled once: a recreated activity must not open it again
+            String address = Pin.normalizeUrl(intent.getStringExtra(EXTRA_URL));
+            if (address != null) {
+                Pin quick = Pin.create("", address);
+                quick.name = quick.host();
+                quick.temporary = true;
+                quick.incognito = intent.getBooleanExtra(EXTRA_INCOGNITO, true);
+                quick.mobile = intent.getBooleanExtra(EXTRA_MOBILE, false);
+                quick.recordMode = quick.incognito ? 2 : 0;   // an incognito page leaves nothing behind, recordings included
+                openPin(quick);
+                return !Sessions.active().isEmpty();
+            }
+        }
         if (ACTION_OPEN_PIN.equals(intent.getAction()) && pinId != null) {
             Pin pin = PinStore.find(this, pinId);
             if (pin != null) {

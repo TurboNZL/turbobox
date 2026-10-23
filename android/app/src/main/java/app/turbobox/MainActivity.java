@@ -147,6 +147,7 @@ public class MainActivity extends Activity {
         List<View> tiles = new ArrayList<>();
         for (int i = 0; i < pins.size(); i++) tiles.add(pinTile(pins.get(i), i, pins.size()));
         tiles.add(addTile());
+        tiles.add(quickTile());
         body.addView(PinGrid.grid(this, tiles));
         if (pins.isEmpty()) {
             body.addView(Ui.hint(this, "Pin the pages you use, like a video, a stream or a document. One tap opens "
@@ -204,6 +205,59 @@ public class MainActivity extends Activity {
         t.setClickable(true);
         t.setOnClickListener(v -> editPin(null));
         return t;
+    }
+
+    private View quickTile() {
+        LinearLayout t = Ui.card(this);
+        t.setGravity(Gravity.CENTER);
+        TextView icon = Ui.text(this, "◐", 26f, Ui.TEXT, "semibold");
+        icon.setGravity(Gravity.CENTER);
+        t.addView(icon, new LinearLayout.LayoutParams(Ui.dp(this, 46), Ui.dp(this, 46)));
+        t.addView(Ui.text(this, "Open a page", 15f, Ui.DIM, "sans-serif-medium"), Ui.lp(this, 10, 0));
+        t.addView(Ui.text(this, "not pinned", 12f, Ui.FAINT, "sans-serif"), Ui.lp(this, 2, 0));
+        t.setMinimumHeight(Ui.dp(this, 118));
+        t.setClickable(true);
+        t.setOnClickListener(v -> quickPage());
+        return t;
+    }
+
+    /** A page that is not pinned, by default incognito: its own cookies and storage, no recording, gone when it closes. */
+    private void quickPage() {
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        int p = Ui.dp(this, 20);
+        form.setPadding(p, Ui.dp(this, 8), p, 0);
+        EditText url = new EditText(this);
+        url.setHint("Address (example.com/page)");
+        url.setSingleLine(true);
+        url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        android.widget.Switch incognito = new android.widget.Switch(this);
+        incognito.setText("Incognito");
+        incognito.setChecked(true);
+        android.widget.Switch mobile = new android.widget.Switch(this);
+        mobile.setText("Mobile site");
+        form.addView(url);
+        form.addView(incognito, Ui.lp(this, 12, 0));
+        form.addView(Ui.hint(this, "Incognito: no saved sign-ins, history or recording; everything is deleted when you close the page."), Ui.lp(this, 2, 0));
+        form.addView(mobile, Ui.lp(this, 10, 0));
+        AlertDialog d = new AlertDialog.Builder(this)
+                .setTitle("Open a page")
+                .setView(form)
+                .setPositiveButton("Open", null)
+                .setNegativeButton("Cancel", null)
+                .create();
+        d.setOnShowListener(x -> d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String address = Pin.normalizeUrl(url.getText().toString());
+            if (address == null) {
+                url.setError("Type a web address, like example.com/page");
+                return;
+            }
+            d.dismiss();
+            startActivity(new Intent(this, SessionActivity.class).setAction(SessionActivity.ACTION_OPEN_URL)
+                    .putExtra(SessionActivity.EXTRA_URL, address).putExtra(SessionActivity.EXTRA_INCOGNITO, incognito.isChecked())
+                    .putExtra(SessionActivity.EXTRA_MOBILE, mobile.isChecked()));
+        }));
+        d.show();
     }
 
     private void renderShortcuts() {

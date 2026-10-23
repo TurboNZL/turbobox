@@ -40,6 +40,7 @@ final class PinStore {
 
     /** Adds or replaces (by id). There is no limit on how many pages can be pinned. */
     static void put(Context c, Pin pin) {
+        if (pin.temporary) return;   // an unpinned page is never written down
         List<Pin> pins = load(c);
         for (int i = 0; i < pins.size(); i++) {
             if (pins.get(i).id.equals(pin.id)) {
