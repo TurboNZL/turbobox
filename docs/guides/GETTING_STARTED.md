@@ -1,6 +1,6 @@
 # Getting started
 
-TurboBox runs web pages the way a call app would: they keep going with the screen off, they can use your phone's microphone, and two (or more, for a workflow) can run at once.
+TurboBox keeps web pages running in the background: they keep going with the screen off, they can use your phone's microphone, and up to four can run at once (more, temporarily, for a workflow).
 
 ## Install
 1. Open the [latest release](https://github.com/TurboNZL/turbobox/releases/latest) on the phone and download `turbobox-<version>-android.apk`.
@@ -17,24 +17,23 @@ you pin; **Reorder** (above the tiles) shows ‹ › on each tile to move it ear
 
 A tile shows the page's own icon (found when you pin it, and updated whenever the page reports one; a letter until then).
 
-Long-press a tile for: Edit, **Add an icon to the home screen** (the launcher puts the page next to your other apps), Remove. The first four pins are
+Long-press a tile for: Edit, **Page settings** (volume, zoom, aspect ratio, desktop or mobile site, microphone and camera, recording: the same settings as on the session screen, without opening the page), **Add an icon to the home screen** (the launcher puts the page next to your other apps), Remove. The first four pins are
 also in the long-press menu of the TurboBox icon.
 
 ## Open it
-Tap the tile. The page opens as **A**. Tap a second tile and it opens as **B**; the tabs at the top switch between them, and **Split** shows both at
-once (one above the other, or side by side when the phone is on its side). A third page asks which of the two to replace. With one page open it is
-simply its name; the letters appear (as `A | Name`) once there are two. A workflow that needs a page while A and B are busy gets a temporary extra tab
-that goes away when the workflow is done.
+Tap the tile. Tap more tiles to open more pages (up to four); the tabs at the top switch between them, and switching tabs does not pause the page you leave. A fifth page asks which to replace. With one page open it is simply its name; the letters appear (as `A | Name`, in the order the pages were opened) once there are two. A workflow that needs a page while four are open gets a temporary extra tab that goes away when the workflow is done.
+
+**Split** puts several pages on screen at once: with it on, tap tabs to choose which pages share the screen (two, three or four; the highlighted tab is the one the bar acts on, tap it again to take it out). Sites show their desktop layout by default; Settings on a page has a **Mobile site** switch if you want the phone layout.
 
 The bar acts on the page that is in front:
-- **Close** ends the session on your end. **Mute** switches your outgoing audio off in a way the page cannot undo; it turns red while it is on.
-- **Timer** hangs up after a delay, or at a clock time (tonight's 03:30).
+- **Close** closes the page straight away. **Mute** switches your outgoing audio off in a way the page cannot undo; it turns red while it is on.
+- **Timer** closes the page after a delay, or at a clock time (tonight's 03:30).
 - **Settings**: a ‹ › box at the top to go back and forward in the page's history, privacy switches for the microphone and camera, microphone, echo cancellation, microphone volume with a record-and-play-back test, page volume, brightness, page zoom, **aspect ratio** (fit the page into a 16:9, 4:3, 21:9, 1:1, 9:16 or 3:2 box, kept with the pin), page info. The sheet keeps a free strip on its right edge: rest your finger there to scroll.
 - **Rec** starts or stops the recording buffer. **CC** turns live captions on (and starts the recording they are saved with). **Step away** / **Back** pause a page for you and catch you up later: see [RECORDING_BUFFER](RECORDING_BUFFER.md).
-- **Mini** shrinks the page into a small floating window (it also happens by itself when you press Home on Android 12 or newer). The page is laid out to fit the window, including when you rotate the phone. A visible window makes Android much less likely to unload the app. The window has a microphone button (mute / unmute, the same as the notification's). With two pages open, Settings > *Mini window with two pages* (or a long press on **Mini**) can show them side by side or stacked.
+- **Mini** shrinks the page into a small floating window (it also happens by itself when you press Home on Android 12 or newer). The page is laid out to fit the window, including when you rotate the phone. A visible window makes Android much less likely to unload the app. The window has a microphone button (mute / unmute, the same as the notification's). While **Split** is on, the Mini window shows the pages you split, laid out like the split view, side by side, stacked, or with one page floating over the other (Settings > *Mini window while Split is on*, or a long press on **Mini**); without Split it shows the page in front.
 - **Lock** is pocket protection: the screen goes black and ignores every touch (and the Back key). To unlock, touch and hold the two circles at the same time for a moment. It works with Step away, recording and Mini, and the lock never appears in a recording.
-- A video's own **full screen** button works (YouTube, Twitch...): the page fills the screen and turns sideways with the phone; Back leaves it.
-- Settings > *Options bar as a floating button* replaces the bar across the top with a small round button you can drag: tap it to open the bar over the page.
+- A video's own **full screen** button works (YouTube, Twitch...): the video fills that page's area, not the whole phone; Back leaves it.
+- **Hide bar** puts the bar across the top away: the page gets the whole screen and a small round button you can drag stays over it. Tap the button to bring the bar back.
 
 Leaving the screen never pauses a page. The notification says what is running (`A | Name [muted] [recording] [hangs up in 42 min]`) and has **Mute** and **Close all**; tap it to come back. When nothing is running, Standby shows a quiet, minimised notification in its own *Standby* channel: switch that channel off in Android's notification settings to hide it while Standby keeps working.
 

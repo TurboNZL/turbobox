@@ -19,7 +19,7 @@
   if (window.__turbobox) return;
   var T = window.__turbobox = {};
   var WIDTH = 1280;
-  var cfg = { muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, cameraAllowed: false, localMute: false, keepVisible: true };
+  var cfg = { muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, cameraAllowed: false, localMute: false, keepVisible: true, desktop: !window.__tbMobile };
   var tracks = [], pcs = [];
 
   function post(type, data) {
@@ -28,11 +28,14 @@
 
   // ---- desktop emulation ----------------------------------------------------------------
   try {
-    var navProto = Object.getPrototypeOf(navigator);
-    Object.defineProperty(navProto, 'platform', { get: function () { return 'Linux x86_64'; }, configurable: true });
-    if (window.NavigatorUAData) {
-      Object.defineProperty(window.NavigatorUAData.prototype, 'mobile', { get: function () { return false; }, configurable: true });
-      Object.defineProperty(window.NavigatorUAData.prototype, 'platform', { get: function () { return 'Linux'; }, configurable: true });
+    // Only while the page is asked for as a desktop (the default); a page opened in mobile mode keeps the phone's own values.
+    if (cfg.desktop) {
+      var navProto = Object.getPrototypeOf(navigator);
+      Object.defineProperty(navProto, 'platform', { get: function () { return 'Linux x86_64'; }, configurable: true });
+      if (window.NavigatorUAData) {
+        Object.defineProperty(window.NavigatorUAData.prototype, 'mobile', { get: function () { return false; }, configurable: true });
+        Object.defineProperty(window.NavigatorUAData.prototype, 'platform', { get: function () { return 'Linux'; }, configurable: true });
+      }
     }
   } catch (e) { /* best effort */ }
 
@@ -74,6 +77,7 @@
   // The layout width is also the zoom: a narrower layout shows the same page bigger (like browser zoom,
   // everything is laid out again, nothing is just magnified).
   function viewport() {
+    if (!cfg.desktop) return;   // mobile mode: the page's own viewport stands
     var m = document.querySelector('meta[name=viewport]');
     if (!m) {
       if (!document.head) return;
@@ -985,6 +989,7 @@
     if ('localMute' in o) T.setLocalMute(o.localMute);
     if ('tap' in o) T.setTap(o.tap);
     if ('keepVisible' in o) cfg.keepVisible = !!o.keepVisible;
+    if ('desktop' in o) cfg.desktop = !!o.desktop;
   };
   // For "Page info": who is making sound on this page and which tap hears it (found by looking, not guessing)
   function audioReport() {

@@ -82,3 +82,13 @@ Owner report: no audio in the recording after Step away. The recorder only heard
 - **Pocket lock**: a `Dialog` of its own above the activity (so it is above the freeze cover and never in the recording), swallowing every touch and Back; unlock = hold two circles together for 1.5 s (`PocketLockView`). The flag is static so it outlives the activity, and the dialog stays up across the screen going off.
 - **Floating bar** (`Prefs.floatingBar`): `chromeBox` leaves the layout and is shown in a `PopupWindow` opened by a draggable round `PopupWindow` button, both windows of their own so a recording never shows them.
 - **Notification**: idle = ongoing, `IMPORTANCE_MIN` channel "Standby" (the user can hide the channel in Android while the service runs); anything open or running = the "Pages and workflows" channel, with `A | Name [muted] [recording] [hangs up in 42 min]` lines, the letter only when two or more pages are open.
+
+## Fourth round (owner feedback of the same day, still no device)
+- **Four pages**: `Sessions.PERMANENT = 4`, `COUNT = 8` (four temporary). The letter is the order of opening (`Session.openedSeq`, `Sessions.letter`), not the slot, so the first open page is always "A".
+- **Tabs and Split**: `SessionActivity.splitSet` holds the slots shown together (2 to 4; `SplitLayout.rows` decides the arrangement). With Split on, a tap on a tab adds it, focuses it, or (on the focused one) removes it. A page that is open but not on screen is moved to a private display (`Session.hostWithoutScreen`) instead of being left detached, which is what stopped playback when switching tabs.
+- **Mini window** only shows several pages while Split is on (`pipPages`); layouts in `SplitLayout` (like the split, side by side, stacked, overlay with the second page as a small inset). Window shape from `SplitLayout.shape`, clamped to Android's 1:2.39 to 2.39:1.
+- **Bar**: always the docked bar; `Hide bar` sets `Prefs.barHidden` and shows a draggable round `PopupWindow` button that brings it back (the floating-panel mode of the first round is gone).
+- **Full screen** fills the page's pane (`onFullscreen` adds the view to the pane), no immersive mode and no rotation.
+- **Desktop or mobile** per pin (`Pin.mobile`, default desktop): `Session.setMobile` swaps the user agent and client hints and re-registers the document-start script, which reads `window.__tbMobile` to leave the platform and viewport alone.
+- **Page settings from the home screen**: `PinSheet` (long-press a pin).
+- Close no longer asks.

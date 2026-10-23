@@ -4,12 +4,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The session slots: A and B are the permanent two, used first. The slots after them are temporary: a workflow that
+ * The session slots: the first four are the ones you open pages into, used in order. The slots after them are temporary: a workflow that
  * runs while both are busy gets one for as long as it needs, and it goes away when the page closes.
  */
 final class Sessions {
-    static final int PERMANENT = 2;
-    static final int COUNT = 6;
+    static final int PERMANENT = 4;
+    static final int COUNT = 8;
     private static final Session[] SLOTS = new Session[COUNT];
 
     static {
@@ -73,6 +73,18 @@ final class Sessions {
 
     /** "A | " when more than one page is open (so a single page is just its name), else "". */
     static String tag(Session s) {
-        return active().size() > 1 ? (char) ('A' + s.slot) + " | " : "";
+        return active().size() > 1 ? letter(s) + " | " : "";
+    }
+
+    /**
+     * The letter a page goes by: in the order the open pages were opened, so the first one open is always A whichever
+     * slot it sits in.
+     */
+    static char letter(Session s) {
+        int rank = 0;
+        for (Session o : SLOTS) {
+            if (o != s && o.isActive() && (!s.isActive() || o.openedSeq() < s.openedSeq())) rank++;
+        }
+        return (char) ('A' + rank);
     }
 }

@@ -114,16 +114,8 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         screen.addView(keep, Ui.lp(this, 8, 2));
         screen.addView(Ui.hint(this, "Sites like YouTube pause a video when the browser says nobody can see the page. With this on, the page "
                 + "is told it is visible and is kept on a private display of its own while the screen is off, so it carries on."), Ui.lp(this, 0, 8));
-        Switch floating = new Switch(this);
-        floating.setText("Options bar as a floating button");
-        floating.setTextColor(Ui.TEXT);
-        floating.setChecked(Prefs.floatingBar(this));
-        floating.setOnCheckedChangeListener((b, on) -> Prefs.setFloatingBar(this, on));
-        screen.addView(floating, Ui.lp(this, 0, 2));
-        screen.addView(Ui.hint(this, "The bar across the top (tabs, Close, Mute, Timer...) is replaced by a small round button you can drag "
-                + "anywhere. Tap it to open the bar over the page, tap it again to put it away. The page gets the whole screen."), Ui.lp(this, 0, 8));
-        screen.addView(choiceRow("Mini window with two pages", pipLayoutText(Prefs.pipLayout(this)), this::choosePipLayout));
-        screen.addView(Ui.hint(this, "What the small floating window shows when two pages are open. Also on the Mini button's long press."), Ui.lp(this, 0, 0));
+        screen.addView(choiceRow("Mini window while Split is on", pipLayoutText(Prefs.pipLayout(this)), this::choosePipLayout));
+        screen.addView(Ui.hint(this, "With Split on, the Mini window shows the pages you chose to split. Without Split it shows the page in front. Also on the Mini button's long press."), Ui.lp(this, 0, 0));
         body.addView(screen, Ui.lp(this, 12, 0));
 
         // Recording buffer
@@ -215,12 +207,12 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
     }
 
     private static String pipLayoutText(int v) {
-        return v == 1 ? "Side by side" : v == 2 ? "Stacked" : "The page in front only";
+        return v == 1 ? "Side by side" : v == 2 ? "Stacked" : v == 3 ? "One page floating over the other" : "Like the split view";
     }
 
     private void choosePipLayout() {
-        String[] items = {pipLayoutText(0), pipLayoutText(1), pipLayoutText(2)};
-        new AlertDialog.Builder(this).setTitle("Mini window with two pages")
+        String[] items = {pipLayoutText(0), pipLayoutText(1), pipLayoutText(2), pipLayoutText(3)};
+        new AlertDialog.Builder(this).setTitle("Mini window while Split is on")
                 .setSingleChoiceItems(items, Prefs.pipLayout(this), (d, which) -> {
                     Prefs.setPipLayout(this, which);
                     d.dismiss();

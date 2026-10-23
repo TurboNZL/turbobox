@@ -128,7 +128,7 @@ final class SessionSheet implements Session.Listener {
         });
         col.addView(camSwitch, Ui.lp(act, 4, 4));
         col.addView(Ui.hint(act, "Off means the page is refused, like pressing Block in a browser. Turning the microphone off also "
-                + "cuts a call that already has it. The camera is off until you allow it here and in Android."), Ui.lp(act, 2, 10));
+                + "stops a page that is already using it. The camera is off until you allow it here and in Android."), Ui.lp(act, 2, 10));
 
         TextView reload = Ui.pill(act, "Reload the page", 0);
         reload.setOnClickListener(v -> {
@@ -137,7 +137,7 @@ final class SessionSheet implements Session.Listener {
         });
         col.addView(reload, Ui.lp(act, 0, 4));
         col.addView(Ui.hint(act, "A page that was refused often keeps saying \"blocked\" until it is reloaded. The page is told when a switch "
-                + "changes, but if it still does not see the microphone or camera, reload it (this ends a call in progress)."), Ui.lp(act, 2, 18));
+                + "changes, but if it still does not see the microphone or camera, reload it (this restarts whatever the page was doing)."), Ui.lp(act, 2, 18));
 
         // Mic level test
         col.addView(Ui.label(act, "Microphone level"));
@@ -256,6 +256,16 @@ final class SessionSheet implements Session.Listener {
         col.addView(aspectValue, Ui.lp(act, 0, 2));
         col.addView(Ui.hint(act, "Fits the page into a box of this shape, centred with bars around it, and lays the page out to fit it "
                 + "(a 16:9 box suits a video). Kept with the pinned page."), Ui.lp(act, 0, 14));
+
+        // Desktop sites are the default; this page can ask for the phone layout instead
+        Switch mobileSwitch = new Switch(act);
+        mobileSwitch.setText("Mobile site");
+        mobileSwitch.setTextColor(Ui.TEXT);
+        mobileSwitch.setChecked(session.isMobile());
+        mobileSwitch.setOnCheckedChangeListener((b, on) -> session.setMobile(on));
+        col.addView(mobileSwitch, Ui.lp(act, 0, 4));
+        col.addView(Ui.hint(act, "Off (the default) asks sites for their desktop layout. On asks for the phone layout, like a normal phone "
+                + "browser. The page is loaded again to switch. Kept with the pinned page."), Ui.lp(act, 2, 14));
 
         // Page info: what the page sees, to check the desktop layout
         TextView info = Ui.pill(act, "Show page info", 0);

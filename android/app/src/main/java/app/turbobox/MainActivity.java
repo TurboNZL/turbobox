@@ -69,7 +69,7 @@ public class MainActivity extends Activity {
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         if (requestCode != REQUEST_PERMISSIONS) return;
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            Toast.makeText(this, "Without the microphone permission calls cannot send your voice (allow it in Android "
+            Toast.makeText(this, "Without the microphone permission pages cannot hear you (allow it in Android "
                     + "settings > Apps > TurboBox). Pages that only play still work.", Toast.LENGTH_LONG).show();
         }
     }
@@ -156,7 +156,7 @@ public class MainActivity extends Activity {
 
     private View pinTile(Pin pin, int index, int count) {
         Session running = Sessions.forPin(pin.id);
-        String sub = running == null ? pin.host() : Sessions.active().size() > 1 ? "Running in " + (char) ('A' + running.slot) : "Running";
+        String sub = running == null ? pin.host() : Sessions.active().size() > 1 ? "Running in " + Sessions.letter(running) : "Running";
         LinearLayout t = PinGrid.tile(this, pin, sub, running == null ? Ui.DIM : Ui.GREEN, false, () -> {
             Shortcuts.refresh(this);
             render();
@@ -238,6 +238,7 @@ public class MainActivity extends Activity {
     private void pinMenu(Pin pin) {
         List<String> items = new ArrayList<>();
         items.add("Edit");
+        items.add("Page settings");
         items.add("Add an icon to the home screen");
         items.add("Remove");
         new AlertDialog.Builder(this)
@@ -246,6 +247,8 @@ public class MainActivity extends Activity {
                     if (which == 0) {
                         editPin(pin);
                     } else if (which == 1) {
+                        PinSheet.show(this, pin);
+                    } else if (which == 2) {
                         if (!Shortcuts.requestHomeIcon(this, pin)) {
                             Toast.makeText(this, "This launcher cannot add icons. Long-press the TurboBox icon instead: your first pages are there.", Toast.LENGTH_LONG).show();
                         }

@@ -61,7 +61,10 @@ public class PinTest {
     public void aspectSurvivesJsonAndIsClamped() throws Exception {
         Pin p = Pin.create("x", "https://x.y");
         p.aspect = 2;
+        p.mobile = true;
         assertEquals(2, Pin.fromJson(p.toJson()).aspect);
+        assertTrue(Pin.fromJson(p.toJson()).mobile);
+        assertTrue(!Pin.fromJson(new org.json.JSONObject("{\"id\":\"a\"}")).mobile);   // desktop unless asked
         assertEquals(0, Pin.fromJson(new org.json.JSONObject("{\"id\":\"a\"}")).aspect);
         assertEquals(Pin.ASPECTS.length - 1, Pin.fromJson(new org.json.JSONObject("{\"id\":\"a\",\"aspect\":99}")).aspect);
         assertEquals(Pin.ASPECTS.length, Pin.ASPECT_LABELS.length);

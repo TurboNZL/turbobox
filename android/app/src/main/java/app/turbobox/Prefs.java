@@ -31,14 +31,14 @@ final class Prefs {
     static void setKeepPlaying(Context c, boolean v) { sp(c).edit().putBoolean("keepPlaying", v).apply(); }
 
     // ---- the session screen ----
-    /** The options bar as a floating button instead of rows across the top. */
-    static boolean floatingBar(Context c) { return sp(c).getBoolean("floatingBar", false); }
-    static void setFloatingBar(Context c, boolean v) { sp(c).edit().putBoolean("floatingBar", v).apply(); }
-    /** Where the floating button was left, as fractions of the screen (x, y). */
+    /** The options bar is put away, leaving a small button. */
+    static boolean barHidden(Context c) { return sp(c).getBoolean("barHidden", false); }
+    static void setBarHidden(Context c, boolean v) { sp(c).edit().putBoolean("barHidden", v).apply(); }
+    /** Where the show-bar button was left, as fractions of the screen (x, y). */
     static float floatX(Context c) { return sp(c).getFloat("floatX", 0.88f); }
     static float floatY(Context c) { return sp(c).getFloat("floatY", 0.12f); }
     static void setFloatPos(Context c, float x, float y) { sp(c).edit().putFloat("floatX", x).putFloat("floatY", y).apply(); }
-    /** What the Mini (picture in picture) window shows when two pages are open: 0 = the page in front, 1 = side by side, 2 = stacked. */
+    /** What the Mini (picture in picture) window shows while Split is on: see SplitLayout (0 like the split, 1 side by side, 2 stacked, 3 one over the other). */
     static int pipLayout(Context c) { return sp(c).getInt("pipLayout", 0); }
     static void setPipLayout(Context c, int v) { sp(c).edit().putInt("pipLayout", v).apply(); }
 

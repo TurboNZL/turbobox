@@ -18,6 +18,7 @@ final class Pin {
     int recordMode;         // recording when the page opens: 0 = follow the default in Settings, 1 = always, 2 = never
     boolean allowMic = true;      // privacy: may the page use the microphone (what it hears of you)
     boolean allowCamera;          // privacy: may the page use the camera (off until you allow it)
+    boolean mobile;               // ask sites for their phone layout instead of the desktop one (desktop is the default)
     int aspect;                   // forced shape of the page's area: index into ASPECTS, 0 = fill the space
 
     /** Shapes a page can be forced into: label, width, height. The first means "no forced shape". */
@@ -38,7 +39,7 @@ final class Pin {
         try {
             return new JSONObject().put("id", id).put("name", name).put("url", url)
                     .put("zoom", zoom).put("volume", volume).put("recordMode", recordMode)
-                    .put("allowMic", allowMic).put("allowCamera", allowCamera).put("aspect", aspect);
+                    .put("allowMic", allowMic).put("allowCamera", allowCamera).put("aspect", aspect).put("mobile", mobile);
         } catch (JSONException e) {
             throw new IllegalStateException(e);
         }
@@ -52,6 +53,7 @@ final class Pin {
         p.recordMode = o.has("recordMode") ? o.optInt("recordMode") : o.optBoolean("autoRecord", false) ? 1 : 0;
         p.allowMic = o.optBoolean("allowMic", true);
         p.allowCamera = o.optBoolean("allowCamera", false);
+        p.mobile = o.optBoolean("mobile", false);
         p.aspect = Math.max(0, Math.min(ASPECTS.length - 1, o.optInt("aspect", 0)));
         return p;
     }
