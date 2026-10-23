@@ -111,7 +111,7 @@
   viewport();
   window.addEventListener('orientationchange', function () { setTimeout(viewport, 300); });
   T.setZoom = function (z) { cfg.zoom = Math.max(0.5, Math.min(3, +z || 1)); viewport(); };
-  T.setViewWidth = function (w) { cfg.viewW = Math.max(0, +w || 0); viewport(); setTimeout(viewport, 300); };
+  T.setViewWidth = function (w) { if (T.resized && cfg.viewW && Math.max(0, +w || 0) !== cfg.viewW) T.resized(); cfg.viewW = Math.max(0, +w || 0); viewport(); setTimeout(viewport, 300); };
   new MutationObserver(viewport).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['content'] });
 
   // ---- audio context shared by the volume path and the meters --------------------------
@@ -959,12 +959,83 @@
     if (cfg.localMute) lmTimer = setInterval(localMuteSweep, 500);
     relayToFrames({ __tb: 'localMute', on: cfg.localMute });
   };
+  // ---- keep the scroll position when the window changes size --------------------------------------------
+  // Entering or resizing the Mini window re-lays the page out and a long feed (Twitter/X) jumps a few posts. The scroll
+  // position from just before the resize is put back for a moment after it, unless the user touches the page meanwhile.
+  var scrollLog = [], lastInput = 0, keep = null;
+  function scroller() { return document.scrollingElement || document.documentElement; }
+  window.addEventListener('scroll', function (e) {
+    var t = e.target;
+    if (t !== document && t !== document.documentElement && t !== document.body) return;
+    var sc = scroller();
+    scrollLog.push({ t: Date.now(), x: sc.scrollLeft, y: sc.scrollTop });
+    if (scrollLog.length > 40) scrollLog.shift();
+  }, true);
+  ['touchstart', 'wheel', 'mousedown', 'keydown'].forEach(function (n) {
+    window.addEventListener(n, function () { lastInput = Date.now(); }, { capture: true, passive: true });
+  });
+  function restoreScroll() {
+    if (!keep || Date.now() > keep.until + 50) return;
+    if (lastInput > keep.started) { keep = null; return; }
+    var sc = scroller();
+    if (Math.abs(sc.scrollTop - keep.y) > 2 || Math.abs(sc.scrollLeft - keep.x) > 2) {
+      try { window.scrollTo({ left: keep.x, top: keep.y, behavior: 'instant' }); } catch (e) { window.scrollTo(keep.x, keep.y); }
+    }
+  }
+  T.resized = function () {
+    var now = Date.now();
+    if (keep && now < keep.until) { keep.until = now + 1600; return; }   // several resize steps in a row: same target
+    var target = null;
+    for (var i = scrollLog.length - 1; i >= 0; i--) if (scrollLog[i].t <= now - 350) { target = scrollLog[i]; break; }
+    if (!target) { var sc = scroller(); target = { x: sc.scrollLeft, y: sc.scrollTop }; }
+    keep = { x: target.x, y: target.y, until: now + 1600, started: now };
+    [0, 120, 300, 600, 1000, 1500].forEach(function (d) { setTimeout(restoreScroll, d); });
+  };
+
+  // ---- media controls from outside (the Mini window's buttons) -------------------------------------------
+  function mediaEls() { return Array.prototype.slice.call(document.querySelectorAll('video,audio')); }
+  function pickMedia() {
+    var best = null, bestScore = -1;
+    mediaEls().forEach(function (el) {
+      var r = el.getBoundingClientRect();
+      var w = Math.max(0, Math.min(r.right, window.innerWidth) - Math.max(r.left, 0));
+      var h = Math.max(0, Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0));
+      var score = (!el.paused && !el.ended ? 1e12 : 0) + w * h + (el.readyState > 0 ? 1 : 0);
+      if (score > bestScore) { best = el; bestScore = score; }
+    });
+    return best;
+  }
+  T.mediaToggle = function () {
+    var el = pickMedia();
+    if (!el) { relayToFrames({ __tb: 'media', op: 'toggle' }); return false; }
+    if (el.paused || el.ended) { var p = el.play(); if (p && p.catch) p.catch(function () { /* refused */ }); } else el.pause();
+    return true;
+  };
+  T.mediaSeek = function (sec) {
+    var el = pickMedia();
+    if (!el) { relayToFrames({ __tb: 'media', op: 'seek', sec: sec }); return false; }
+    var to = el.currentTime + sec, end = isFinite(el.duration) ? el.duration : (el.seekable && el.seekable.length ? el.seekable.end(el.seekable.length - 1) : to);
+    try { el.currentTime = Math.max(0, Math.min(end, to)); } catch (e) { /* not seekable */ }
+    return true;
+  };
+  var mediaSaid = null, mediaTimer = 0;
+  function reportMedia() {
+    mediaTimer = 0;
+    var playing = mediaEls().some(function (el) { return !el.paused && !el.ended && el.readyState > 2; });
+    if (playing !== mediaSaid) { mediaSaid = playing; post('media', playing ? '1' : '0'); }
+  }
+  ['play', 'playing', 'pause', 'ended', 'emptied'].forEach(function (n) {
+    document.addEventListener(n, function () { if (!mediaTimer) mediaTimer = setTimeout(reportMedia, 150); }, true);
+  });
+  T.mediaState = reportMedia;
+
   // Frames: take the state from the parent, and ask for it when they appear.
   window.addEventListener('message', function (e) {
     var d = e.data;
     if (!d || typeof d !== 'object' || !d.__tb) return;
     if (e.source === window.parent && d.__tb === 'localMute') T.setLocalMute(d.on);
     else if (e.source === window.parent && d.__tb === 'cfg') T.configure(d.cfg);
+    else if (e.source === window.parent && d.__tb === 'media') { if (d.op === 'toggle') T.mediaToggle(); else T.mediaSeek(+d.sec || 0); }
     else if (d.__tb === 'hello' && e.source) {
       try { e.source.postMessage({ __tb: 'localMute', on: cfg.localMute }, '*'); e.source.postMessage({ __tb: 'cfg', cfg: { muted: cfg.muted, micAllowed: cfg.micAllowed, cameraAllowed: cfg.cameraAllowed } }, '*'); } catch (x) { /* gone */ }
     }

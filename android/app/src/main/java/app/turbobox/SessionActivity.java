@@ -59,6 +59,8 @@ public class SessionActivity extends Activity implements Session.Listener {
     private static final int[] TIMER_MINUTES = {0, 15, 30, 45, 60, 90, 120, 180, 240, 360, 480};
 
     private static final String ACTION_PIP_MUTE = "app.turbobox.PIP_MUTE";
+    private static final String ACTION_PIP_MEDIA = "app.turbobox.PIP_MEDIA";
+    private static final String EXTRA_OP = "op";
 
     private final FrameLayout[] panes = new FrameLayout[Sessions.COUNT];
     private final AspectFrame[] boxes = new AspectFrame[Sessions.COUNT];
@@ -305,11 +307,24 @@ public class SessionActivity extends Activity implements Session.Listener {
         // microphone it simply keeps it from being sent when one is asked for).
         if (!Sessions.active().isEmpty()) {
             boolean muted = Sessions.allMuted();
-            Icon icon = Icon.createWithResource(this, muted ? R.drawable.ic_mic_off : R.drawable.ic_mic);
-            PendingIntent pi = PendingIntent.getBroadcast(this, 7, new Intent(ACTION_PIP_MUTE).setPackage(getPackageName()),
-                    PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
             List<RemoteAction> actions = new ArrayList<>();
-            actions.add(new RemoteAction(icon, muted ? "Unmute" : "Mute", muted ? "Turn the microphone back on" : "Mute the microphone", pi));
+            // The page in front: play / pause and a jump of ten seconds either way. Android shows only as many as it allows
+            // (usually three), so the ones that matter most come first.
+            Session f = front();
+            if (f != null) {
+                boolean playing = f.isMediaPlaying();
+                actions.add(pipAction(10, playing ? R.drawable.ic_pause : R.drawable.ic_play, playing ? "Pause" : "Play", "toggle"));
+            }
+            actions.add(new RemoteAction(Icon.createWithResource(this, muted ? R.drawable.ic_mic_off : R.drawable.ic_mic), muted ? "Unmute" : "Mute",
+                    muted ? "Turn the microphone back on" : "Mute the microphone",
+                    PendingIntent.getBroadcast(this, 7, new Intent(ACTION_PIP_MUTE).setPackage(getPackageName()),
+                            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT)));
+            if (f != null) {
+                actions.add(pipAction(11, R.drawable.ic_forward, "Forward 10 seconds", "fwd"));
+                actions.add(pipAction(12, R.drawable.ic_back, "Back 10 seconds", "back"));
+            }
+            int max = Build.VERSION.SDK_INT >= 26 ? getMaxNumPictureInPictureActions() : 3;
+            while (actions.size() > Math.max(1, max)) actions.remove(actions.size() - 1);
             b.setActions(actions);
         }
         // From Android 12 the window shrinks by itself when you go Home with a page open.
@@ -317,9 +332,23 @@ public class SessionActivity extends Activity implements Session.Listener {
         return b;
     }
 
+    private RemoteAction pipAction(int code, int icon, String title, String op) {
+        PendingIntent pi = PendingIntent.getBroadcast(this, code, new Intent(ACTION_PIP_MEDIA).setPackage(getPackageName()).putExtra(EXTRA_OP, op),
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        return new RemoteAction(Icon.createWithResource(this, icon), title, title, pi);
+    }
+
     private final BroadcastReceiver pipMute = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
+            if (ACTION_PIP_MEDIA.equals(intent.getAction())) {
+                Session f = front();
+                String op = intent.getStringExtra(EXTRA_OP);
+                if (f == null || op == null) return;
+                if (op.equals("toggle")) f.mediaToggle();
+                else f.mediaSeek(op.equals("fwd") ? 10 : -10);
+                return;
+            }
             Sessions.toggleAllMuted();
         }
     };
@@ -327,6 +356,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     private void registerPipReceiver() {
         if (pipReceiverOn || !canPip()) return;
         IntentFilter f = new IntentFilter(ACTION_PIP_MUTE);
+        f.addAction(ACTION_PIP_MEDIA);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(pipMute, f, Context.RECEIVER_NOT_EXPORTED);
         else registerReceiver(pipMute, f);
         pipReceiverOn = true;
@@ -1138,6 +1168,11 @@ public class SessionActivity extends Activity implements Session.Listener {
     public void onMuted(Session s, boolean muted) {
         updateControls();
         updatePip();   // the Mini window's microphone button shows the state
+    }
+
+    @Override
+    public void onMedia(Session s) {
+        if (s.slot == focus) updatePip();   // the Mini window's play / pause button shows the state
     }
 
     @Override

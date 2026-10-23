@@ -259,6 +259,40 @@ await page.waitForTimeout(900);
 const fs = posts.filter(p => p[0] === 'fsratio').map(p => Number(p[1]));
 check('a full-screen video reports its shape (16:9), and 0 when it leaves', fs.length >= 2 && Math.abs(fs[0] - 640 / 360) < 0.01 && fs[fs.length - 1] === 0, fs);
 
+// a resize (entering the Mini window) must not move a long feed: the scroll position from before it is put back
+await page.evaluate(() => window.scrollTo(0, 1500));
+await page.waitForTimeout(500);
+await page.evaluate(() => { window.scrollTo(0, 300); window.__turbobox.resized(); });
+await page.waitForTimeout(250);
+const sy = await page.evaluate(() => Math.round(window.scrollY));
+check('the scroll position is put back after a resize', sy === 1500, sy);
+await page.evaluate(() => window.scrollTo(0, 0));
+await page.waitForTimeout(1700);
+
+// media controls for the Mini window: play / pause, seek, and the state is reported
+await page.waitForTimeout(300);
+posts.length = 0;
+const mc = await page.evaluate(async () => {
+  const old = document.getElementById('fsv'); if (old) { old.pause(); old.remove(); }
+  const a = document.getElementById('a');
+  a.pause(); a.currentTime = 0;
+  const T = window.__turbobox;
+  await new Promise(r => setTimeout(r, 400));
+  T.mediaToggle();
+  await new Promise(r => setTimeout(r, 400));
+  const playing = !a.paused;
+  const t0 = a.currentTime;
+  T.mediaSeek(1);
+  await new Promise(r => setTimeout(r, 100));
+  const jumped = a.currentTime - t0;
+  T.mediaToggle();
+  await new Promise(r => setTimeout(r, 400));
+  return { playing, jumped, pausedAfter: a.paused };
+});
+await page.waitForTimeout(300);
+const said = posts.filter(p => p[0] === 'media').map(p => p[1]).join();
+check('media toggle plays and pauses, seek jumps, and the state is reported', mc.playing && mc.jumped > 0.8 && mc.pausedAfter && said.split(',').pop() === '0', { mc, said });
+
 console.log(fails ? `${fails} FAILED` : 'all ok');
 await b.close();
 process.exit(fails ? 1 : 0);
