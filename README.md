@@ -10,7 +10,7 @@ Tether keeps its PeerJS call; TurboBox is only the web pages.
 ## What it does
 - **Pinned pages** on the home screen (up to 8), shown with the page's own icon: one tap opens the page in a session. Each page has its own microphone and camera privacy switches. Long-press for an icon on the launcher's home screen, and the
   first four are also in the app icon's long-press menu.
-- **Two running at once** (slots A and B): tabs, or **Split** to see both. A small floating window (Mini) keeps a page up while you use
+- **Up to four running at once**: tabs, or **Split** to see the ones you choose. A small floating window (Mini) keeps a page up while you use
   another app.
 - **Everything Tether's web session did**: desktop browser emulation and page zoom, the phone's own microphone chosen by you (a Bluetooth
   headset stays in its high-quality mode), a mute the page cannot undo, page volume (0-200%), microphone volume (0-300%) with a
