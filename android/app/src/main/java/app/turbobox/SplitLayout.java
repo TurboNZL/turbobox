@@ -36,6 +36,14 @@ final class SplitLayout {
         return rows(n, wide);
     }
 
+    /** The Mini window shape for one page held to this width / height, kept inside what Android accepts. */
+    static int[] shapeOfRatio(float ratio) {
+        int num = Math.round(ratio * 1000), den = 1000;
+        if (num * 100 > den * 239) return new int[]{239, 100};
+        if (num * 239 < den * 100) return new int[]{100, 239};
+        return new int[]{num, den};
+    }
+
     /**
      * Width over height for a window holding these rows of 16:9 pages, kept inside the 1:2.39 to 2.39:1 that Android's
      * picture in picture accepts. Returned as {numerator, denominator}.

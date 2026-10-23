@@ -50,6 +50,7 @@
         <activity android:name=".MissedActivity" android:exported="false"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden" />
         <activity android:name=".SettingsActivity" android:exported="false" />
+        <activity android:name=".SiteDataActivity" android:exported="false" />
         <activity android:name=".HelpActivity" android:exported="false" />
 
         <service

@@ -129,6 +129,8 @@ final class Session {
     private boolean cameraAllowed;        // privacy: the page may use the camera
     private int viewCssWidth;         // the page's own area in CSS pixels, so a small window lays out right
     private int aspect;               // forced shape of the page's area, an index into Pin.ASPECTS (0 = fill)
+    private boolean locked;           // page lock: the screen covers this page until it is unlocked
+    private float fullscreenRatio;    // shape of the full-screen video, 0 = not known
     private View customView;          // the page's full-screen view while it is full screen
     private WebChromeClient.CustomViewCallback customCallback;
     private OffscreenHost keepHost;   // the page on a private display while no screen shows it and it is not recording
@@ -276,14 +278,31 @@ final class Session {
         return customView != null;
     }
 
+    /** Width over height of the video that is full screen (as the page reports it), 0 when not known. */
+    float fullscreenRatio() {
+        return customView != null ? fullscreenRatio : 0f;
+    }
+
     /** Leaves the page's full-screen view (the Back key does this first). */
     void exitFullscreen() {
         if (customView == null) return;
         WebChromeClient.CustomViewCallback cb = customCallback;
         customView = null;
         customCallback = null;
+        fullscreenRatio = 0f;
         for (Listener l : listeners) l.onFullscreen(this, null);
         if (cb != null) cb.onCustomViewHidden();
+    }
+
+    // ---- page lock -----------------------------------------------------------------------------
+
+    boolean isLocked() {
+        return active && locked;
+    }
+
+    /** A locked page's area ignores touches (the screen puts a cover over it). */
+    void setLocked(boolean on) {
+        locked = on;
     }
 
     /** The shared WebView if it exists; never creates one. */
@@ -675,7 +694,6 @@ final class Session {
         app = context.getApplicationContext();
         pin = page;
         // An incognito page lives in a WebView of its own; so does the first normal page after one.
-        Prefs.activate(page.profileId);   // this page's microphone, volumes and recording settings are its profile's
         startHost = Uri.parse(page.url).getHost() == null ? "" : Uri.parse(page.url).getHost();
         if (webView != null && (page.incognito || !java.util.Objects.equals(profileFor(page), profileName))) discardWebView();
         Devices.ensureMicChoice(app);
@@ -685,6 +703,7 @@ final class Session {
         zoom = page.zoom;
         aspect = page.aspect;
         openedSeq = ++seqCounter;
+        locked = false;
         boolean modeChanged = mobile != page.mobile;
         mobile = page.mobile;
         if (modeChanged && webView != null) {
@@ -735,6 +754,7 @@ final class Session {
     void close(String reason) {
         if (!active) return;
         active = false;
+        locked = false;
         main.removeCallbacks(tick);
         hangupAt = 0;
         muted = false;
@@ -1008,6 +1028,7 @@ final class Session {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 allowSite(url);
+                if (!wipeProfile) SiteData.seen(app, profileName == null ? "" : profileName, url);
                 pageLoaded = false;
                 muteMisses = 0;
                 muteWarned = false;
@@ -1128,6 +1149,12 @@ final class Session {
                         l.onLoopback(this, o.optString("state"), (float) o.optDouble("peak", 0),
                                 o.optString("verdict"), o.optString("message"));
                     }
+                    break;
+                }
+                case "fsratio": {
+                    float r = Float.parseFloat(data);
+                    fullscreenRatio = customView != null && r > 0.2f && r < 6f ? r : 0f;
+                    for (Listener l : listeners) l.onAspect(this);
                     break;
                 }
                 case "vmic":

@@ -5,7 +5,7 @@ You are watching a stream and someone starts talking to you. Tap **Step away**, 
 ## How it works
 While the buffer is on, TurboBox takes a picture of the page a few times a second and records the sound the page plays (the stream, the other people in a call), and writes both into 30-second video pieces in the phone's cache. Only the newest N minutes are kept (Settings > Recording buffer, 15 minutes to 4 hours, 60 by default), so it is a rolling window, not an ever-growing file. Nothing leaves the phone.
 
-**It is on by default**: every page records from the moment it opens, so Step away always has something to replay. Settings > Recording buffer > *Record every page when it opens* turns that off for all pages, and a pinned page can override it (long-press it > Edit > Recording: follow the default / always / never).
+**It is off by default**: a page records when you press Rec, a workflow says so, or the page is set to always record. Settings > Recording buffer > *Record every page when it opens* turns it on for all pages (so Step away always has something to replay), and a pinned page can override it either way (long-press it > Page settings > Recording: follow the default / always / never).
 
 You can also start or stop it by hand:
 - **Rec** on the page's bar (tap again for a menu: add a mark, play the recording, stop).

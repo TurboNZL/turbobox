@@ -73,6 +73,23 @@
     });
   } catch (e) { /* best effort */ }
 
+  // The shape of a video that goes full screen, so the native side can give the rest of the split to other pages instead
+  // of leaving black bars around it (0 = not full screen or not known yet).
+  function reportFullscreenShape() {
+    var fe = document.fullscreenElement || document.webkitFullscreenElement, r = 0;
+    if (fe) {
+      var v = fe.tagName === 'VIDEO' ? fe : fe.querySelector && fe.querySelector('video');
+      if (v && v.videoWidth > 0 && v.videoHeight > 0) r = v.videoWidth / v.videoHeight;
+    }
+    post('fsratio', String(r));
+  }
+  ['fullscreenchange', 'webkitfullscreenchange'].forEach(function (n) {
+    document.addEventListener(n, function () { reportFullscreenShape(); setTimeout(reportFullscreenShape, 700); }, true);
+  });
+  document.addEventListener('resize', function (e) {
+    if (e.target && e.target.tagName === 'VIDEO' && (document.fullscreenElement || document.webkitFullscreenElement)) reportFullscreenShape();
+  }, true);
+
   // Pages that ask for a device-width layout would otherwise get the phone layout whatever the UA says.
   // The layout width is also the zoom: a narrower layout shows the same page bigger (like browser zoom,
   // everything is laid out again, nothing is just magnified).
