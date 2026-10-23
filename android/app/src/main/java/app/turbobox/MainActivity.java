@@ -47,6 +47,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        String filter = Profiles.filter(this);
+        if (!filter.isEmpty() && Profiles.find(this, filter).id.equals(Profiles.DEFAULT) && !filter.equals(Profiles.DEFAULT)) filter = Profiles.DEFAULT;   // its profile was removed
+        Profiles.setFilter(this, filter);
         render();
         Shortcuts.refresh(this);
         WorkflowScheduler.scheduleAll(this);   // keeps the alarms right even after an update
@@ -94,9 +97,95 @@ public class MainActivity extends Activity {
         head.addView(settings);
         body.addView(head);
 
+        renderProfiles();
         renderRunning();
         renderPins();
         renderShortcuts();
+    }
+
+    /** A row of profile chips: tap to show that profile's pages (and use its settings), All to see every page. */
+    private void renderProfiles() {
+        List<Profiles.Profile> all = Profiles.load(this);
+        String filter = Profiles.filter(this);
+        android.widget.HorizontalScrollView scroll = new android.widget.HorizontalScrollView(this);
+        scroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout row = new LinearLayout(this);
+        if (all.size() > 1) row.addView(profileChip("All", filter.isEmpty(), null));
+        for (Profiles.Profile p : all) {
+            if (all.size() == 1) break;   // with only the default, there is nothing to choose between
+            row.addView(profileChip(p.name, p.id.equals(filter), p));
+        }
+        TextView add = Ui.pill(this, all.size() == 1 ? "Profiles: add one" : "+", 0);
+        add.setPadding(Ui.dp(this, 14), Ui.dp(this, 7), Ui.dp(this, 14), Ui.dp(this, 7));
+        add.setOnClickListener(v -> nameProfile(null));
+        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ap.leftMargin = Ui.dp(this, 6);
+        row.addView(add, ap);
+        scroll.addView(row);
+        body.addView(scroll, Ui.lp(this, 14, 0));
+        if (all.size() > 1) {
+            body.addView(Ui.hint(this, "Each profile has its own pinned pages, sign-ins and settings. Long-press a profile to rename or remove it."), Ui.lp(this, 6, 0));
+        }
+    }
+
+    private TextView profileChip(String label, boolean selected, Profiles.Profile profile) {
+        TextView chip = Ui.pill(this, label, selected ? Ui.GREEN : 0);
+        chip.setPadding(Ui.dp(this, 14), Ui.dp(this, 7), Ui.dp(this, 14), Ui.dp(this, 7));
+        chip.setOnClickListener(v -> {
+            Profiles.setFilter(this, profile == null ? "" : profile.id);
+            render();
+        });
+        if (profile != null) {
+            chip.setOnLongClickListener(v -> {
+                profileMenu(profile);
+                return true;
+            });
+        }
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        p.rightMargin = Ui.dp(this, 6);
+        chip.setLayoutParams(p);
+        return chip;
+    }
+
+    private void profileMenu(Profiles.Profile profile) {
+        List<String> items = new ArrayList<>();
+        items.add("Rename");
+        if (!profile.id.equals(Profiles.DEFAULT)) items.add("Remove, with its pages and sign-ins");
+        new AlertDialog.Builder(this).setTitle(profile.name)
+                .setItems(items.toArray(new String[0]), (d, which) -> {
+                    if (which == 0) {
+                        nameProfile(profile);
+                    } else {
+                        new AlertDialog.Builder(this).setTitle("Remove " + profile.name + "?")
+                                .setMessage("Its pinned pages, signed-in sessions and settings are deleted.")
+                                .setPositiveButton("Remove", (dd, w) -> {
+                                    Profiles.remove(this, profile.id);
+                                    Shortcuts.refresh(this);
+                                    render();
+                                })
+                                .setNegativeButton("Keep", null).show();
+                    }
+                }).show();
+    }
+
+    private void nameProfile(Profiles.Profile existing) {
+        EditText name = new EditText(this);
+        name.setHint("Name (Work, Family, ...)");
+        name.setSingleLine(true);
+        name.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        if (existing != null) name.setText(existing.name);
+        new AlertDialog.Builder(this).setTitle(existing == null ? "New profile" : "Rename profile").setView(name)
+                .setPositiveButton("Save", (d, w) -> {
+                    String n = name.getText().toString().trim();
+                    if (n.isEmpty()) return;
+                    if (existing == null) {
+                        Profiles.setFilter(this, Profiles.add(this, n).id);
+                    } else {
+                        Profiles.rename(this, existing.id, n);
+                    }
+                    render();
+                })
+                .setNegativeButton("Cancel", null).show();
     }
 
     private void renderRunning() {
@@ -128,7 +217,9 @@ public class MainActivity extends Activity {
     }
 
     private void renderPins() {
-        List<Pin> pins = PinStore.load(this);
+        String filter = Profiles.filter(this);
+        List<Pin> pins = new ArrayList<>();
+        for (Pin p : PinStore.load(this)) if (filter.isEmpty() || p.profileId.equals(filter)) pins.add(p);
         LinearLayout head = new LinearLayout(this);
         head.setGravity(Gravity.CENTER_VERTICAL);
         head.addView(Ui.label(this, "Pinned pages"), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -189,7 +280,7 @@ public class MainActivity extends Activity {
     }
 
     private void move(Pin pin, int delta) {
-        PinStore.moveSaved(this, pin.id, delta);
+        PinStore.moveSavedAmong(this, pin.id, delta, Profiles.filter(this));
         Shortcuts.refresh(this);   // the first pins are the launcher's long-press menu, in this order
         render();
     }
@@ -262,6 +353,7 @@ public class MainActivity extends Activity {
             startActivity(new Intent(this, SessionActivity.class).setAction(SessionActivity.ACTION_OPEN_URL)
                     .putExtra(SessionActivity.EXTRA_URL, address).putExtra(SessionActivity.EXTRA_INCOGNITO, incognito.isChecked())
                     .putExtra(SessionActivity.EXTRA_WIPE, wipe.isChecked())
+                    .putExtra(SessionActivity.EXTRA_PROFILE, Profiles.filter(this).isEmpty() ? Profiles.DEFAULT : Profiles.filter(this))
                     .putExtra(SessionActivity.EXTRA_MOBILE, mobile.isChecked()));
         }));
         d.show();
@@ -347,6 +439,7 @@ public class MainActivity extends Activity {
         url.setSingleLine(true);
         url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         final int[] mode = {existing == null ? 0 : existing.recordMode};
+        final String[] profile = {existing != null ? existing.profileId : Profiles.filter(this).isEmpty() ? Profiles.DEFAULT : Profiles.filter(this)};
         final boolean defaultOn = Prefs.recordByDefault(this);
         TextView recording = Ui.pill(this, "Recording: " + Pin.recordModeText(mode[0], defaultOn), 0);
         recording.setOnClickListener(v -> {
@@ -360,6 +453,19 @@ public class MainActivity extends Activity {
         form.addView(name);
         form.addView(url);
         form.addView(recording, Ui.lp(this, 12, 0));
+        List<Profiles.Profile> profiles = Profiles.load(this);
+        if (profiles.size() > 1) {
+            TextView which = Ui.pill(this, "Profile: " + Profiles.find(this, profile[0]).name, 0);
+            which.setOnClickListener(v -> {
+                String[] names = new String[profiles.size()];
+                for (int i = 0; i < names.length; i++) names[i] = profiles.get(i).name;
+                new AlertDialog.Builder(this).setTitle("Profile").setItems(names, (dd, i) -> {
+                    profile[0] = profiles.get(i).id;
+                    which.setText("Profile: " + profiles.get(i).name);
+                }).show();
+            });
+            form.addView(which, Ui.lp(this, 8, 0));
+        }
         AlertDialog d = new AlertDialog.Builder(this)
                 .setTitle(existing == null ? "Pin a page" : "Edit " + existing.name)
                 .setView(form)
@@ -379,6 +485,7 @@ public class MainActivity extends Activity {
             pin.name = label;
             pin.url = address;
             pin.recordMode = mode[0];
+            pin.profileId = profile[0];
             if (addressChanged) {
                 Favicons.delete(this, pin.id);
                 PinGrid.forget(pin.id);

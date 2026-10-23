@@ -616,6 +616,35 @@ final class Session {
         }
     }
 
+    /** The WebView profile name this page's cookies live in, or null for the shared store. */
+    private String profileFor(Pin p) {
+        if (p.incognito) {
+            return p.wipeOnClose ? "tb_incognito_" + slot + "_" + openedSeq
+                    : "tb_site_" + startHost.replaceAll("[^A-Za-z0-9]", "_");
+        }
+        return Profiles.webProfileName(p.profileId);
+    }
+
+    /** Deletes the sign-ins and storage of a removed profile. */
+    static void deleteProfileData(String profileId) {
+        String name = Profiles.webProfileName(profileId);
+        if (name == null || !WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) return;
+        try {
+            androidx.webkit.Profile p = ProfileStore.getInstance().getProfile(name);
+            if (p != null) {
+                p.getCookieManager().removeAllCookies(null);
+                p.getWebStorage().deleteAllData();
+            }
+            ProfileStore.getInstance().deleteProfile(name);
+        } catch (RuntimeException ignored) {
+            // In use by a page that is still open; the data was wiped above.
+        }
+    }
+
+    String profileId() {
+        return pin == null ? Profiles.DEFAULT : pin.profileId;
+    }
+
     /** Throws the WebView away (an incognito page's, with everything it stored), so the next page starts in a fresh one. */
     private void discardWebView() {
         if (webView == null) return;
@@ -646,7 +675,9 @@ final class Session {
         app = context.getApplicationContext();
         pin = page;
         // An incognito page lives in a WebView of its own; so does the first normal page after one.
-        if (webView != null && (page.incognito || profileName != null)) discardWebView();
+        Prefs.activate(page.profileId);   // this page's microphone, volumes and recording settings are its profile's
+        startHost = Uri.parse(page.url).getHost() == null ? "" : Uri.parse(page.url).getHost();
+        if (webView != null && (page.incognito || !java.util.Objects.equals(profileFor(page), profileName))) discardWebView();
         Devices.ensureMicChoice(app);
         micKey = Prefs.micKey(app);
         aec = Prefs.aec(app);
@@ -723,7 +754,7 @@ final class Session {
         if (webView != null) {
             webView.loadUrl("about:blank");
             webView.clearHistory();
-            if (profileName != null) main.post(this::discardWebView);   // everything an incognito page stored goes with it
+            if (profileName != null && wipeProfile) main.post(this::discardWebView);   // everything an incognito page stored goes with it
         }
         for (Listener l : listeners) {
             l.onTimer(this, -1);
@@ -924,6 +955,19 @@ final class Session {
 
     private WebView createWebView() {
         WebView wv = new WebView(new MutableContextWrapper(app));
+        // The profile first: it has to be chosen before the WebView is used for anything else.
+        String wantedProfile = pin == null ? null : profileFor(pin);
+        if (wantedProfile != null) {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+                ProfileStore.getInstance().getOrCreateProfile(wantedProfile);
+                WebViewCompat.setProfile(wv, wantedProfile);
+                profileName = wantedProfile;
+                wipeProfile = pin.incognito && pin.wipeOnClose;
+            } else {
+                pin.incognito = false;
+                main.post(() -> notice("This phone's WebView is too old for separate profiles or incognito: this page shares sign-ins with the others."));
+            }
+        }
         WebSettings st = wv.getSettings();
         st.setJavaScriptEnabled(true);
         st.setDomStorageEnabled(true);
@@ -943,21 +987,7 @@ final class Session {
         st.setBuiltInZoomControls(true);
         st.setDisplayZoomControls(false);
         CookieManager cookies = CookieManager.getInstance();
-        if (pin != null && pin.incognito) {
-            // Its own profile: cookies, storage and cache that no other page shares, deleted when the page closes.
-            if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
-                // Wiped on close: a profile no one else uses. Kept: one per site, so signing in once is enough next time.
-                profileName = pin.wipeOnClose ? "tb_incognito_" + slot + "_" + openedSeq
-                        : "tb_site_" + startHost.replaceAll("[^A-Za-z0-9]", "_");
-                wipeProfile = pin.wipeOnClose;
-                ProfileStore.getInstance().getOrCreateProfile(profileName);
-                WebViewCompat.setProfile(wv, profileName);
-                cookies = ProfileStore.getInstance().getProfile(profileName).getCookieManager();
-            } else {
-                pin.incognito = false;
-                main.post(() -> notice("This phone's WebView is too old for incognito pages; this one is open without it."));
-            }
-        }
+        if (profileName != null) cookies = ProfileStore.getInstance().getProfile(profileName).getCookieManager();
         cookies.setAcceptCookie(true);
         cookies.setAcceptThirdPartyCookies(wv, true);
 

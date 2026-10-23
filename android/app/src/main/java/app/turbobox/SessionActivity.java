@@ -55,6 +55,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     static final String EXTRA_INCOGNITO = "incognito";
     static final String EXTRA_MOBILE = "mobile";
     static final String EXTRA_WIPE = "wipe";
+    static final String EXTRA_PROFILE = "profile";
     private static final int[] TIMER_MINUTES = {0, 15, 30, 45, 60, 90, 120, 180, 240, 360, 480};
 
     /** Set while the pocket lock is on. Static so it outlives this screen (home, screen off, a new instance of the activity). */
@@ -120,6 +121,8 @@ public class SessionActivity extends Activity implements Session.Listener {
                 quick.temporary = true;
                 quick.incognito = intent.getBooleanExtra(EXTRA_INCOGNITO, true);
                 quick.mobile = intent.getBooleanExtra(EXTRA_MOBILE, false);
+                String profile = intent.getStringExtra(EXTRA_PROFILE);
+                if (profile != null && !profile.isEmpty()) quick.profileId = profile;
                 quick.wipeOnClose = quick.incognito && intent.getBooleanExtra(EXTRA_WIPE, true);
                 quick.recordMode = quick.wipeOnClose ? 2 : 0;   // a page that leaves nothing behind is not recorded either
                 openPin(quick);
@@ -632,6 +635,10 @@ public class SessionActivity extends Activity implements Session.Listener {
         }
         Session f = front();
         if (f != null && !inPip) f.setCallMeter(true);
+        if (f != null) {
+            Prefs.activate(f.profileId());   // the screen options (brightness...) are the front page's profile's
+            applyBrightness();
+        }
         updatePip();
         updateControls();
         updateFreeze();

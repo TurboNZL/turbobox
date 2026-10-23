@@ -90,4 +90,20 @@ public class PinTest {
         for (Pin p : l) sb.append(sb.length() == 0 ? "" : ",").append(p.id);
         return sb.toString();
     }
+
+    @Test
+    public void profilesKeepTheirOwnPinsAndOrder() throws Exception {
+        java.util.List<Pin> l = new java.util.ArrayList<>();
+        for (String id : new String[]{"a", "b", "c", "d"}) l.add(new Pin(id, id, "https://x.y"));
+        l.get(1).profileId = "work";
+        l.get(3).profileId = "work";
+        assertTrue(PinStore.moveAmong(l, "d", -1, "work"));   // swaps with b, skipping the default profile's c
+        assertEquals("a,d,b,c", ids(l));
+        assertTrue(PinStore.moveAmong(l, "d", 1, "work"));   // and back: after b
+        assertEquals("a,b,d,c", ids(l));
+        assertTrue(!PinStore.moveAmong(l, "d", 1, "work"));   // last of its profile
+        assertEquals("default", Pin.fromJson(new org.json.JSONObject("{\"id\":\"a\"}")).profileId);
+        l.get(0).profileId = "work";
+        assertEquals("work", Pin.fromJson(l.get(0).toJson()).profileId);
+    }
 }

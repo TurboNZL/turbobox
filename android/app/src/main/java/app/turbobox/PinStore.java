@@ -67,6 +67,31 @@ final class PinStore {
         return true;
     }
 
+    /**
+     * Like {@link #move} but counting only the pins of one profile (the home screen shows one at a time): the pin swaps places
+     * with its neighbour among them. "" counts every pin.
+     */
+    static boolean moveAmong(List<Pin> pins, String id, int delta, String profileId) {
+        List<Integer> slots = new ArrayList<>();
+        int at = -1;
+        for (int i = 0; i < pins.size(); i++) {
+            if (!profileId.isEmpty() && !pins.get(i).profileId.equals(profileId)) continue;
+            if (pins.get(i).id.equals(id)) at = slots.size();
+            slots.add(i);
+        }
+        if (at < 0) return false;
+        int to = Math.max(0, Math.min(slots.size() - 1, at + delta));
+        if (to == at) return false;
+        Pin moved = pins.remove((int) slots.get(at));
+        pins.add(slots.get(to), moved);
+        return true;
+    }
+
+    static void moveSavedAmong(Context c, String id, int delta, String profileId) {
+        List<Pin> pins = load(c);
+        if (moveAmong(pins, id, delta, profileId)) save(c, pins);
+    }
+
     /** Moves one pin in the saved list; see {@link #move(List, String, int)}. */
     static void moveSaved(Context c, String id, int delta) {
         List<Pin> pins = load(c);

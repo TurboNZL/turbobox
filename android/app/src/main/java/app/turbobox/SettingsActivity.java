@@ -56,6 +56,11 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
 
     private void render() {
         body.removeAllViews();
+        if (Profiles.load(this).size() > 1) {
+            body.addView(Ui.hint(this, "These settings (microphone, volumes, recording, screen options) are for the profile \""
+                    + Profiles.find(this, Prefs.activeProfile()).name + "\". Pick another profile on the home screen to change its own. "
+                    + "Standby and updates are shared."), Ui.lp(this, 0, 6));
+        }
 
         // Standby
         LinearLayout standby = Ui.card(this);
