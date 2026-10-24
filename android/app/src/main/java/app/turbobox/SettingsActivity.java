@@ -121,8 +121,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         reclaim.setOnCheckedChangeListener((b, on) -> Prefs.setReclaimEmpty(this, on));
         screen.addView(reclaim, Ui.lp(this, 4, 2));
         screen.addView(Ui.hint(this, "When a page in a split is held to a shape (a forced aspect ratio, or a video in full screen), it takes "
-                + "only the room that shape needs and the other pages grow into the rest, instead of black bars. The Mini window "
-                + "also takes the shape of a single page held to one. Drag the dividers between pages in a split to resize them."), Ui.lp(this, 0, 4));
+                + "only the room that shape needs and the other pages grow into the rest, instead of black bars. Drag the dividers between pages in a split to resize them."), Ui.lp(this, 0, 4));
         Switch own = new Switch(this);
         own.setText("Split uses your own layout");
         own.setTextColor(Ui.TEXT);
@@ -280,7 +279,10 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
             MiniLayoutEditor ed = new MiniLayoutEditor(this, rects -> {
                 current[0] = rects;
                 if (mini) Prefs.setMiniRects(this, MiniLayout.encode(rects));
-                else Prefs.setSplitRects(this, MiniLayout.encode(rects));
+                else {
+                    Prefs.setSplitRects(this, MiniLayout.encode(rects));
+                    Prefs.setSplitOwnCount(this, 0);
+                }
             });
             ed.set(current[0], MiniLayout.PAGES);
             holder.addView(ed, new android.widget.FrameLayout.LayoutParams(w, h, android.view.Gravity.CENTER));

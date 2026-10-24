@@ -459,6 +459,7 @@ public class MainActivity extends Activity {
         LinearLayout card = Ui.card(this);
         card.addView(navRow("Workflows", "Open a page and follow the buttons for you, even with the screen off, at a set time.",
                 WorkflowsActivity.class));
+        card.addView(navRow("Layouts", "Two to four pages on the screen together, each placed where you drew it.", LayoutsActivity.class));
         card.addView(navRow("Recordings", "What you missed: the buffer of what a page showed and played.", MissedActivity.class));
         card.addView(navRow("Guides", "How it works, with examples.", HelpActivity.class));
         body.addView(card);

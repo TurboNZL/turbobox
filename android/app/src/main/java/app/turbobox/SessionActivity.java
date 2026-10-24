@@ -52,6 +52,8 @@ public class SessionActivity extends Activity implements Session.Listener {
     static final String EXTRA_SLOT = "slot";
     static final String ACTION_OPEN_URL = "app.turbobox.OPEN_URL";   // a page that is not pinned
     static final String EXTRA_URL = "url";
+    static final String ACTION_APPLY_LAYOUT = "app.turbobox.APPLY_LAYOUT";   // a saved layout from the home screen
+    static final String EXTRA_LAYOUT = "layout";
     static final String EXTRA_INCOGNITO = "incognito";
     static final String EXTRA_MOBILE = "mobile";
     static final String EXTRA_WIPE = "wipe";
@@ -83,6 +85,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     private int focus;
     private boolean split;
     private final java.util.Set<Integer> splitSet = new java.util.TreeSet<>();   // the slots shown together while Split is on (up to four)
+    private List<Integer> splitOrder;   // page order set by an applied layout; null = the order of the tabs
     private boolean inPip;
     private SessionSheet sheet;
     private final PopupWindow[] freezePopups = new PopupWindow[Sessions.COUNT];
@@ -128,6 +131,11 @@ public class SessionActivity extends Activity implements Session.Listener {
                 openPin(quick);
                 return !Sessions.active().isEmpty();
             }
+        }
+        if (ACTION_APPLY_LAYOUT.equals(intent.getAction())) {
+            intent.setAction(null);   // handled once, like the page above
+            applyLayout(LayoutStore.find(this, intent.getStringExtra(EXTRA_LAYOUT)));
+            return !Sessions.active().isEmpty();
         }
         if (ACTION_OPEN_PIN.equals(intent.getAction()) && pinId != null) {
             Pin pin = PinStore.find(this, pinId);
@@ -176,6 +184,51 @@ public class SessionActivity extends Activity implements Session.Listener {
                     if (Sessions.active().isEmpty()) finish();
                 })
                 .show();
+    }
+
+    /** Opens the layout's pages that are not running (free slots only), then shares the screen between them as it says. */
+    private void applyLayout(SavedLayout l) {
+        if (l == null) return;
+        List<Integer> slots = new ArrayList<>();
+        if (l.pinIds.isEmpty()) {
+            for (Session s : Sessions.active()) if (slots.size() < l.count) slots.add(s.slot);
+        }
+        int missing = 0;
+        for (String id : l.pinIds) {
+            Pin pin = PinStore.find(this, id);
+            if (pin == null || Profiles.isLocked(this, pin.profileId)) continue;
+            Session run = Sessions.forPin(id);
+            if (run == null) {
+                int free = Sessions.firstFreeSlot();
+                if (free < 0) {
+                    missing++;
+                    continue;
+                }
+                start(free, pin);
+                run = Sessions.get(free);
+            }
+            if (!slots.contains(run.slot)) slots.add(run.slot);
+        }
+        if (missing > 0) Toast.makeText(this, "Close a page first: " + missing + " could not be opened.", Toast.LENGTH_LONG).show();
+        if (slots.size() < 2) {
+            if (!Sessions.active().isEmpty()) {
+                Toast.makeText(this, "A layout needs at least two pages open.", Toast.LENGTH_LONG).show();
+                rebuild();
+            }
+            return;
+        }
+        float[][] rects = l.rectangles();
+        float[][] used = new float[slots.size()][];
+        System.arraycopy(rects, 0, used, 0, used.length);
+        Prefs.setSplitRects(this, MiniLayout.encode(used));
+        Prefs.setSplitOwnCount(this, used.length);
+        Prefs.setSplitOwn(this, true);
+        split = true;
+        splitSet.clear();
+        splitSet.addAll(slots);
+        splitOrder = slots;
+        focus = slots.get(0);
+        rebuild();
     }
 
     private void start(int slot, Pin pin) {
@@ -297,10 +350,6 @@ public class SessionActivity extends Activity implements Session.Listener {
         int[] shape = SplitLayout.shape(SplitLayout.pipRows(pages.size(), Prefs.pipLayout(this), wide));
         if (pages.size() >= 2 && Prefs.pipLayout(this) == SplitLayout.OVERLAY) {
             shape = MiniLayout.shape(Prefs.miniShape(this));   // your own arrangement has the shape you chose
-        } else if (pages.size() == 1 && Prefs.reclaimEmpty(this) && shapeOf(pages.get(0)) > 0) {
-            // A page held to a shape: the window takes that shape instead of showing black bars around it.
-            int[] fit = SplitLayout.shapeOfRatio(shapeOf(pages.get(0)));
-            shape = fit;
         }
         PictureInPictureParams.Builder b = new PictureInPictureParams.Builder().setAspectRatio(new Rational(shape[0], shape[1]));
         // The mic button works for any page: it is the same mute as the notification's (for a page that is not using the
@@ -416,7 +465,21 @@ public class SessionActivity extends Activity implements Session.Listener {
         inPip = in;
         chromeBox.setVisibility(in ? View.GONE : View.VISIBLE);
         rebuild();
+        // The window is still changing size while this runs; a page (or a full-screen video) that was measured against the old
+        // size is left filling a corner of the new one. Lay everything out again once the window has settled.
+        for (long delay : new long[]{150, 600}) mainHandler.postDelayed(this::relayoutPanes, delay);
         getWindow().getDecorView().post(this::applyBarMode);
+    }
+
+    private void relayoutPanes() {
+        if (isFinishing() || isDestroyed()) return;
+        paneHolder.requestLayout();
+        for (int i = 0; i < Sessions.COUNT; i++) {
+            View full = fullscreenViews[i];
+            if (full != null) full.requestLayout();
+            WebView wv = Sessions.get(i).peekWebView();
+            if (wv != null && wv.getParent() == boxes[i]) wv.requestLayout();
+        }
     }
 
     // ---- UI ----------------------------------------------------------------------------------
@@ -554,6 +617,11 @@ public class SessionActivity extends Activity implements Session.Listener {
     /** The pages in the split view, in slot order (at least the page in front). */
     private List<Session> members() {
         List<Session> out = new ArrayList<>();
+        if (splitOrder != null && splitOrder.size() == splitSet.size() && splitSet.containsAll(splitOrder)) {
+            for (int slot : splitOrder) if (Sessions.get(slot).isActive()) out.add(Sessions.get(slot));   // as the layout numbers them
+            if (out.size() == splitSet.size()) return out;
+            out.clear();
+        }
         for (Session s : Sessions.active()) if (splitSet.contains(s.slot)) out.add(s);
         if (out.isEmpty() && front() != null) out.add(front());
         return out;
@@ -561,6 +629,7 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     private void toggleSplit() {
         split = !split;
+        splitOrder = null;
         if (split) {
             splitSet.clear();
             for (Session s : Sessions.active()) if (splitSet.size() < 4) splitSet.add(s.slot);
@@ -575,6 +644,7 @@ public class SessionActivity extends Activity implements Session.Listener {
             Toast.makeText(this, "That page is locked. Hold both circles on it to unlock.", Toast.LENGTH_SHORT).show();
             return;
         }
+        if (split && (!splitSet.contains(slot) || (focus == slot && splitSet.size() > 1))) splitOrder = null;
         if (!split) {
             focus = slot;
         } else if (!splitSet.contains(slot)) {
@@ -612,7 +682,8 @@ public class SessionActivity extends Activity implements Session.Listener {
         List<Session> shown = new ArrayList<>(inPip ? pipPages() : split ? members() : new ArrayList<Session>());
         if (shown.isEmpty() && front() != null) shown.add(front());
         boolean together = split && shown.size() >= 2;
-        boolean custom0 = together && (inPip ? Prefs.pipLayout(this) == SplitLayout.OVERLAY : Prefs.splitOwn(this));
+        boolean custom0 = together && (inPip ? Prefs.pipLayout(this) == SplitLayout.OVERLAY
+                : Prefs.splitOwn(this) && (Prefs.splitOwnCount(this) == 0 || Prefs.splitOwnCount(this) == shown.size()));
         int[] rows = !together || custom0 ? new int[]{1}
                 : inPip ? SplitLayout.pipRows(shown.size(), Prefs.pipLayout(this), landscape)
                 : SplitLayout.rows(shown.size(), landscape);
