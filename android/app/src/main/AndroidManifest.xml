@@ -45,6 +45,7 @@
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode" />
 
         <activity android:name=".WorkflowsActivity" android:exported="false" />
+        <activity android:name=".LayoutsActivity" android:exported="false" />
         <activity android:name=".WorkflowEditActivity" android:exported="false"
             android:windowSoftInputMode="adjustResize" />
         <activity android:name=".MissedActivity" android:exported="false"

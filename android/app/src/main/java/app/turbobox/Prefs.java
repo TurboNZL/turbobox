@@ -49,6 +49,9 @@ final class Prefs {
     static void setPipLayout(Context c, int v) { ps(c).edit().putInt("pipLayout", v).apply(); }
 
     /** Your own arrangement of the Mini window (see MiniLayout), "" = the default. */
+    /** How many pages the own Mini layout is drawn for (0 = any number, as arranged in Settings). */
+    static int miniOwnCount(Context c) { return ps(c).getInt("miniOwnCount", 0); }
+    static void setMiniOwnCount(Context c, int v) { ps(c).edit().putInt("miniOwnCount", v).apply(); }
     static String miniRects(Context c) { return ps(c).getString("miniRects", ""); }
     static void setMiniRects(Context c, String v) { ps(c).edit().putString("miniRects", v).apply(); }
     /** The Mini window's shape in your own arrangement: index into MiniLayout.SHAPES. */
@@ -57,6 +60,9 @@ final class Prefs {
     /** The in-app split view: false = the grid with draggable dividers, true = your own layout (see MiniLayout). */
     static boolean splitOwn(Context c) { return ps(c).getBoolean("splitOwn", false); }
     static void setSplitOwn(Context c, boolean v) { ps(c).edit().putBoolean("splitOwn", v).apply(); }
+    /** How many pages the own split layout is drawn for (0 = any number, as arranged in Settings). */
+    static int splitOwnCount(Context c) { return ps(c).getInt("splitOwnCount", 0); }
+    static void setSplitOwnCount(Context c, int v) { ps(c).edit().putInt("splitOwnCount", v).apply(); }
     static String splitRects(Context c) { return ps(c).getString("splitRects", ""); }
     static void setSplitRects(Context c, String v) { ps(c).edit().putString("splitRects", v).apply(); }
     /** Where the dividers of a split arrangement were left (see SplitGrid); the key names the arrangement. */

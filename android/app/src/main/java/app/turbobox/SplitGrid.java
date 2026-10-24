@@ -106,11 +106,28 @@ final class SplitGrid extends ViewGroup {
         colLeft = new int[n][];
         colWidth = new int[n][];
 
-        // Row heights. A row with one pane of a fixed shape needs only width / ratio.
+        // Row heights. A row whose pane has a fixed shape needs no more height than that pane's width / ratio (side by side, the
+        // widest the shares give it first); the other rows take what it leaves. With a free pane in the row the fixed one sets
+        // the height, since the free one fills any; with only fixed panes the tallest need wins.
         int[] caps = new int[n];
         int next = 0;
         for (int i = 0; i < n; i++) {
-            if (reclaim && rows[i] == 1 && next < ratio.length && ratio[next] > 0) caps[i] = Math.round(w / ratio[next]);
+            if (reclaim) {
+                int[] first = SplitMath.allocate(colShare[i], null, Math.max(0, w - g * (rows[i] - 1)));
+                int low = Integer.MAX_VALUE, high = 0;
+                boolean free = false;
+                for (int j = 0; j < rows[i]; j++) {
+                    int k = next + j;
+                    if (k < ratio.length && ratio[k] > 0) {
+                        int need = Math.round(first[j] / ratio[k]);
+                        low = Math.min(low, need);
+                        high = Math.max(high, need);
+                    } else {
+                        free = true;
+                    }
+                }
+                if (high > 0) caps[i] = free ? low : high;
+            }
             next += rows[i];
         }
         int[] heights = SplitMath.allocate(rowShare, caps, Math.max(0, h - g * (n - 1)));
