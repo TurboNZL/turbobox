@@ -95,6 +95,17 @@ final class PinSheet {
                 }).show());
         col.addView(Ui.label(act, "Aspect ratio"), Ui.lp(act, 12, 0));
         col.addView(aspect);
+        addMiniControls(act, col, pin.zoomMini, pin.zoom, pin.aspectMini, z -> {
+            change(act, pin, p -> p.zoomMini = z);
+            pin.zoomMini = z;
+            Session s = Sessions.forPin(pin.id);
+            if (s != null) s.setZoomMini(z);
+        }, a -> {
+            change(act, pin, p -> p.aspectMini = a);
+            pin.aspectMini = a;
+            Session s = Sessions.forPin(pin.id);
+            if (s != null) s.setAspectMini(a);
+        });
 
         TextView rec = Ui.text(act, Pin.recordModeText(pin.recordMode, Prefs.recordByDefault(act)) + "  ›", 16f, Ui.GREEN, "sans-serif-medium");
         rec.setPadding(0, Ui.dp(act, 8), 0, Ui.dp(act, 8));
@@ -125,5 +136,51 @@ final class PinSheet {
         }
         Session s = Sessions.forPin(pin.id);
         if (s != null && s.pin() != null) edit.accept(s.pin());
+    }
+
+    /**
+     * The Mini window's own zoom and shape, for the page settings of a running page and of a pinned one. Both default to "same
+     * as the normal window"; turning one on gives the Mini window its own value.
+     */
+    static void addMiniControls(Activity act, LinearLayout col, float zoomMini, float zoomNormal, int aspectMini,
+                                java.util.function.Consumer<Float> onZoom, java.util.function.IntConsumer onAspect) {
+        col.addView(Ui.label(act, "In the Mini window"), Ui.lp(act, 14, 0));
+        android.widget.Switch own = new android.widget.Switch(act);
+        own.setText("Its own page zoom");
+        own.setTextColor(Ui.TEXT);
+        own.setChecked(zoomMini > 0);
+        col.addView(own, Ui.lp(act, 4, 2));
+        float start = zoomMini > 0 ? zoomMini : Math.max(0.5f, zoomNormal);
+        TextView value = Ui.text(act, Ui.pct(start), 22f, Ui.TEXT, "sans-serif");
+        android.widget.SeekBar bar = Ui.slider(act, 3f, start, (v, fromUser) -> {
+            float z = Math.max(0.5f, v);
+            value.setText(Ui.pct(z));
+            if (fromUser) onZoom.accept(z);
+        });
+        int vis = zoomMini > 0 ? android.view.View.VISIBLE : android.view.View.GONE;
+        value.setVisibility(vis);
+        bar.setVisibility(vis);
+        own.setOnCheckedChangeListener((b, on) -> {
+            value.setVisibility(on ? android.view.View.VISIBLE : android.view.View.GONE);
+            bar.setVisibility(on ? android.view.View.VISIBLE : android.view.View.GONE);
+            onZoom.accept(on ? start : 0f);
+        });
+        col.addView(value, Ui.lp(act, 2, 2));
+        col.addView(bar, new LinearLayout.LayoutParams(-1, -2));
+        String[] labels = new String[Pin.ASPECT_LABELS.length + 1];
+        labels[0] = "Same as the normal window";
+        System.arraycopy(Pin.ASPECT_LABELS, 0, labels, 1, Pin.ASPECT_LABELS.length);
+        TextView aspect = Ui.text(act, "Aspect ratio: " + labels[aspectMini + 1] + "  ›", 17f, Ui.GREEN, "sans-serif-medium");
+        aspect.setPadding(0, Ui.dp(act, 8), 0, Ui.dp(act, 8));
+        aspect.setOnClickListener(v -> new AlertDialog.Builder(act).setTitle("Aspect ratio in the Mini window")
+                .setSingleChoiceItems(labels, aspect.getTag() instanceof Integer ? (Integer) aspect.getTag() : aspectMini + 1, (dd, which) -> {
+                    aspect.setTag(which);
+                    onAspect.accept(which - 1);
+                    aspect.setText("Aspect ratio: " + labels[which] + "  ›");
+                    dd.dismiss();
+                }).show());
+        col.addView(aspect, Ui.lp(act, 4, 0));
+        col.addView(Ui.hint(act, "The Mini window's shape follows this page's shape: the Mini window's own aspect ratio if set, else the normal "
+                + "one, else the shape of the page area on screen. Kept with the pinned page."), Ui.lp(act, 0, 8));
     }
 }

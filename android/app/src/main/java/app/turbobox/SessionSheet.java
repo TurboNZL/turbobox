@@ -260,7 +260,9 @@ final class SessionSheet implements Session.Listener {
         col.addView(Ui.label(act, "Aspect ratio"));
         col.addView(aspectValue, Ui.lp(act, 0, 2));
         col.addView(Ui.hint(act, "Fits the page into a box of this shape, centred with bars around it, and lays the page out to fit it "
-                + "(a 16:9 box suits a video). Kept with the pinned page."), Ui.lp(act, 0, 14));
+                + "(a 16:9 box suits a video). Kept with the pinned page."), Ui.lp(act, 0, 4));
+        PinSheet.addMiniControls(act, col, session.zoomMini(), session.zoom(), session.aspectMini(),
+                z -> session.setZoomMini(z), a -> session.setAspectMini(a));
 
         // Desktop sites are the default; this page can ask for the phone layout instead
         Switch mobileSwitch = new Switch(act);
