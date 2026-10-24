@@ -615,7 +615,9 @@ public class SessionActivity extends Activity implements Session.Listener {
             // One page: the window has the shape the page is forced to (its own for the Mini window, else the normal one), and
             // when it is not forced, the shape its area has on screen now, so nothing is squeezed into 16:9 by surprise.
             float forced = Pin.ASPECTS[pages.get(0).effectiveAspect(true)];
-            shape = SplitLayout.shapeOfRatio(forced > 0 ? forced : paneAspect > 0 ? paneAspect : 9f / 16f);
+            // Set to fill the space: a video in full screen gives the window its own shape, so there are no black bars around it.
+            float video = pages.get(0).fullscreenRatio();
+            shape = SplitLayout.shapeOfRatio(forced > 0 ? forced : video > 0 ? video : paneAspect > 0 ? paneAspect : 9f / 16f);
         }
         PictureInPictureParams.Builder b = new PictureInPictureParams.Builder().setAspectRatio(new Rational(shape[0], shape[1]));
         // The mic button works for any page: it is the same mute as the notification's (for a page that is not using the
