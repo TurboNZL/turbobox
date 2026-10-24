@@ -8,12 +8,13 @@ import android.view.MotionEvent;
 import android.view.View;
 
 /**
- * Draws the Mini window as a box with one rectangle per page. Drag a rectangle to move it, drag its corner to resize it.
- * Page 4 is in front of page 3 and so on, as in the real window.
+ * Drawn over the pages themselves while a layout is being arranged: one frame per page. Drag a frame to move that page, drag its
+ * corner to resize it. The page last touched is selected and can be brought forward or sent back; the pages are drawn in that
+ * order, so the one in front is on top, as in the real window. The pages underneath stay visible and live.
  */
 final class MiniLayoutEditor extends View {
     interface OnChange {
-        void changed(float[][] rects);
+        void changed(float[][] rects, int[] order);
     }
 
     private static final int[] COLORS = {0xFFA6E22E, 0xFF66D9EF, 0xFFFD971F, 0xFFF92672};
@@ -24,9 +25,11 @@ final class MiniLayoutEditor extends View {
     private final float handle;
     private final OnChange onChange;
     private float[][] rects = MiniLayout.defaults();
+    private int[] order = {0, 1};      // back to front
     private int pages = 2;
-    private int active = -1;
+    private int selected = -1;
     private boolean resizing;
+    private boolean dragging;
     private float lastX, lastY;
 
     MiniLayoutEditor(Context c, OnChange onChange) {
@@ -34,21 +37,43 @@ final class MiniLayoutEditor extends View {
         this.onChange = onChange;
         handle = Ui.dpf(c, 30);
         edge.setStyle(Paint.Style.STROKE);
-        edge.setStrokeWidth(Ui.dpf(c, 2));
+        edge.setStrokeWidth(Ui.dpf(c, 3));
         label.setTextAlign(Paint.Align.CENTER);
         label.setTextSize(Ui.dpf(c, 22));
         label.setFakeBoldText(true);
-        setBackgroundColor(0xFF000000);
+        setBackgroundColor(0x00000000);   // the pages show through
     }
 
-    void set(float[][] r, int pageCount) {
+    void set(float[][] r, int[] z) {
         rects = r;
-        pages = Math.max(1, Math.min(MiniLayout.PAGES, pageCount));
+        pages = Math.max(1, Math.min(MiniLayout.PAGES, z.length));
+        order = z.clone();
+        if (selected >= pages) selected = -1;
         invalidate();
     }
 
-    float[][] rects() {
-        return rects;
+    void select(int page) {
+        selected = page >= 0 && page < pages ? page : -1;
+        invalidate();
+    }
+
+    int selected() {
+        return selected;
+    }
+
+    /** Moves the selected page one step toward the front (+1) or the back (-1). */
+    boolean move(int step) {
+        if (selected < 0) return false;
+        int at = -1;
+        for (int i = 0; i < order.length; i++) if (order[i] == selected) at = i;
+        int to = at + step;
+        if (at < 0 || to < 0 || to >= order.length) return false;
+        int t = order[at];
+        order[at] = order[to];
+        order[to] = t;
+        invalidate();
+        onChange.changed(rects, order);
+        return true;
     }
 
     private RectF px(int i) {
@@ -58,16 +83,18 @@ final class MiniLayoutEditor extends View {
 
     @Override
     protected void onDraw(Canvas c) {
-        for (int i = 0; i < pages; i++) {
+        for (int k = 0; k < pages; k++) {
+            int i = order[k];
             RectF r = px(i);
-            int col = COLORS[i];
+            int col = COLORS[i % COLORS.length];
             fill.setColor(col);
-            fill.setAlpha(i == active ? 120 : 70);
+            fill.setAlpha(i == selected ? 90 : 40);
             c.drawRect(r, fill);
             edge.setColor(col);
+            edge.setAlpha(i == selected ? 255 : 170);
             c.drawRect(r, edge);
             label.setColor(col);
-            c.drawText("Page " + (i + 1), r.centerX(), r.centerY() + label.getTextSize() / 3, label);
+            c.drawText("Page " + (i + 1), r.centerX(), r.top + label.getTextSize() * 1.2f, label);
             fill.setColor(col);
             fill.setAlpha(255);
             c.drawRect(r.right - handle / 2, r.bottom - handle / 2, r.right, r.bottom, fill);   // the resize corner
@@ -79,25 +106,27 @@ final class MiniLayoutEditor extends View {
         float x = e.getX(), y = e.getY();
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
-                active = -1;
-                for (int i = pages - 1; i >= 0; i--) {   // the one in front first
+                dragging = false;
+                for (int k = pages - 1; k >= 0; k--) {   // the one in front first
+                    int i = order[k];
                     RectF r = px(i);
                     if (!r.contains(x, y) && !(Math.abs(x - r.right) < handle && Math.abs(y - r.bottom) < handle)) continue;
-                    active = i;
+                    selected = i;
                     resizing = x > r.right - handle && y > r.bottom - handle;
+                    dragging = true;
                     break;
                 }
                 lastX = x;
                 lastY = y;
                 invalidate();
-                getParent().requestDisallowInterceptTouchEvent(true);
-                return true;
+                if (dragging) getParent().requestDisallowInterceptTouchEvent(true);
+                return dragging;
             case MotionEvent.ACTION_MOVE: {
-                if (active < 0 || getWidth() == 0) return true;
+                if (!dragging || selected < 0 || getWidth() == 0) return true;
                 float dx = (x - lastX) / getWidth(), dy = (y - lastY) / getHeight();
                 lastX = x;
                 lastY = y;
-                float[] r = rects[active].clone();
+                float[] r = rects[selected].clone();
                 if (resizing) {
                     r[2] += dx;
                     r[3] += dy;
@@ -105,14 +134,14 @@ final class MiniLayoutEditor extends View {
                     r[0] += dx;
                     r[1] += dy;
                 }
-                rects[active] = MiniLayout.clamp(r);
+                rects[selected] = MiniLayout.clamp(r);
                 invalidate();
+                onChange.changed(rects, order);
                 return true;
             }
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
-                if (active >= 0) onChange.changed(rects);
-                active = -1;
+                dragging = false;
                 invalidate();
                 return true;
             default:

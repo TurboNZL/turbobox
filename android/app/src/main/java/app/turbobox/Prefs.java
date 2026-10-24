@@ -49,23 +49,15 @@ final class Prefs {
     static void setPipLayout(Context c, int v) { ps(c).edit().putInt("pipLayout", v).apply(); }
 
     /** Your own arrangement of the Mini window (see MiniLayout), "" = the default. */
-    /** How many pages the own Mini layout is drawn for (0 = any number, as arranged in Settings). */
-    static int miniOwnCount(Context c) { return ps(c).getInt("miniOwnCount", 0); }
-    static void setMiniOwnCount(Context c, int v) { ps(c).edit().putInt("miniOwnCount", v).apply(); }
-    static String miniRects(Context c) { return ps(c).getString("miniRects", ""); }
-    static void setMiniRects(Context c, String v) { ps(c).edit().putString("miniRects", v).apply(); }
     /** The Mini window's shape in your own arrangement: index into MiniLayout.SHAPES. */
     static int miniShape(Context c) { return ps(c).getInt("miniShape", 0); }
     static void setMiniShape(Context c, int v) { ps(c).edit().putInt("miniShape", v).apply(); }
-    /** The in-app split view: false = the grid with draggable dividers, true = your own layout (see MiniLayout). */
-    static boolean splitOwn(Context c) { return ps(c).getBoolean("splitOwn", false); }
-    static void setSplitOwn(Context c, boolean v) { ps(c).edit().putBoolean("splitOwn", v).apply(); }
-    /** How many pages the own split layout is drawn for (0 = any number, as arranged in Settings). */
-    static int splitOwnCount(Context c) { return ps(c).getInt("splitOwnCount", 0); }
-    static void setSplitOwnCount(Context c, int v) { ps(c).edit().putInt("splitOwnCount", v).apply(); }
-    static String splitRects(Context c) { return ps(c).getString("splitRects", ""); }
-    static void setSplitRects(Context c, String v) { ps(c).edit().putString("splitRects", v).apply(); }
-    /** Where the dividers of a split arrangement were left (see SplitGrid); the key names the arrangement. */
+    /** How a new split starts: 0 = the layout last used with this many pages, 1 = stacked, 2 = grid (two across, then down). Nothing applies by itself. */
+    static int splitDefault(Context c) { return ps(c).getInt("splitDefault", 0); }
+    static void setSplitDefault(Context c, int v) { ps(c).edit().putInt("splitDefault", v).apply(); }
+    /** The arrangement last used with {@code pages} pages (MiniLayout.pack), for the full screen or the Mini window; "" = none yet. */
+    static String lastArrangement(Context c, boolean mini, int pages) { return ps(c).getString((mini ? "lastMini_" : "lastFull_") + pages, ""); }
+    static void setLastArrangement(Context c, boolean mini, int pages, String v) { ps(c).edit().putString((mini ? "lastMini_" : "lastFull_") + pages, v).apply(); }
     static String splitLayout(Context c, String key) { return ps(c).getString("split_" + key, null); }
     static void setSplitLayout(Context c, String key, String v) { ps(c).edit().putString("split_" + key, v).apply(); }
     static void clearSplitLayouts(Context c) {

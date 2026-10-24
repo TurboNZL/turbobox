@@ -1116,7 +1116,9 @@
     post('info', {
       ua: navigator.userAgent, platform: navigator.platform, width: window.innerWidth, dpr: window.devicePixelRatio,
       viewport: vp ? vp.content : null, uaMobile: uad ? uad.mobile : null, host: location.host,
-      mediaDevices: !!md, calls: livePcs().length, audio: audioReport()
+      mediaDevices: !!md, calls: livePcs().length, audio: audioReport(),
+      zoom: cfg.zoom, viewW: cfg.viewW, innerH: window.innerHeight,
+      vvScale: window.visualViewport ? +window.visualViewport.scale.toFixed(3) : null
     });
   };
   T.state = function () {

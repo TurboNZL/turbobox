@@ -1251,6 +1251,8 @@ final class Session {
                             + "\nplatform: " + o.optString("platform")
                             + "\nlayout width: " + o.optInt("width") + " px (pixel ratio " + o.optString("dpr") + ")"
                             + "\nviewport: " + o.optString("viewport")
+                            + "\nzoom " + o.optString("zoom") + ", asked layout area " + o.optInt("viewW") + " px wide, page height " + o.optInt("innerH")
+                            + " px, page scale " + o.optString("vvScale")
                             + "\nmicrophone: " + (micKey.isEmpty() ? "page default" : "native input, " + micKey)
                             + "\nclient hint mobile: " + o.optString("uaMobile")
                             + "\npage: " + o.optString("host")

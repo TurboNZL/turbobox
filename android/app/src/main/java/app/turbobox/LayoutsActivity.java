@@ -2,24 +2,21 @@ package app.turbobox;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.app.Dialog;
 import android.content.Intent;
 import android.os.Bundle;
 import android.text.InputType;
-import android.util.DisplayMetrics;
-import android.view.ViewGroup;
 import android.widget.EditText;
-import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 
-/** The saved split layouts of two to four pages: apply one (it opens its pages and arranges them), edit it, delete it. */
+/**
+ * Saved layouts of two to four pages, and every setting about how pages are arranged. A layout is made live on the pages
+ * themselves (Layout > Arrange on the session screen) and is not tied to any page; here you use, rename, arrange again or delete it.
+ */
 public class LayoutsActivity extends Activity {
     private LinearLayout body;
 
@@ -41,84 +38,102 @@ public class LayoutsActivity extends Activity {
 
     private void render() {
         body.removeAllViews();
-        body.addView(Ui.hint(this, "A layout puts two, three or four of your pinned pages on the screen together, each where you drew it. "
-                + "Apply opens the pages that are not running yet and splits the screen the way the layout says."));
+        body.addView(Ui.hint(this, "A layout is where two, three or four pages sit on the screen. You make it on the pages themselves: open them, "
+                + "turn Split on and choose Layout > Arrange. Drag each page's frame, bring one in front of another, then Save as layout. "
+                + "A layout is not tied to any page; it is used on whichever pages are in the split, and only when you choose it."));
         renderSettings();
-        TextView add = Ui.pill(this, "New layout", Ui.GREEN);
-        add.setOnClickListener(v -> edit(SavedLayout.create(), true));
-        body.addView(add, Ui.lp(this, 12, 8));
+
+        body.addView(Ui.label(this, "Make one"), Ui.lp(this, 18, 8));
+        LinearLayout make = new LinearLayout(this);
+        TextView full = Ui.pill(this, "Arrange the split", Ui.GREEN);
+        full.setOnClickListener(v -> arrange(false, null, false));
+        make.addView(full, Ui.weight(this, 0));
+        TextView mini = Ui.pill(this, "Arrange the Mini window", 0);
+        mini.setOnClickListener(v -> arrange(true, null, false));
+        make.addView(mini, Ui.weight(this, 8));
+        body.addView(make);
+
+        body.addView(Ui.label(this, "Saved layouts"), Ui.lp(this, 18, 8));
         List<SavedLayout> list = LayoutStore.load(this);
-        if (list.isEmpty()) body.addView(Ui.hint(this, "No layouts yet."), Ui.lp(this, 12, 0));
+        if (list.isEmpty()) body.addView(Ui.hint(this, "No layouts yet."), Ui.lp(this, 4, 0));
         for (SavedLayout l : list) body.addView(card(l), Ui.lp(this, 10, 0));
     }
 
-    /** How split and the Mini window behave: every layout option lives here, none in the app's Settings. */
+    /** Opens the session screen with the pages that are running; the layout is made or changed there, on the live pages. */
+    private void arrange(boolean mini, SavedLayout l, boolean edit) {
+        int open = Sessions.active().size();
+        if (open < (l != null ? l.count : 2)) {
+            Toast.makeText(this, "Open " + (l != null ? l.count : 2) + " pages first (tap them on the home screen).", Toast.LENGTH_LONG).show();
+            return;
+        }
+        Intent i = new Intent(this, SessionActivity.class).setAction(SessionActivity.ACTION_APPLY_LAYOUT);
+        if (l != null) i.putExtra(SessionActivity.EXTRA_LAYOUT, l.id).putExtra(SessionActivity.EXTRA_EDIT, edit);
+        else i.putExtra(SessionActivity.EXTRA_ARRANGE, true).putExtra(SessionActivity.EXTRA_MINI, mini);
+        startActivity(i);
+    }
+
+    /** How a new split and the Mini window start. Nothing here (or anywhere) applies a layout by itself. */
     private void renderSettings() {
         LinearLayout card = Ui.card(this);
-        card.addView(Ui.text(this, "Split and Mini window", 17f, Ui.TEXT, "sans-serif-medium"));
+        card.addView(Ui.text(this, "How things start", 17f, Ui.TEXT, "sans-serif-medium"));
+        String[] splitChoices = {"The layout last used with this many pages", "Stacked", "Grid (left to right, then down)"};
+        card.addView(choiceRow("A new split starts as", splitChoices[Math.max(0, Math.min(2, Prefs.splitDefault(this)))], () ->
+                new AlertDialog.Builder(this).setTitle("A new split starts as")
+                        .setSingleChoiceItems(splitChoices, Prefs.splitDefault(this), (d, which) -> {
+                            Prefs.setSplitDefault(this, which);
+                            d.dismiss();
+                            render();
+                        }).show()));
+        card.addView(Ui.hint(this, "\"Last used\" is the arrangement you finished with Arrange or applied last for that number of pages; "
+                + "until there is one, it is the grid."), Ui.lp(this, 0, 4));
+        String[] items = {pipLayoutText(0), pipLayoutText(1), pipLayoutText(2), pipLayoutText(3)};
+        card.addView(choiceRow("The Mini window starts as", pipLayoutText(Prefs.pipLayout(this)), () ->
+                new AlertDialog.Builder(this).setTitle("The Mini window starts as")
+                        .setSingleChoiceItems(items, Prefs.pipLayout(this), (d, which) -> {
+                            Prefs.setPipLayout(this, which);
+                            d.dismiss();
+                            render();
+                        }).show()));
+        card.addView(Ui.hint(this, "With Split on, the Mini window shows the pages you chose to split. Without Split it shows the page in front."), Ui.lp(this, 0, 4));
         Switch reclaim = new Switch(this);
         reclaim.setText("Let other pages use the empty space");
         reclaim.setTextColor(Ui.TEXT);
         reclaim.setChecked(Prefs.reclaimEmpty(this));
         reclaim.setOnCheckedChangeListener((b, on) -> Prefs.setReclaimEmpty(this, on));
         card.addView(reclaim, Ui.lp(this, 8, 2));
-        card.addView(Ui.hint(this, "When a page in a split is held to a shape (a forced aspect ratio, or a video in full screen), it takes "
+        card.addView(Ui.hint(this, "In the stacked and grid starts: a page held to a shape (a forced aspect ratio, or a video in full screen) takes "
                 + "only the room that shape needs and the other pages grow into the rest, instead of black bars."), Ui.lp(this, 0, 4));
-        Switch own = new Switch(this);
-        own.setText("Split uses the layout last applied");
-        own.setTextColor(Ui.TEXT);
-        own.setChecked(Prefs.splitOwn(this));
-        own.setOnCheckedChangeListener((b, on) -> Prefs.setSplitOwn(this, on));
-        card.addView(own, Ui.lp(this, 8, 2));
-        card.addView(Ui.hint(this, "Off: Split uses the grid with dividers you can drag. On: it places each page where the layout you applied last puts it."), Ui.lp(this, 0, 4));
-        TextView resetSplit = Ui.pill(this, "Reset split dividers", 0);
-        resetSplit.setOnClickListener(v -> {
-            Prefs.clearSplitLayouts(this);
-            Toast.makeText(this, "Dividers back in the middle", Toast.LENGTH_SHORT).show();
-        });
-        card.addView(resetSplit, Ui.lp(this, 4, 8));
-        String[] items = {pipLayoutText(0), pipLayoutText(1), pipLayoutText(2), pipLayoutText(3)};
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.addView(Ui.text(this, "Mini window while Split is on", 16f, Ui.TEXT, "sans-serif-medium"));
-        row.addView(Ui.text(this, pipLayoutText(Prefs.pipLayout(this)) + "  ›", 15f, Ui.GREEN, "sans-serif-medium"), Ui.lp(this, 2, 0));
-        row.setClickable(true);
-        row.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("Mini window while Split is on")
-                .setSingleChoiceItems(items, Prefs.pipLayout(this), (d, which) -> {
-                    Prefs.setPipLayout(this, which);
-                    d.dismiss();
-                    render();
-                }).show());
-        card.addView(row, Ui.lp(this, 4, 0));
-        card.addView(Ui.hint(this, "With Split on, the Mini window shows the pages you chose to split. Without Split it shows the page in front. "
-                + "\"Your own layout\" is the Mini window layout you applied last."), Ui.lp(this, 2, 0));
         body.addView(card, Ui.lp(this, 12, 0));
     }
 
-    static String pipLayoutText(int v) {
-        return v == 1 ? "Side by side" : v == 2 ? "Stacked" : v == 3 ? "Your own layout (a Mini window layout)" : "Like the split view";
+    private LinearLayout choiceRow(String label, String value, Runnable onTap) {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.VERTICAL);
+        r.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 4));
+        r.addView(Ui.text(this, label, 16f, Ui.TEXT, "sans-serif-medium"));
+        r.addView(Ui.text(this, value + "  ›", 15f, Ui.GREEN, "sans-serif-medium"), Ui.lp(this, 2, 0));
+        r.setClickable(true);
+        r.setOnClickListener(v -> onTap.run());
+        return r;
     }
 
-    private String pageText(SavedLayout l) {
-        List<String> names = new ArrayList<>();
-        for (String id : l.pinIds) {
-            Pin p = PinStore.find(this, id);
-            if (p != null) names.add(p.name);
-        }
-        return names.isEmpty() ? l.count + " pages, whichever are open" : String.join(", ", names);
+    static String pipLayoutText(int v) {
+        return v == 1 ? "Side by side" : v == 2 ? "Stacked" : v == 3 ? "The Mini layout last used with this many pages" : "Like the split view";
     }
 
     private LinearLayout card(SavedLayout l) {
         LinearLayout c = Ui.card(this);
-        c.addView(Ui.text(this, (l.name.isEmpty() ? "(no name)" : l.name) + (l.mini ? "  ·  Mini window" : ""), 17f, Ui.TEXT, "sans-serif-medium"));
-        c.addView(Ui.text(this, pageText(l), 13f, Ui.DIM, "sans-serif"), Ui.lp(this, 3, 0));
+        TextView name = Ui.text(this, l.name.isEmpty() ? "(no name)" : l.name, 17f, Ui.TEXT, "sans-serif-medium");
+        name.setOnClickListener(v -> rename(l));
+        c.addView(name);
+        c.addView(Ui.text(this, l.count + " pages  -  " + (l.mini ? "Mini window" : "full screen split") + "  -  tap the name to rename",
+                13f, Ui.DIM, "sans-serif"), Ui.lp(this, 3, 0));
         LinearLayout row = new LinearLayout(this);
-        TextView apply = Ui.pill(this, "Apply", Ui.GREEN);
-        apply.setOnClickListener(v -> startActivity(new Intent(this, SessionActivity.class)
-                .setAction(SessionActivity.ACTION_APPLY_LAYOUT).putExtra(SessionActivity.EXTRA_LAYOUT, l.id)));
-        row.addView(apply, Ui.weight(this, 0));
-        TextView edit = Ui.pill(this, "Edit", 0);
-        edit.setOnClickListener(v -> edit(l, false));
+        TextView use = Ui.pill(this, "Use", Ui.GREEN);
+        use.setOnClickListener(v -> arrange(l.mini, l, false));
+        row.addView(use, Ui.weight(this, 0));
+        TextView edit = Ui.pill(this, "Edit live", 0);
+        edit.setOnClickListener(v -> arrange(l.mini, l, true));
         row.addView(edit, Ui.weight(this, 8));
         TextView del = Ui.pill(this, "Delete", Ui.RED);
         del.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("Delete " + (l.name.isEmpty() ? "this layout" : l.name) + "?")
@@ -131,145 +146,18 @@ public class LayoutsActivity extends Activity {
         return c;
     }
 
-    /** Full-screen editor: name, how many pages, which pages, and where each goes. */
-    private void edit(SavedLayout l, boolean isNew) {
-        Dialog d = new Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
-        // The title and the Save / Cancel buttons stay put; everything between them scrolls, so a small screen never clips the editor.
-        LinearLayout outer = new LinearLayout(this);
-        outer.setOrientation(LinearLayout.VERTICAL);
-        outer.setBackgroundColor(Ui.BG);
-        outer.setPadding(Ui.dp(this, 16), Ui.dp(this, 24), Ui.dp(this, 16), Ui.dp(this, 16));
-        outer.addView(Ui.text(this, isNew ? "New layout" : "Edit layout", 20f, Ui.TEXT, "semibold"), Ui.lp(this, 0, 8));
-        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        scroll.addView(col, new ViewGroup.LayoutParams(-1, -2));
-        outer.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
+    private void rename(SavedLayout l) {
         EditText name = new EditText(this);
-        name.setHint("Name");
         name.setSingleLine(true);
         name.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         name.setText(l.name);
-        name.setTextColor(Ui.TEXT);
-        col.addView(name);
-
-        // Rectangles for all four slots; only the first l.count are used.
-        float[][] all = MiniLayout.splitDefaults();
-        float[][] mine = l.rectangles();
-        for (int i = 0; i < mine.length; i++) all[i] = mine[i];
-        float[][][] current = {all};
-
-        LinearLayout counts = new LinearLayout(this);
-        TextView[] countButtons = new TextView[SavedLayout.MAX_PAGES + 1];
-        FrameLayout holder = new FrameLayout(this);
-        TextView pages = Ui.pill(this, "", 0);
-        Runnable[] place = new Runnable[1];
-
-
-        col.addView(Ui.label(this, "Used for"), Ui.lp(this, 12, 4));
-        LinearLayout where = new LinearLayout(this);
-        TextView full = Ui.pill(this, "Full screen", 0);
-        TextView mini = Ui.pill(this, "Mini window", 0);
-        TextView shapeButton = Ui.pill(this, "", 0);
-        where.addView(full, Ui.weight(this, 0));
-        where.addView(mini, Ui.weight(this, 8));
-        col.addView(where);
-        shapeButton.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("Window shape")
-                .setSingleChoiceItems(MiniLayout.SHAPE_LABELS, l.shape, (dd, which) -> {
-                    l.shape = which;
-                    dd.dismiss();
-                    place[0].run();
-                }).show());
-        col.addView(shapeButton, Ui.lp(this, 8, 0));
-        full.setOnClickListener(v -> {
-            l.mini = false;
-            place[0].run();
-        });
-        mini.setOnClickListener(v -> {
-            l.mini = true;
-            place[0].run();
-        });
-        col.addView(Ui.label(this, "Pages"), Ui.lp(this, 12, 4));
-        for (int n = SavedLayout.MIN_PAGES; n <= SavedLayout.MAX_PAGES; n++) {
-            final int count = n;
-            TextView b = Ui.pill(this, n + " pages", 0);
-            b.setOnClickListener(v -> {
-                if (count == l.count) return;
-                float[][] preset = SavedLayout.presets(count);
-                float[][] next = MiniLayout.splitDefaults();
-                for (int i = 0; i < preset.length; i++) next[i] = preset[i];
-                current[0] = next;   // a different number of pages starts from that number's arrangement
-                l.count = count;
-                while (l.pinIds.size() > count) l.pinIds.remove(l.pinIds.size() - 1);
-                place[0].run();
-            });
-            countButtons[n] = b;
-            counts.addView(b, Ui.weight(this, n == SavedLayout.MIN_PAGES ? 0 : 8));
-        }
-        col.addView(counts);
-
-        pages.setOnClickListener(v -> {
-            List<Pin> pins = new ArrayList<>();
-            for (Pin p : PinStore.load(this)) if (!Profiles.isLocked(this, p.profileId)) pins.add(p);
-            if (pins.isEmpty()) {
-                Toast.makeText(this, "Pin a page on the home screen first.", Toast.LENGTH_LONG).show();
-                return;
-            }
-            PinGrid.pick(this, "Pages for this layout", pins, new LinkedHashSet<>(l.pinIds), true, chosen -> {
-                l.pinIds.clear();
-                for (Pin p : pins) if (chosen.contains(p.id) && l.pinIds.size() < l.count) l.pinIds.add(p.id);   // the home screen's order
-                place[0].run();
-            });
-        });
-        col.addView(pages, Ui.lp(this, 10, 0));
-        col.addView(Ui.hint(this, "Page 1 is the first one chosen (home screen order). With none chosen the layout uses whichever pages are open. "
-                + "Drag a page to move it, drag its corner to resize it; page 4 is in front. A Mini window layout only changes the picture in picture window, so you can have one of each at once."), Ui.lp(this, 8, 8));
-        col.addView(holder, new LinearLayout.LayoutParams(-1, -2));
-
-        TextView save = Ui.pill(this, "Save", Ui.GREEN);
-        save.setOnClickListener(v -> {
-            String n = name.getText().toString().trim();
-            if (n.isEmpty()) {
-                name.setError("Give it a name");
-                return;
-            }
-            l.name = n;
-            float[][] used = new float[l.count][];
-            System.arraycopy(current[0], 0, used, 0, l.count);
-            l.rects = MiniLayout.encode(used);
-            LayoutStore.put(this, l);
-            d.dismiss();
-            render();
-        });
-        outer.addView(save, Ui.lp(this, 8, 0));
-        TextView cancel = Ui.pill(this, "Cancel", 0);
-        cancel.setOnClickListener(v -> d.dismiss());
-        outer.addView(cancel, Ui.lp(this, 8, 0));
-        place[0] = () -> {
-            for (int n = SavedLayout.MIN_PAGES; n <= SavedLayout.MAX_PAGES; n++) Ui.tint(this, countButtons[n], n == l.count ? Ui.GREEN : 0);
-            pages.setText(pageButtonText(l));
-            Ui.tint(this, full, l.mini ? 0 : Ui.GREEN);
-            Ui.tint(this, mini, l.mini ? Ui.GREEN : 0);
-            shapeButton.setVisibility(l.mini ? android.view.View.VISIBLE : android.view.View.GONE);
-            shapeButton.setText("Window shape: " + MiniLayout.SHAPE_LABELS[l.shape] + "  ›");
-            DisplayMetrics dm = getResources().getDisplayMetrics();
-            int[] sh = l.mini ? MiniLayout.shape(l.shape) : new int[]{dm.widthPixels, Math.round(dm.heightPixels * 0.8f)};
-            int maxW = dm.widthPixels - Ui.dp(this, 32);
-            int maxH = Math.round(dm.heightPixels * 0.4f);
-            int w = Math.min(maxW, Math.round(maxH * sh[0] / (float) sh[1]));
-            int h = Math.round(w * sh[1] / (float) sh[0]);
-            holder.removeAllViews();
-            holder.setMinimumHeight(h + Ui.dp(this, 8));
-            MiniLayoutEditor ed = new MiniLayoutEditor(this, rects -> current[0] = rects);
-            ed.set(current[0], l.count);
-            holder.addView(ed, new FrameLayout.LayoutParams(w, h, android.view.Gravity.CENTER));
-        };
-        d.setContentView(outer, new ViewGroup.LayoutParams(-1, -1));
-        d.show();
-        place[0].run();
-    }
-
-    private String pageButtonText(SavedLayout l) {
-        return pageText(l) + "  ›";
+        new AlertDialog.Builder(this).setTitle("Rename layout").setView(name)
+                .setPositiveButton("Save", (d, w) -> {
+                    String n = name.getText().toString().trim();
+                    if (n.isEmpty()) return;
+                    l.name = n;
+                    LayoutStore.put(this, l);
+                    render();
+                }).setNegativeButton("Cancel", null).show();
     }
 }

@@ -1,17 +1,13 @@
 package app.turbobox;
 
-import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 
 /**
- * A named arrangement of two to four pages for the split view, applied from the home screen like a workflow is run:
- * the pages it names are opened (if they are not already) and share the screen the way the layout places them.
- * No Android classes besides org.json, which the unit tests have.
+ * A named arrangement of two to four pages, made live on the pages themselves and kept to use again. It is not tied to any
+ * page: applying it puts whichever pages are in the split into its places, page 1 first. No Android classes besides org.json.
  */
 final class SavedLayout {
     static final int MIN_PAGES = 2;
@@ -23,7 +19,7 @@ final class SavedLayout {
     boolean mini;                               // for the Mini (picture in picture) window instead of the full-screen split
     int shape;                                  // a Mini layout's window shape: index into MiniLayout.SHAPES
     String rects = "";                          // MiniLayout.encode of the first {@link #count} rectangles; "" = the preset
-    final List<String> pinIds = new ArrayList<>();   // page k of the layout; empty = whichever pages are open
+    String z = "";                              // MiniLayout.encodeOrder: pages back to front; "" = page 1 at the back
 
     static SavedLayout create() {
         SavedLayout l = new SavedLayout();
@@ -46,6 +42,10 @@ final class SavedLayout {
         return out;
     }
 
+    int[] order() {
+        return MiniLayout.decodeOrder(z, count);
+    }
+
     /** A sensible start for each number of pages. */
     static float[][] presets(int pages) {
         switch (Math.max(MIN_PAGES, Math.min(MAX_PAGES, pages))) {
@@ -58,7 +58,7 @@ final class SavedLayout {
     JSONObject toJson() {
         JSONObject o = new JSONObject();
         try {
-            o.put("id", id).put("name", name).put("count", count).put("mini", mini).put("shape", shape).put("rects", rects).put("pins", new JSONArray(pinIds));
+            o.put("id", id).put("name", name).put("count", count).put("mini", mini).put("shape", shape).put("rects", rects).put("z", z);
         } catch (JSONException ignored) {
             // Plain values cannot fail.
         }
@@ -73,8 +73,7 @@ final class SavedLayout {
         l.mini = o.optBoolean("mini", false);
         l.shape = Math.max(0, Math.min(MiniLayout.SHAPES.length - 1, o.optInt("shape", 0)));
         l.rects = o.optString("rects", "");
-        JSONArray a = o.optJSONArray("pins");
-        if (a != null) for (int i = 0; i < a.length() && l.pinIds.size() < l.count; i++) l.pinIds.add(a.optString(i));
+        l.z = o.optString("z", "");
         return l;
     }
 }
