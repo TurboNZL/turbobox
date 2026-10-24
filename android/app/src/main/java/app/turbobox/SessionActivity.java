@@ -87,6 +87,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     private final java.util.Set<Integer> splitSet = new java.util.TreeSet<>();   // the slots shown together while Split is on (up to four)
     private List<Integer> splitOrder;   // page order set by an applied layout; null = the order of the tabs
     private boolean inPip;
+    private float paneAspect;   // width / height of the pages' area on screen when not in the Mini window
     private SessionSheet sheet;
     private final PopupWindow[] freezePopups = new PopupWindow[Sessions.COUNT];
     private final Bitmap[] frozenPictures = new Bitmap[Sessions.COUNT];
@@ -376,6 +377,12 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (pages.size() >= 2 && pipMode(pages.size()) == SplitLayout.OVERLAY) {
             shape = MiniLayout.shape(Prefs.miniShape(this));   // your own arrangement has the shape you chose
         }
+        if (pages.size() == 1) {
+            // One page: the window has the shape the page is forced to (its own for the Mini window, else the normal one), and
+            // when it is not forced, the shape its area has on screen now, so nothing is squeezed into 16:9 by surprise.
+            float forced = Pin.ASPECTS[pages.get(0).effectiveAspect(true)];
+            shape = SplitLayout.shapeOfRatio(forced > 0 ? forced : paneAspect > 0 ? paneAspect : 9f / 16f);
+        }
         PictureInPictureParams.Builder b = new PictureInPictureParams.Builder().setAspectRatio(new Rational(shape[0], shape[1]));
         // The mic button works for any page: it is the same mute as the notification's (for a page that is not using the
         // microphone it simply keeps it from being sent when one is asked for).
@@ -468,7 +475,7 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     /** Which layout the Mini window should have, asked from the Mini button's long press. */
     private void choosePipLayout() {
-        String[] items = {"Like the split view", "Side by side", "Stacked", "Your own layout (set in Settings)"};
+        String[] items = {"Like the split view", "Side by side", "Stacked", "Your own layout (a Mini window layout)"};
         new AlertDialog.Builder(this).setTitle("Mini window while Split is on")
                 .setSingleChoiceItems(items, Prefs.pipLayout(this), (d, which) -> {
                     Prefs.setPipLayout(this, which);
@@ -488,6 +495,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     public void onPictureInPictureModeChanged(boolean in, Configuration config) {
         super.onPictureInPictureModeChanged(in, config);
         inPip = in;
+        for (Session s : Sessions.active()) s.setMiniMode(in);   // each page takes the zoom and shape set for that mode
         chromeBox.setVisibility(in ? View.GONE : View.VISIBLE);
         rebuild();
         // The window is still changing size while this runs; a page (or a full-screen video) that was measured against the old
@@ -611,6 +619,14 @@ public class SessionActivity extends Activity implements Session.Listener {
 
         root.addView(chromeBox, new LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT));
         paneHolder = new LinearLayout(this);
+        paneHolder.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (inPip || r - l < 50 || b - t < 50) return;
+            float now = (r - l) / (float) (b - t);
+            if (Math.abs(now - paneAspect) > 0.01f) {
+                paneAspect = now;
+                updatePip();   // the window is made in this shape if it has to be made from the Home gesture
+            }
+        });
         for (int i = 0; i < Sessions.COUNT; i++) {
             panes[i] = new FrameLayout(this);
             boxes[i] = new AspectFrame(this);
@@ -727,7 +743,7 @@ public class SessionActivity extends Activity implements Session.Listener {
                     if (wv.getParent() instanceof ViewGroup) ((ViewGroup) wv.getParent()).removeView(wv);
                     boxes[i].addView(wv, new FrameLayout.LayoutParams(-1, -1));
                 }
-                boxes[i].setRatio(Pin.ASPECTS[s.aspect()]);
+                boxes[i].setRatio(Pin.ASPECTS[s.effectiveAspect()]);
             } else if (wv != null && wv.getParent() == boxes[i]) {
                 boxes[i].removeView(wv);
             }
@@ -802,7 +818,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     /** The shape a page is held to: its forced aspect ratio, or the video that is full screen in it. 0 = free. */
     private static float shapeOf(Session s) {
         float full = s.fullscreenRatio();
-        return full > 0 ? full : Pin.ASPECTS[s.aspect()];
+        return full > 0 ? full : Pin.ASPECTS[s.effectiveAspect()];
     }
 
     /** Tells the split which panes are held to a shape (so the rest can use what they leave empty). */
@@ -1273,7 +1289,7 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     @Override
     public void onAspect(Session s) {
-        boxes[s.slot].setRatio(Pin.ASPECTS[s.aspect()]);
+        boxes[s.slot].setRatio(Pin.ASPECTS[s.effectiveAspect()]);
         updateRatios();
         updateFreeze();
         updatePip();

@@ -131,6 +131,9 @@ final class Session {
     private boolean micAllowed = true;    // privacy: the page may use the microphone
     private boolean cameraAllowed;        // privacy: the page may use the camera
     private int viewCssWidth;         // the page's own area in CSS pixels, so a small window lays out right
+    private float zoomMini;           // zoom while the Mini window is showing, 0 = as the normal one
+    private int aspectMini = -1;      // shape while the Mini window is showing, -1 = as the normal one
+    private boolean miniMode;         // the Mini (picture in picture) window is showing
     private int aspect;               // forced shape of the page's area, an index into Pin.ASPECTS (0 = fill)
     private boolean mediaPlaying;      // the page says something is playing
     private boolean locked;           // page lock: the screen covers this page until it is unlocked
@@ -211,6 +214,57 @@ final class Session {
 
     int aspect() {
         return aspect;
+    }
+
+    float zoomMini() {
+        return zoomMini;
+    }
+
+    int aspectMini() {
+        return aspectMini;
+    }
+
+    /** The zoom in force right now (the Mini window can have its own). */
+    float effectiveZoom() {
+        return miniMode && zoomMini > 0 ? zoomMini : zoom;
+    }
+
+    /** The forced shape in force right now (an index into Pin.ASPECTS; the Mini window can have its own). */
+    int effectiveAspect() {
+        return effectiveAspect(miniMode);
+    }
+
+    int effectiveAspect(boolean mini) {
+        return mini && aspectMini >= 0 ? aspectMini : aspect;
+    }
+
+    /** The Mini window opened or closed: the page takes that mode's zoom and shape. */
+    void setMiniMode(boolean on) {
+        if (miniMode == on) return;
+        float before = effectiveZoom();
+        miniMode = on;
+        if (Math.abs(before - effectiveZoom()) > 0.001f) js(String.format(Locale.US, "__turbobox.setZoom(%.3f)", effectiveZoom()));
+        for (Listener l : listeners) l.onAspect(this);
+    }
+
+    /** The Mini window's own shape (-1 = same as normal); kept with the pin. */
+    void setAspectMini(int index) {
+        aspectMini = Math.max(-1, Math.min(Pin.ASPECTS.length - 1, index));
+        if (pin != null) {
+            pin.aspectMini = aspectMini;
+            PinStore.put(app, pin);
+        }
+        for (Listener l : listeners) l.onAspect(this);
+    }
+
+    /** The Mini window's own zoom (0 = same as normal); kept with the pin. */
+    void setZoomMini(float value) {
+        zoomMini = value <= 0 ? 0f : Math.max(0.5f, Math.min(3f, value));
+        if (pin != null) {
+            pin.zoomMini = zoomMini;
+            PinStore.put(app, pin);
+        }
+        if (miniMode) js(String.format(Locale.US, "__turbobox.setZoom(%.3f)", effectiveZoom()));
     }
 
     int openedSeq() {
@@ -536,7 +590,7 @@ final class Session {
     /** Page zoom, 0.5..3: lays the page out again at 1280 / zoom CSS pixels wide (not a magnifier). */
     void setZoom(float value) {
         zoom = Math.max(0.5f, Math.min(3f, value));
-        js(String.format(Locale.US, "__turbobox.setZoom(%.3f)", zoom));
+        if (!miniMode || zoomMini <= 0) js(String.format(Locale.US, "__turbobox.setZoom(%.3f)", zoom));
     }
 
     /**
@@ -721,6 +775,8 @@ final class Session {
         micGain = Prefs.micGain(app);
         zoom = page.zoom;
         aspect = page.aspect;
+        zoomMini = page.zoomMini;
+        aspectMini = page.aspectMini;
         openedSeq = ++seqCounter;
         locked = false;
         boolean modeChanged = mobile != page.mobile;
@@ -1137,7 +1193,7 @@ final class Session {
     private String pageScript() {
         try {
             JSONObject settings = new JSONObject()
-                    .put("muted", silenced()).put("volume", volume).put("aec", aec).put("zoom", zoom)
+                    .put("muted", silenced()).put("volume", volume).put("aec", aec).put("zoom", effectiveZoom())
                     .put("micGain", micGain).put("virtual", !micKey.isEmpty()).put("micLabel", micLabel())
                     .put("tap", isRecording()).put("micAllowed", micAllowed).put("cameraAllowed", cameraAllowed).put("localMute", frozen)
                     .put("keepVisible", Prefs.keepPlaying(app)).put("desktop", !mobile);

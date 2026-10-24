@@ -23,6 +23,8 @@ final class Pin {
     boolean wipeOnClose;          // incognito only: delete its cookies and data when it closes (otherwise the separate profile is kept for next time)
     boolean incognito;            // its own cookies and storage, thrown away when it closes
     boolean mobile;               // ask sites for their phone layout instead of the desktop one (desktop is the default)
+    float zoomMini;               // zoom in the Mini window; 0 = the same as the normal one
+    int aspectMini = -1;          // forced shape in the Mini window: -1 = the same as the normal one, else an index into ASPECTS (0 = fill)
     int aspect;                   // forced shape of the page's area: index into ASPECTS, 0 = fill the space
 
     /** Shapes a page can be forced into: label, width, height. The first means "no forced shape". */
@@ -43,7 +45,7 @@ final class Pin {
         try {
             return new JSONObject().put("id", id).put("name", name).put("url", url)
                     .put("zoom", zoom).put("volume", volume).put("recordMode", recordMode)
-                    .put("allowMic", allowMic).put("allowCamera", allowCamera).put("aspect", aspect).put("mobile", mobile).put("profile", profileId);
+                    .put("allowMic", allowMic).put("allowCamera", allowCamera).put("aspect", aspect).put("zoomMini", zoomMini).put("aspectMini", aspectMini).put("mobile", mobile).put("profile", profileId);
         } catch (JSONException e) {
             throw new IllegalStateException(e);
         }
@@ -61,6 +63,8 @@ final class Pin {
         p.profileId = o.optString("profile", Profiles.DEFAULT);
         if (p.profileId.isEmpty()) p.profileId = Profiles.DEFAULT;
         p.aspect = Math.max(0, Math.min(ASPECTS.length - 1, o.optInt("aspect", 0)));
+        p.zoomMini = (float) o.optDouble("zoomMini", 0.0);
+        p.aspectMini = Math.max(-1, Math.min(ASPECTS.length - 1, o.optInt("aspectMini", -1)));
         return p;
     }
 
