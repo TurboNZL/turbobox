@@ -20,6 +20,8 @@ final class SavedLayout {
     String id;
     String name = "";
     int count = 2;
+    boolean mini;                               // for the Mini (picture in picture) window instead of the full-screen split
+    int shape;                                  // a Mini layout's window shape: index into MiniLayout.SHAPES
     String rects = "";                          // MiniLayout.encode of the first {@link #count} rectangles; "" = the preset
     final List<String> pinIds = new ArrayList<>();   // page k of the layout; empty = whichever pages are open
 
@@ -56,7 +58,7 @@ final class SavedLayout {
     JSONObject toJson() {
         JSONObject o = new JSONObject();
         try {
-            o.put("id", id).put("name", name).put("count", count).put("rects", rects).put("pins", new JSONArray(pinIds));
+            o.put("id", id).put("name", name).put("count", count).put("mini", mini).put("shape", shape).put("rects", rects).put("pins", new JSONArray(pinIds));
         } catch (JSONException ignored) {
             // Plain values cannot fail.
         }
@@ -68,6 +70,8 @@ final class SavedLayout {
         l.id = o.optString("id", UUID.randomUUID().toString());
         l.name = o.optString("name", "");
         l.count = Math.max(MIN_PAGES, Math.min(MAX_PAGES, o.optInt("count", 2)));
+        l.mini = o.optBoolean("mini", false);
+        l.shape = Math.max(0, Math.min(MiniLayout.SHAPES.length - 1, o.optInt("shape", 0)));
         l.rects = o.optString("rects", "");
         JSONArray a = o.optJSONArray("pins");
         if (a != null) for (int i = 0; i < a.length() && l.pinIds.size() < l.count; i++) l.pinIds.add(a.optString(i));

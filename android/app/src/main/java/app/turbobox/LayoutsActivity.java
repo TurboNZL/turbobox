@@ -61,7 +61,7 @@ public class LayoutsActivity extends Activity {
 
     private LinearLayout card(SavedLayout l) {
         LinearLayout c = Ui.card(this);
-        c.addView(Ui.text(this, l.name.isEmpty() ? "(no name)" : l.name, 17f, Ui.TEXT, "sans-serif-medium"));
+        c.addView(Ui.text(this, (l.name.isEmpty() ? "(no name)" : l.name) + (l.mini ? "  ·  Mini window" : ""), 17f, Ui.TEXT, "sans-serif-medium"));
         c.addView(Ui.text(this, pageText(l), 13f, Ui.DIM, "sans-serif"), Ui.lp(this, 3, 0));
         LinearLayout row = new LinearLayout(this);
         TextView apply = Ui.pill(this, "Apply", Ui.GREEN);
@@ -110,20 +110,30 @@ public class LayoutsActivity extends Activity {
         TextView pages = Ui.pill(this, "", 0);
         Runnable[] place = new Runnable[1];
 
-        place[0] = () -> {
-            for (int n = SavedLayout.MIN_PAGES; n <= SavedLayout.MAX_PAGES; n++) Ui.tint(this, countButtons[n], n == l.count ? Ui.GREEN : 0);
-            pages.setText(pageButtonText(l));
-            DisplayMetrics dm = getResources().getDisplayMetrics();
-            int maxW = dm.widthPixels - Ui.dp(this, 32);
-            int maxH = Math.round(dm.heightPixels * 0.5f);
-            int w = Math.min(maxW, Math.round(maxH * dm.widthPixels / (dm.heightPixels * 0.8f)));
-            int h = Math.round(w * dm.heightPixels * 0.8f / dm.widthPixels);
-            holder.removeAllViews();
-            MiniLayoutEditor ed = new MiniLayoutEditor(this, rects -> current[0] = rects);
-            ed.set(current[0], l.count);
-            holder.addView(ed, new FrameLayout.LayoutParams(w, h, android.view.Gravity.CENTER));
-        };
 
+        col.addView(Ui.label(this, "Used for"), Ui.lp(this, 12, 4));
+        LinearLayout where = new LinearLayout(this);
+        TextView full = Ui.pill(this, "Full screen", 0);
+        TextView mini = Ui.pill(this, "Mini window", 0);
+        TextView shapeButton = Ui.pill(this, "", 0);
+        where.addView(full, Ui.weight(this, 0));
+        where.addView(mini, Ui.weight(this, 8));
+        col.addView(where);
+        shapeButton.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("Window shape")
+                .setSingleChoiceItems(MiniLayout.SHAPE_LABELS, l.shape, (dd, which) -> {
+                    l.shape = which;
+                    dd.dismiss();
+                    place[0].run();
+                }).show());
+        col.addView(shapeButton, Ui.lp(this, 8, 0));
+        full.setOnClickListener(v -> {
+            l.mini = false;
+            place[0].run();
+        });
+        mini.setOnClickListener(v -> {
+            l.mini = true;
+            place[0].run();
+        });
         col.addView(Ui.label(this, "Pages"), Ui.lp(this, 12, 4));
         for (int n = SavedLayout.MIN_PAGES; n <= SavedLayout.MAX_PAGES; n++) {
             final int count = n;
@@ -158,7 +168,7 @@ public class LayoutsActivity extends Activity {
         });
         col.addView(pages, Ui.lp(this, 10, 0));
         col.addView(Ui.hint(this, "Page 1 is the first one chosen (home screen order). With none chosen the layout uses whichever pages are open. "
-                + "Drag a page to move it, drag its corner to resize it; page 4 is in front."), Ui.lp(this, 8, 8));
+                + "Drag a page to move it, drag its corner to resize it; page 4 is in front. A Mini window layout only changes the picture in picture window, so you can have one of each at once."), Ui.lp(this, 8, 8));
         col.addView(holder, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         TextView save = Ui.pill(this, "Save", Ui.GREEN);
@@ -180,6 +190,24 @@ public class LayoutsActivity extends Activity {
         TextView cancel = Ui.pill(this, "Cancel", 0);
         cancel.setOnClickListener(v -> d.dismiss());
         col.addView(cancel, Ui.lp(this, 8, 0));
+        place[0] = () -> {
+            for (int n = SavedLayout.MIN_PAGES; n <= SavedLayout.MAX_PAGES; n++) Ui.tint(this, countButtons[n], n == l.count ? Ui.GREEN : 0);
+            pages.setText(pageButtonText(l));
+            Ui.tint(this, full, l.mini ? 0 : Ui.GREEN);
+            Ui.tint(this, mini, l.mini ? Ui.GREEN : 0);
+            shapeButton.setVisibility(l.mini ? android.view.View.VISIBLE : android.view.View.GONE);
+            shapeButton.setText("Window shape: " + MiniLayout.SHAPE_LABELS[l.shape] + "  ›");
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+            int[] sh = l.mini ? MiniLayout.shape(l.shape) : new int[]{dm.widthPixels, Math.round(dm.heightPixels * 0.8f)};
+            int maxW = dm.widthPixels - Ui.dp(this, 32);
+            int maxH = Math.round(dm.heightPixels * 0.4f);
+            int w = Math.min(maxW, Math.round(maxH * sh[0] / (float) sh[1]));
+            int h = Math.round(w * sh[1] / (float) sh[0]);
+            holder.removeAllViews();
+            MiniLayoutEditor ed = new MiniLayoutEditor(this, rects -> current[0] = rects);
+            ed.set(current[0], l.count);
+            holder.addView(ed, new FrameLayout.LayoutParams(w, h, android.view.Gravity.CENTER));
+        };
         d.setContentView(col, new ViewGroup.LayoutParams(-1, -1));
         d.show();
         place[0].run();

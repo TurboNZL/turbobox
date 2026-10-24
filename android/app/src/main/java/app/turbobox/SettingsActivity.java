@@ -278,7 +278,10 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
             holder.removeAllViews();
             MiniLayoutEditor ed = new MiniLayoutEditor(this, rects -> {
                 current[0] = rects;
-                if (mini) Prefs.setMiniRects(this, MiniLayout.encode(rects));
+                if (mini) {
+                    Prefs.setMiniRects(this, MiniLayout.encode(rects));
+                    Prefs.setMiniOwnCount(this, 0);
+                }
                 else {
                     Prefs.setSplitRects(this, MiniLayout.encode(rects));
                     Prefs.setSplitOwnCount(this, 0);

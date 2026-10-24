@@ -220,6 +220,24 @@ public class SessionActivity extends Activity implements Session.Listener {
         float[][] rects = l.rectangles();
         float[][] used = new float[slots.size()][];
         System.arraycopy(rects, 0, used, 0, used.length);
+        if (l.mini) {
+            // Only the Mini window changes; the full-screen split keeps its own layout. With Split off the pages are put in a
+            // plain split so the Mini window has them to show.
+            Prefs.setMiniRects(this, MiniLayout.encode(used));
+            Prefs.setMiniOwnCount(this, used.length);
+            Prefs.setMiniShape(this, l.shape);
+            Prefs.setPipLayout(this, SplitLayout.OVERLAY);
+            if (!split) {
+                split = true;
+                splitSet.clear();
+                splitSet.addAll(slots);
+                splitOrder = slots;
+                focus = slots.get(0);
+            }
+            Toast.makeText(this, "Used by the Mini window.", Toast.LENGTH_SHORT).show();
+            rebuild();
+            return;
+        }
         Prefs.setSplitRects(this, MiniLayout.encode(used));
         Prefs.setSplitOwnCount(this, used.length);
         Prefs.setSplitOwn(this, true);
@@ -344,11 +362,18 @@ public class SessionActivity extends Activity implements Session.Listener {
         return members();
     }
 
+    /** The Mini layout in effect for this many pages: your own one only when it was drawn for that many (or for any). */
+    private int pipMode(int pages) {
+        int mode = Prefs.pipLayout(this);
+        if (mode == SplitLayout.OVERLAY && Prefs.miniOwnCount(this) != 0 && Prefs.miniOwnCount(this) != pages) return SplitLayout.LIKE_SPLIT;
+        return mode;
+    }
+
     private PictureInPictureParams.Builder pipParams() {
         List<Session> pages = pipPages();
         boolean wide = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
-        int[] shape = SplitLayout.shape(SplitLayout.pipRows(pages.size(), Prefs.pipLayout(this), wide));
-        if (pages.size() >= 2 && Prefs.pipLayout(this) == SplitLayout.OVERLAY) {
+        int[] shape = SplitLayout.shape(SplitLayout.pipRows(pages.size(), pipMode(pages.size()), wide));
+        if (pages.size() >= 2 && pipMode(pages.size()) == SplitLayout.OVERLAY) {
             shape = MiniLayout.shape(Prefs.miniShape(this));   // your own arrangement has the shape you chose
         }
         PictureInPictureParams.Builder b = new PictureInPictureParams.Builder().setAspectRatio(new Rational(shape[0], shape[1]));
@@ -682,10 +707,10 @@ public class SessionActivity extends Activity implements Session.Listener {
         List<Session> shown = new ArrayList<>(inPip ? pipPages() : split ? members() : new ArrayList<Session>());
         if (shown.isEmpty() && front() != null) shown.add(front());
         boolean together = split && shown.size() >= 2;
-        boolean custom0 = together && (inPip ? Prefs.pipLayout(this) == SplitLayout.OVERLAY
+        boolean custom0 = together && (inPip ? pipMode(shown.size()) == SplitLayout.OVERLAY
                 : Prefs.splitOwn(this) && (Prefs.splitOwnCount(this) == 0 || Prefs.splitOwnCount(this) == shown.size()));
         int[] rows = !together || custom0 ? new int[]{1}
-                : inPip ? SplitLayout.pipRows(shown.size(), Prefs.pipLayout(this), landscape)
+                : inPip ? SplitLayout.pipRows(shown.size(), pipMode(shown.size()), landscape)
                 : SplitLayout.rows(shown.size(), landscape);
 
         boolean custom = custom0;

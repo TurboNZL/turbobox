@@ -49,6 +49,9 @@ final class Prefs {
     static void setPipLayout(Context c, int v) { ps(c).edit().putInt("pipLayout", v).apply(); }
 
     /** Your own arrangement of the Mini window (see MiniLayout), "" = the default. */
+    /** How many pages the own Mini layout is drawn for (0 = any number, as arranged in Settings). */
+    static int miniOwnCount(Context c) { return ps(c).getInt("miniOwnCount", 0); }
+    static void setMiniOwnCount(Context c, int v) { ps(c).edit().putInt("miniOwnCount", v).apply(); }
     static String miniRects(Context c) { return ps(c).getString("miniRects", ""); }
     static void setMiniRects(Context c, String v) { ps(c).edit().putString("miniRects", v).apply(); }
     /** The Mini window's shape in your own arrangement: index into MiniLayout.SHAPES. */
