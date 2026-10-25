@@ -54,6 +54,9 @@ public class SessionActivity extends Activity implements Session.Listener {
     static final String EXTRA_URL = "url";
     static final String ACTION_APPLY_LAYOUT = "app.turbobox.APPLY_LAYOUT";   // a saved layout from the home screen
     static final String EXTRA_LAYOUT = "layout";
+    static final String EXTRA_EDIT = "edit";      // with a layout: arrange it live afterwards
+    static final String EXTRA_ARRANGE = "arrange";   // no layout: arrange the pages live (EXTRA_MINI says for which window)
+    static final String EXTRA_MINI = "arrangeMini";
     static final String EXTRA_INCOGNITO = "incognito";
     static final String EXTRA_MOBILE = "mobile";
     static final String EXTRA_WIPE = "wipe";
@@ -87,6 +90,20 @@ public class SessionActivity extends Activity implements Session.Listener {
     private final java.util.Set<Integer> splitSet = new java.util.TreeSet<>();   // the slots shown together while Split is on (up to four)
     private List<Integer> splitOrder;   // page order set by an applied layout; null = the order of the tabs
     private boolean inPip;
+    private float[][] liveRects;        // the arrangement of the split made or applied this time (null = what the settings say)
+    private int[] liveZ;
+    private float[][] liveMiniRects;    // the same for the Mini window
+    private int[] liveMiniZ;
+    private boolean editing;
+    private boolean editMini;
+    private String editingLayoutId;
+    private int editSelected = -1;
+    private LinearLayout editBar;
+    private TextView editTitle;
+    private TextView editShape;
+    private TextView layoutButton;
+    private MiniLayoutEditor overlay;
+    private FractionLayout editStack;
     private float paneAspect;   // width / height of the pages' area on screen when not in the Mini window
     private SessionSheet sheet;
     private final PopupWindow[] freezePopups = new PopupWindow[Sessions.COUNT];
@@ -135,7 +152,14 @@ public class SessionActivity extends Activity implements Session.Listener {
         }
         if (ACTION_APPLY_LAYOUT.equals(intent.getAction())) {
             intent.setAction(null);   // handled once, like the page above
-            applyLayout(LayoutStore.find(this, intent.getStringExtra(EXTRA_LAYOUT)));
+            if (!Sessions.active().isEmpty()) {
+                SavedLayout l = LayoutStore.find(this, intent.getStringExtra(EXTRA_LAYOUT));
+                if (l != null) {
+                    if (applyLayout(l) && intent.getBooleanExtra(EXTRA_EDIT, false)) startEdit(l.mini, l.id);
+                } else if (intent.getBooleanExtra(EXTRA_ARRANGE, false)) {
+                    startEdit(intent.getBooleanExtra(EXTRA_MINI, false), null);
+                }
+            }
             return !Sessions.active().isEmpty();
         }
         if (ACTION_OPEN_PIN.equals(intent.getAction()) && pinId != null) {
@@ -187,67 +211,281 @@ public class SessionActivity extends Activity implements Session.Listener {
                 .show();
     }
 
-    /** Opens the layout's pages that are not running (free slots only), then shares the screen between them as it says. */
-    private void applyLayout(SavedLayout l) {
-        if (l == null) return;
+    /**
+     * Puts the pages of the split (or, if the split has another number, the first ones in tab order) into the layout's places.
+     * A layout is not tied to pages. It holds until the pages in the split change; what a new split starts as is a setting.
+     */
+    private boolean applyLayout(SavedLayout l) {
         List<Integer> slots = new ArrayList<>();
-        if (l.pinIds.isEmpty()) {
-            for (Session s : Sessions.active()) if (slots.size() < l.count) slots.add(s.slot);
+        if (split && members().size() == l.count) {
+            for (Session m : members()) slots.add(m.slot);
+        } else {
+            for (Session a : Sessions.active()) if (slots.size() < l.count) slots.add(a.slot);
         }
-        int missing = 0;
-        for (String id : l.pinIds) {
-            Pin pin = PinStore.find(this, id);
-            if (pin == null || Profiles.isLocked(this, pin.profileId)) continue;
-            Session run = Sessions.forPin(id);
-            if (run == null) {
-                int free = Sessions.firstFreeSlot();
-                if (free < 0) {
-                    missing++;
-                    continue;
-                }
-                start(free, pin);
-                run = Sessions.get(free);
-            }
-            if (!slots.contains(run.slot)) slots.add(run.slot);
-        }
-        if (missing > 0) Toast.makeText(this, "Close a page first: " + missing + " could not be opened.", Toast.LENGTH_LONG).show();
-        if (slots.size() < 2) {
-            if (!Sessions.active().isEmpty()) {
-                Toast.makeText(this, "A layout needs at least two pages open.", Toast.LENGTH_LONG).show();
-                rebuild();
-            }
-            return;
-        }
-        float[][] rects = l.rectangles();
-        float[][] used = new float[slots.size()][];
-        System.arraycopy(rects, 0, used, 0, used.length);
-        if (l.mini) {
-            // Only the Mini window changes; the full-screen split keeps its own layout. With Split off the pages are put in a
-            // plain split so the Mini window has them to show.
-            Prefs.setMiniRects(this, MiniLayout.encode(used));
-            Prefs.setMiniOwnCount(this, used.length);
-            Prefs.setMiniShape(this, l.shape);
-            Prefs.setPipLayout(this, SplitLayout.OVERLAY);
-            if (!split) {
-                split = true;
-                splitSet.clear();
-                splitSet.addAll(slots);
-                splitOrder = slots;
-                focus = slots.get(0);
-            }
-            Toast.makeText(this, "Used by the Mini window.", Toast.LENGTH_SHORT).show();
+        if (slots.size() < l.count) {
+            Toast.makeText(this, "This layout is for " + l.count + " pages; only " + slots.size() + " are open.", Toast.LENGTH_LONG).show();
             rebuild();
-            return;
+            return false;
         }
-        Prefs.setSplitRects(this, MiniLayout.encode(used));
-        Prefs.setSplitOwnCount(this, used.length);
-        Prefs.setSplitOwn(this, true);
         split = true;
         splitSet.clear();
         splitSet.addAll(slots);
         splitOrder = slots;
-        focus = slots.get(0);
+        if (!splitSet.contains(focus)) focus = slots.get(0);
+        float[][] r = l.rectangles();
+        int[] z = l.order();
+        if (l.mini) {
+            liveMiniRects = r;
+            liveMiniZ = z;
+            Prefs.setMiniShape(this, l.shape);
+            Toast.makeText(this, "Used by the Mini window.", Toast.LENGTH_SHORT).show();
+        } else {
+            liveRects = r;
+            liveZ = z;
+        }
+        Prefs.setLastArrangement(this, l.mini, l.count, MiniLayout.pack(r, z));
         rebuild();
+        return true;
+    }
+
+    // ---- arranging the pages live ------------------------------------------------------------
+
+    /** Where the pages sit: rectangles (and a front-to-back order), or rows of a grid. */
+    private static final class Arr {
+        float[][] rects;
+        int[] z;
+        int[] rows;
+    }
+
+    /**
+     * The arrangement for this many pages: the live one (made or applied this time), else what the settings say a new split starts
+     * as. Nothing is ever applied by itself.
+     */
+    private Arr arrangement(boolean mini, int n, boolean landscape) {
+        Arr a = new Arr();
+        float[][] live = mini ? liveMiniRects : liveRects;
+        int[] liveOrder = mini ? liveMiniZ : liveZ;
+        if (live != null && live.length == n && liveOrder != null) {
+            a.rects = live;
+            a.z = liveOrder;
+            return a;
+        }
+        if (mini) {
+            int mode = Prefs.pipLayout(this);
+            if (mode == SplitLayout.OVERLAY) {
+                String last = Prefs.lastArrangement(this, true, n);
+                float[][] r = MiniLayout.unpackRects(last, n);
+                if (r != null) {
+                    a.rects = r;
+                    a.z = MiniLayout.unpackOrder(last, n);
+                    return a;
+                }
+                mode = SplitLayout.LIKE_SPLIT;
+            }
+            a.rows = SplitLayout.pipRows(n, mode, landscape);
+            return a;
+        }
+        int d = Prefs.splitDefault(this);
+        if (d == 0) {
+            String last = Prefs.lastArrangement(this, false, n);
+            float[][] r = MiniLayout.unpackRects(last, n);
+            if (r != null) {
+                a.rects = r;
+                a.z = MiniLayout.unpackOrder(last, n);
+                return a;
+            }
+            d = 2;
+        }
+        a.rows = d == 1 ? MiniLayout.stackedRows(n) : MiniLayout.gridRows(n);
+        return a;
+    }
+
+    private boolean isLandscape() {
+        return getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+    }
+
+    /** Starts arranging the split's pages (or the Mini window's) with frames over the live pages. */
+    private void startEdit(boolean mini, String layoutId) {
+        if (inPip) return;
+        if (Sessions.active().size() < 2) {
+            Toast.makeText(this, "Open at least two pages to arrange them.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (!split) {
+            split = true;
+            splitSet.clear();
+            for (Session a : Sessions.active()) if (splitSet.size() < 4) splitSet.add(a.slot);
+            splitOrder = null;
+        }
+        int n = members().size();
+        if (n < 2) {
+            Toast.makeText(this, "Tap the tabs to choose at least two pages for the split first.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        Arr a = arrangement(mini, n, isLandscape());
+        float[][] r = new float[n][];
+        if (a.rects != null) {
+            for (int i = 0; i < n; i++) r[i] = a.rects[i].clone();
+        } else {
+            float[][] base = MiniLayout.fromRows(a.rows);
+            for (int i = 0; i < n; i++) r[i] = base[i];
+        }
+        int[] z = a.z != null ? a.z.clone() : MiniLayout.decodeOrder("", n);
+        if (mini) {
+            liveMiniRects = r;
+            liveMiniZ = z;
+        } else {
+            liveRects = r;
+            liveZ = z;
+        }
+        editing = true;
+        editMini = mini;
+        editingLayoutId = layoutId;
+        editSelected = -1;
+        rebuild();
+    }
+
+    private void stopEdit() {
+        if (!editing) return;
+        float[][] r = editMini ? liveMiniRects : liveRects;
+        int[] z = editMini ? liveMiniZ : liveZ;
+        if (r != null && z != null) Prefs.setLastArrangement(this, editMini, r.length, MiniLayout.pack(r, z));
+        editing = false;
+        editingLayoutId = null;
+        rebuild();
+    }
+
+    private void saveEdit() {
+        float[][] r = editMini ? liveMiniRects : liveRects;
+        int[] z = editMini ? liveMiniZ : liveZ;
+        if (r == null || z == null) return;
+        if (editingLayoutId != null) {
+            SavedLayout l = LayoutStore.find(this, editingLayoutId);
+            if (l != null) {
+                fill(l, r, z);
+                LayoutStore.put(this, l);
+                Toast.makeText(this, "Saved changes to " + l.name + ".", Toast.LENGTH_SHORT).show();
+                return;
+            }
+        }
+        EditText name = new EditText(this);
+        name.setHint("Name (Lecture and notes, Four up, ...)");
+        name.setSingleLine(true);
+        new AlertDialog.Builder(this).setTitle("Save this arrangement").setView(name)
+                .setPositiveButton("Save", (d, w) -> {
+                    String n = name.getText().toString().trim();
+                    if (n.isEmpty()) {
+                        Toast.makeText(this, "Give it a name.", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    SavedLayout l = SavedLayout.create();
+                    l.name = n;
+                    fill(l, r, z);
+                    LayoutStore.put(this, l);
+                    editingLayoutId = l.id;
+                    Toast.makeText(this, "Saved. Find it under Layouts on the home screen.", Toast.LENGTH_LONG).show();
+                })
+                .setNegativeButton("Cancel", null).show();
+    }
+
+    private void fill(SavedLayout l, float[][] r, int[] z) {
+        l.count = r.length;
+        l.mini = editMini;
+        l.shape = Prefs.miniShape(this);
+        l.rects = MiniLayout.encode(r);
+        l.z = MiniLayout.encodeOrder(z);
+    }
+
+    /** The row of buttons that shows while arranging: order of the pages, window shape, save, done. */
+    private void buildEditBar() {
+        editBar = new LinearLayout(this);
+        editBar.setOrientation(LinearLayout.VERTICAL);
+        editBar.setBackgroundColor(Ui.BG);
+        int side = Ui.dp(this, 12);
+        editBar.setPadding(side, Ui.dp(this, 6), side, Ui.dp(this, 6));
+        editTitle = Ui.text(this, "", 13f, Ui.DIM, "sans-serif");
+        editBar.addView(editTitle);
+        LinearLayout row1 = new LinearLayout(this);
+        TextView forward = Ui.pill(this, "Bring forward", 0);
+        forward.setOnClickListener(v -> moveSelected(1));
+        TextView back = Ui.pill(this, "Send back", 0);
+        back.setOnClickListener(v -> moveSelected(-1));
+        editShape = Ui.pill(this, "Shape", 0);
+        editShape.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("Mini window shape")
+                .setSingleChoiceItems(MiniLayout.SHAPE_LABELS, Prefs.miniShape(this), (d, which) -> {
+                    Prefs.setMiniShape(this, which);
+                    d.dismiss();
+                    rebuild();
+                }).show());
+        row1.addView(forward, Ui.weight(this, 0));
+        row1.addView(back, Ui.weight(this, 6));
+        row1.addView(editShape, Ui.weight(this, 6));
+        editBar.addView(row1, Ui.lp(this, 6, 0));
+        LinearLayout row2 = new LinearLayout(this);
+        TextView save = Ui.pill(this, "Save as layout", 0);
+        save.setOnClickListener(v -> saveEdit());
+        TextView reset = Ui.pill(this, "Reset to grid", 0);
+        reset.setOnClickListener(v -> {
+            int n = members().size();
+            float[][] base = MiniLayout.fromRows(MiniLayout.gridRows(n));
+            float[][] r = new float[n][];
+            for (int i = 0; i < n; i++) r[i] = base[i];
+            if (editMini) {
+                liveMiniRects = r;
+                liveMiniZ = MiniLayout.decodeOrder("", n);
+            } else {
+                liveRects = r;
+                liveZ = MiniLayout.decodeOrder("", n);
+            }
+            rebuild();
+        });
+        TextView done = Ui.pill(this, "Done", Ui.GREEN);
+        done.setOnClickListener(v -> stopEdit());
+        row2.addView(save, Ui.weight(this, 0));
+        row2.addView(reset, Ui.weight(this, 6));
+        row2.addView(done, Ui.weight(this, 6));
+        editBar.addView(row2, Ui.lp(this, 6, 0));
+        editBar.setVisibility(View.GONE);
+    }
+
+    private void moveSelected(int step) {
+        if (overlay == null || overlay.selected() < 0) {
+            Toast.makeText(this, "Tap a page's frame first.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        overlay.move(step);
+    }
+
+    private void updateEditBar() {
+        editBar.setVisibility(editing && !inPip ? View.VISIBLE : View.GONE);
+        if (!editing) return;
+        editShape.setVisibility(editMini ? View.VISIBLE : View.GONE);
+        editShape.setText("Shape: " + MiniLayout.SHAPE_LABELS[Math.max(0, Math.min(MiniLayout.SHAPE_LABELS.length - 1, Prefs.miniShape(this)))]);
+        editTitle.setText((editMini ? "Arranging the Mini window" : "Arranging the split") + (editingLayoutId != null ? " (a saved layout)" : "")
+                + ". Drag a page's frame, drag its corner to resize. Pages stay live underneath.");
+    }
+
+    private void layoutMenu() {
+        String[] items = {"Arrange the pages here (live)", "Arrange the Mini window here", "Use a saved layout..."};
+        new AlertDialog.Builder(this).setTitle("Layout").setItems(items, (d, which) -> {
+            if (which == 0) startEdit(false, null);
+            else if (which == 1) startEdit(true, null);
+            else chooseSavedLayout();
+        }).show();
+    }
+
+    private void chooseSavedLayout() {
+        List<SavedLayout> all = LayoutStore.load(this);
+        List<SavedLayout> usable = new ArrayList<>();
+        for (SavedLayout l : all) if (l.count <= Sessions.active().size()) usable.add(l);
+        if (usable.isEmpty()) {
+            Toast.makeText(this, all.isEmpty() ? "No saved layouts yet: arrange the pages, then Save as layout."
+                    : "Your layouts need more pages than are open.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        String[] names = new String[usable.size()];
+        for (int i = 0; i < names.length; i++) names[i] = usable.get(i).name + "  (" + usable.get(i).count + " pages" + (usable.get(i).mini ? ", Mini window" : "") + ")";
+        new AlertDialog.Builder(this).setTitle("Use a layout").setItems(names, (d, which) -> applyLayout(usable.get(which))).show();
     }
 
     private void start(int slot, Pin pin) {
@@ -335,9 +573,13 @@ public class SessionActivity extends Activity implements Session.Listener {
             fullscreenSession.exitFullscreen();
             return;
         }
-        // Never navigate the page back mid-call (that could unload it); just leave. The pages keep running and
-        // the notification brings you back.
-        moveTaskToBack(true);
+        if (editing) {
+            stopEdit();
+            return;
+        }
+        // Back opens the Mini window, so what is playing stays in sight; if that is not possible, just leave. Never navigate
+        // the page back mid-call (that could unload it). The pages keep running and the notification brings you back.
+        if (!enterPip()) moveTaskToBack(true);
     }
 
     @Override
@@ -363,25 +605,19 @@ public class SessionActivity extends Activity implements Session.Listener {
         return members();
     }
 
-    /** The Mini layout in effect for this many pages: your own one only when it was drawn for that many (or for any). */
-    private int pipMode(int pages) {
-        int mode = Prefs.pipLayout(this);
-        if (mode == SplitLayout.OVERLAY && Prefs.miniOwnCount(this) != 0 && Prefs.miniOwnCount(this) != pages) return SplitLayout.LIKE_SPLIT;
-        return mode;
-    }
-
     private PictureInPictureParams.Builder pipParams() {
         List<Session> pages = pipPages();
         boolean wide = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
-        int[] shape = SplitLayout.shape(SplitLayout.pipRows(pages.size(), pipMode(pages.size()), wide));
-        if (pages.size() >= 2 && pipMode(pages.size()) == SplitLayout.OVERLAY) {
-            shape = MiniLayout.shape(Prefs.miniShape(this));   // your own arrangement has the shape you chose
-        }
+        Arr arr = arrangement(true, Math.max(1, pages.size()), wide);
+        int[] shape = arr.rects != null && pages.size() >= 2 ? MiniLayout.shape(Prefs.miniShape(this))   // an arrangement of your own has the shape you chose
+                : SplitLayout.shape(arr.rows != null ? arr.rows : new int[]{1});
         if (pages.size() == 1) {
             // One page: the window has the shape the page is forced to (its own for the Mini window, else the normal one), and
             // when it is not forced, the shape its area has on screen now, so nothing is squeezed into 16:9 by surprise.
             float forced = Pin.ASPECTS[pages.get(0).effectiveAspect(true)];
-            shape = SplitLayout.shapeOfRatio(forced > 0 ? forced : paneAspect > 0 ? paneAspect : 9f / 16f);
+            // Set to fill the space: a video in full screen gives the window its own shape, so there are no black bars around it.
+            float video = pages.get(0).fullscreenRatio();
+            shape = SplitLayout.shapeOfRatio(forced > 0 ? forced : video > 0 ? video : paneAspect > 0 ? paneAspect : 9f / 16f);
         }
         PictureInPictureParams.Builder b = new PictureInPictureParams.Builder().setAspectRatio(new Rational(shape[0], shape[1]));
         // The mic button works for any page: it is the same mute as the notification's (for a page that is not using the
@@ -409,7 +645,7 @@ public class SessionActivity extends Activity implements Session.Listener {
             b.setActions(actions);
         }
         // From Android 12 the window shrinks by itself when you go Home with a page open.
-        if (Build.VERSION.SDK_INT >= 31) b.setAutoEnterEnabled(!Sessions.active().isEmpty() && !allShownLocked());
+        if (Build.VERSION.SDK_INT >= 31) b.setAutoEnterEnabled(!Sessions.active().isEmpty() && !allShownLocked() && !editing);
         return b;
     }
 
@@ -463,19 +699,21 @@ public class SessionActivity extends Activity implements Session.Listener {
     }
 
     /** Shrinks the page in front into a small floating window, which also keeps Android from unloading the app. */
-    private void enterPip() {
-        if (!canPip() || isInPictureInPictureMode() || Sessions.active().isEmpty() || allShownLocked()) return;
+    private boolean enterPip() {
+        if (!canPip() || isInPictureInPictureMode() || Sessions.active().isEmpty() || allShownLocked()) return false;
+        if (editing) stopEdit();
         if (sheet != null) sheet.dismiss();
         try {
-            enterPictureInPictureMode(pipParams().build());
+            return enterPictureInPictureMode(pipParams().build());
         } catch (RuntimeException e) {
             Toast.makeText(this, "Picture in picture is not available here.", Toast.LENGTH_SHORT).show();
+            return false;
         }
     }
 
     /** Which layout the Mini window should have, asked from the Mini button's long press. */
     private void choosePipLayout() {
-        String[] items = {"Like the split view", "Side by side", "Stacked", "Your own layout (a Mini window layout)"};
+        String[] items = {LayoutsActivity.pipLayoutText(0), LayoutsActivity.pipLayoutText(1), LayoutsActivity.pipLayoutText(2), LayoutsActivity.pipLayoutText(3)};
         new AlertDialog.Builder(this).setTitle("Mini window while Split is on")
                 .setSingleChoiceItems(items, Prefs.pipLayout(this), (d, which) -> {
                     Prefs.setPipLayout(this, which);
@@ -595,6 +833,12 @@ public class SessionActivity extends Activity implements Session.Listener {
             });
             row3.addView(pip);
         }
+        layoutButton = Ui.pill(this, "Layout", 0);
+        layoutButton.setPadding(Ui.dp(this, 14), Ui.dp(this, 7), Ui.dp(this, 14), Ui.dp(this, 7));
+        layoutButton.setOnClickListener(v -> layoutMenu());
+        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        layoutParams.leftMargin = Ui.dp(this, gap);
+        row3.addView(layoutButton, layoutParams);
         TextView hide = Ui.pill(this, "Hide bar", 0);
         hide.setPadding(Ui.dp(this, 14), Ui.dp(this, 7), Ui.dp(this, 14), Ui.dp(this, 7));
         hide.setOnClickListener(v -> {
@@ -620,7 +864,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         root.addView(chromeBox, new LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT));
         paneHolder = new LinearLayout(this);
         paneHolder.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
-            if (inPip || r - l < 50 || b - t < 50) return;
+            if (inPip || editing || r - l < 50 || b - t < 50) return;
             float now = (r - l) / (float) (b - t);
             if (Math.abs(now - paneAspect) > 0.01f) {
                 paneAspect = now;
@@ -632,6 +876,8 @@ public class SessionActivity extends Activity implements Session.Listener {
             boxes[i] = new AspectFrame(this);
             panes[i].addView(boxes[i], new FrameLayout.LayoutParams(-1, -1));
         }
+        buildEditBar();
+        root.addView(editBar, new LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(paneHolder, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         // Brightness veil over everything, the same trick as Tether's main screen.
@@ -719,15 +965,17 @@ public class SessionActivity extends Activity implements Session.Listener {
             }
         }
 
-        boolean landscape = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+        boolean landscape = isLandscape();
         List<Session> shown = new ArrayList<>(inPip ? pipPages() : split ? members() : new ArrayList<Session>());
         if (shown.isEmpty() && front() != null) shown.add(front());
         boolean together = split && shown.size() >= 2;
-        boolean custom0 = together && (inPip ? pipMode(shown.size()) == SplitLayout.OVERLAY
-                : Prefs.splitOwn(this) && (Prefs.splitOwnCount(this) == 0 || Prefs.splitOwnCount(this) == shown.size()));
-        int[] rows = !together || custom0 ? new int[]{1}
-                : inPip ? SplitLayout.pipRows(shown.size(), pipMode(shown.size()), landscape)
-                : SplitLayout.rows(shown.size(), landscape);
+        // An arrangement made for another number of pages no longer applies.
+        if (liveRects != null && liveRects.length != shown.size()) liveRects = null;
+        if (liveMiniRects != null && liveMiniRects.length != shown.size()) liveMiniRects = null;
+        if (editing && (inPip || !together || (editMini ? liveMiniRects : liveRects) == null)) editing = false;
+        Arr arr = together ? arrangement(inPip || editMini && editing, shown.size(), landscape) : null;
+        boolean custom0 = arr != null && arr.rects != null;
+        int[] rows = custom0 || arr == null ? new int[]{1} : arr.rows;
 
         boolean custom = custom0;
         List<Session> placed = shown;
@@ -753,22 +1001,45 @@ public class SessionActivity extends Activity implements Session.Listener {
         paneHolder.setOrientation(LinearLayout.VERTICAL);
         grid = null;
         gridPages = shown;
+        overlay = null;
+        editStack = null;
         if (custom) {
-            // Your own arrangement from Settings (the Mini window's and the split's are separate): page 1 at the back, page 4 in front.
+            // Rectangles: page 1 is rectangle 1; the order says which page is in front.
             FractionLayout stack = new FractionLayout(this);
-            float[][] all = inPip ? MiniLayout.decode(Prefs.miniRects(this))
-                    : MiniLayout.decode(Prefs.splitRects(this), Prefs.splitRects(this).isEmpty() ? padTo4(MiniLayout.fromRows(SplitLayout.rows(shown.size(), landscape))) : MiniLayout.splitDefaults());
-            float[][] used = new float[Math.min(shown.size(), MiniLayout.PAGES)][];
-            for (int k = 0; k < used.length; k++) {
-                used[k] = all[k];
-                stack.addView(panes[shown.get(k).slot]);
+            int n = shown.size();
+            for (int k = 0; k < n; k++) stack.addView(panes[shown.get(arr.z[k]).slot]);
+            stack.setRects(permuted(arr.rects, arr.z));
+            View content = stack;
+            if (editing) {
+                // The frames sit over the live pages. The Mini window is arranged in a box of its own shape.
+                FrameLayout canvas = new FrameLayout(this);
+                canvas.addView(stack, new FrameLayout.LayoutParams(-1, -1));
+                overlay = new MiniLayoutEditor(this, (rects, order) -> {
+                    int[] before = editMini ? liveMiniZ : liveZ;
+                    int[] copy = order.clone();
+                    if (editMini) liveMiniZ = copy; else liveZ = copy;
+                    editSelected = overlay != null ? overlay.selected() : -1;
+                    if (!java.util.Arrays.equals(before, copy)) mainHandler.post(this::rebuild);   // the stacking changed
+                    else if (editStack != null) editStack.setRects(permuted(rects, copy));
+                });
+                overlay.set(arr.rects, arr.z);
+                overlay.select(editSelected);
+                canvas.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
+                editStack = stack;
+                content = canvas;
+                if (editMini) {
+                    AspectFrame boxFrame = new AspectFrame(this);
+                    int[] sh = MiniLayout.shape(Prefs.miniShape(this));
+                    boxFrame.setRatio(sh[0] / (float) sh[1]);
+                    boxFrame.addView(canvas, new FrameLayout.LayoutParams(-1, -1));
+                    content = boxFrame;
+                }
             }
-            stack.setRects(used);
-            paneHolder.addView(stack, new LinearLayout.LayoutParams(-1, 0, 1f));
+            paneHolder.addView(content, new LinearLayout.LayoutParams(-1, 0, 1f));
         } else {
             grid = new SplitGrid(this);
             String key = joinRows(rows);
-            grid.configure(rows, key, Prefs.splitLayout(this, key), together && !inPip);
+            grid.configure(rows, key, null, false);   // no dividers: arranging is done live, with Layout > Arrange
             grid.setOnSaved((k, v) -> {
                 Prefs.setSplitLayout(this, k, v);
                 updateFreeze();   // the covers follow the panes to where the divider left them
@@ -800,9 +1071,10 @@ public class SessionActivity extends Activity implements Session.Listener {
         updateLocks();
     }
 
-    private static float[][] padTo4(float[][] r) {
-        float[][] out = MiniLayout.splitDefaults();
-        for (int i = 0; i < r.length && i < out.length; i++) out[i] = r[i];
+    /** The rectangles in the order the pages are stacked (back first), which is the order of the children in the stack. */
+    private static float[][] permuted(float[][] rects, int[] z) {
+        float[][] out = new float[z.length][];
+        for (int k = 0; k < z.length; k++) out[k] = rects[z[k]];
         return out;
     }
 
@@ -841,6 +1113,8 @@ public class SessionActivity extends Activity implements Session.Listener {
             Ui.tint(this, tabs[i], i == focus ? Ui.GREEN : split && splitSet.contains(i) ? 0xFF6B8F1F : 0);
         }
         splitButton.setVisibility(Sessions.active().size() > 1 ? View.VISIBLE : View.GONE);
+        layoutButton.setVisibility(Sessions.active().size() > 1 ? View.VISIBLE : View.GONE);
+        updateEditBar();
         Ui.tint(this, splitButton, split ? Ui.GREEN : 0);
         if (f == null) return;
         muteButton.setText(f.isMuted() ? "Unmute" : "Mute");

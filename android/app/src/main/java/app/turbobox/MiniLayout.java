@@ -40,6 +40,81 @@ final class MiniLayout {
         return out;
     }
 
+    /** Rows for "stacked" (one page per row) and for "grid" (two across, then down: 2 = side by side, 3 = 2 + 1, 4 = 2 x 2). */
+    static int[] stackedRows(int pages) {
+        int[] r = new int[Math.max(1, Math.min(PAGES, pages))];
+        java.util.Arrays.fill(r, 1);
+        return r;
+    }
+
+    static int[] gridRows(int pages) {
+        switch (Math.max(1, Math.min(PAGES, pages))) {
+            case 1: return new int[]{1};
+            case 2: return new int[]{2};
+            case 3: return new int[]{2, 1};
+            default: return new int[]{2, 2};
+        }
+    }
+
+    /** Front-to-back order as saved text ("0,1,2": back first). */
+    static String encodeOrder(int[] z) {
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < z.length; i++) b.append(i == 0 ? "" : ",").append(z[i]);
+        return b.toString();
+    }
+
+    /** The saved order if it is a permutation of 0..n-1, else page 1 at the back and the last page in front. */
+    static int[] decodeOrder(String s, int n) {
+        int[] out = new int[n];
+        for (int i = 0; i < n; i++) out[i] = i;
+        if (s == null || s.isEmpty()) return out;
+        String[] parts = s.split(",");
+        if (parts.length != n) return out;
+        boolean[] seen = new boolean[n];
+        int[] z = new int[n];
+        try {
+            for (int i = 0; i < n; i++) {
+                z[i] = Integer.parseInt(parts[i].trim());
+                if (z[i] < 0 || z[i] >= n || seen[z[i]]) return out;
+                seen[z[i]] = true;
+            }
+        } catch (NumberFormatException e) {
+            return out;
+        }
+        return z;
+    }
+
+    /** An arrangement as one string: rectangles, a bar, the order. */
+    static String pack(float[][] rects, int[] z) {
+        return encode(rects) + "|" + encodeOrder(z);
+    }
+
+    /** The rectangles of a packed arrangement for exactly {@code n} pages, or null when it holds another number. */
+    static float[][] unpackRects(String s, int n) {
+        if (s == null || s.isEmpty()) return null;
+        String[] parts = s.split("\\|", -1);
+        String[] r = parts[0].split(";");
+        if (r.length != n) return null;
+        float[][] out = new float[n][];
+        for (int i = 0; i < n; i++) {
+            String[] v = r[i].split(",");
+            if (v.length != 4) return null;
+            try {
+                float[] f = new float[4];
+                for (int j = 0; j < 4; j++) f[j] = Float.parseFloat(v[j]);
+                out[i] = clamp(f);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return out;
+    }
+
+    static int[] unpackOrder(String s, int n) {
+        String[] parts = s == null ? new String[0] : s.split("\\|", -1);
+        return decodeOrder(parts.length > 1 ? parts[1] : "", n);
+    }
+
     static float[][] defaults() {
         float[][] out = new float[PAGES][];
         for (int i = 0; i < PAGES; i++) out[i] = DEFAULTS[i].clone();
