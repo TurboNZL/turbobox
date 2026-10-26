@@ -18,7 +18,7 @@
 (function () {
   if (window.__turbobox) return;
   var T = window.__turbobox = {};
-  var cfg = { shape: 0, virtualDevices: true, pageWidth: 1280, muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, cameraAllowed: false, localMute: false, keepVisible: true, desktop: !window.__tbMobile };
+  var cfg = { dsf: window.devicePixelRatio || 1, shape: 0, virtualDevices: true, pageWidth: 1280, muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, cameraAllowed: false, localMute: false, keepVisible: true, desktop: !window.__tbMobile };
   var tracks = [], pcs = [];
 
   function post(type, data) {
@@ -106,7 +106,7 @@
     // screen), not to the whole screen, or a page in a small window would show only its top-left corner.
     // Fit the layout width to the physical width of the view: physical pixels over the browser's own pixel ratio is the CSS width that
     // really fills it, whatever density the display was created with (it can go stale when a display is resized).
-    var fit = cfg.viewPx ? cfg.viewPx / (window.devicePixelRatio || 1) : (cfg.viewW || window.screen.width || w);
+    var fit = cfg.viewPx ? cfg.viewPx / (cfg.dsf || 1) : (cfg.viewW || window.screen.width || w);
     var want = 'width=' + w + ', initial-scale=' + (fit / w).toFixed(3);
     if (m.content !== want) m.content = want;
   }
@@ -130,8 +130,9 @@
   T.refit = function () {
     var m = document.querySelector('meta[name=viewport]');
     if (m) m.content = 'width=device-width, initial-scale=1';
-    setTimeout(viewport, 60);
-    setTimeout(viewport, 400);
+    // At scale 1 the pixel ratio is the display's own (it moves with the page scale otherwise), so it is read again here.
+    setTimeout(function () { cfg.dsf = window.devicePixelRatio || cfg.dsf; viewport(); }, 120);
+    setTimeout(viewport, 500);
   };
   T.setZoom = function (z) { cfg.zoom = Math.max(0.5, Math.min(3, +z || 1)); viewport(); };
   T.setViewWidth = function (w) { if (T.resized && cfg.viewW && Math.max(0, +w || 0) !== cfg.viewW) T.resized(); cfg.viewW = Math.max(0, +w || 0); viewport(); setTimeout(viewport, 300); };
