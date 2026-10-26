@@ -103,6 +103,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     private FloatLayer floatLayer;
     private boolean editing;
     private boolean editMini;
+    private float pipRatio;            // the Mini window's shape, kept while it is open
     private String editingLayoutId;
     private int editSelected = -1;
     private LinearLayout editBar;
@@ -280,6 +281,7 @@ public class SessionActivity extends Activity implements Session.Listener {
      * as. Nothing is ever applied by itself.
      */
     private Arr arrangement(boolean mini, int n, boolean landscape) {
+        mini = false;   // the Mini window shows the same arrangement as the screen, only smaller
         Arr a = new Arr();
         float[][] live = mini ? liveMiniRects : liveRects;
         int[] liveOrder = mini ? liveMiniZ : liveZ;
@@ -506,10 +508,9 @@ public class SessionActivity extends Activity implements Session.Listener {
     }
 
     private void layoutMenu() {
-        String[] items = {"Arrange the pages here (live)", "Arrange the Mini window here", "Use a saved layout..."};
+        String[] items = {"Arrange the pages here (live)", "Use a saved layout..."};
         new AlertDialog.Builder(this).setTitle("Layout").setItems(items, (d, which) -> {
             if (which == 0) startEdit(false, null);
-            else if (which == 1) startEdit(true, null);
             else chooseSavedLayout();
         }).show();
     }
@@ -551,6 +552,7 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     @Override
     protected void onResume() {
+        if (!isInPictureInPictureMode()) lockBoxes(false);   // the Home gesture locked the sizes in case the Mini window opened; it did not
         applyRotation();
         super.onResume();
         Profiles.returning();
@@ -629,6 +631,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     @Override
     public void onConfigurationChanged(Configuration c) {
         super.onConfigurationChanged(c);
+        if (inPip) return;   // the Mini window is not affected by rotation
         rebuild();
         getWindow().getDecorView().post(this::applyBarMode);   // the floating button belongs in the new shape of the screen
     }
@@ -649,20 +652,22 @@ public class SessionActivity extends Activity implements Session.Listener {
         return members();
     }
 
+    /**
+     * The Mini window takes the shape of what the pages look like on screen when it opens (the page area, without the bar or any
+     * empty space around the picture), and keeps it: rotating the phone does not change it.
+     */
     private PictureInPictureParams.Builder pipParams() {
         List<Session> pages = pipPages();
-        boolean wide = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
-        Arr arr = arrangement(true, Math.max(1, pages.size()), wide);
-        int[] shape = arr.rects != null && pages.size() >= 2 ? MiniLayout.shape(Prefs.miniShape(this))   // an arrangement of your own has the shape you chose
-                : SplitLayout.shape(arr.rows != null ? arr.rows : new int[]{1});
+        float ratio = paneAspect > 0 ? paneAspect : 9f / 16f;
         if (pages.size() == 1) {
-            // One page: the window has the shape the page is forced to (its own for the Mini window, else the normal one), and
-            // when it is not forced, the shape its area has on screen now, so nothing is squeezed into 16:9 by surprise.
-            float forced = Pin.ASPECTS[pages.get(0).effectiveAspect(true)];
-            // Set to fill the space: a video in full screen gives the window its own shape, so there are no black bars around it.
+            OffscreenHost pd = pages.get(0).privateDisplay();
             float video = pages.get(0).fullscreenRatio();
-            shape = SplitLayout.shapeOfRatio(forced > 0 ? forced : video > 0 ? video : paneAspect > 0 ? paneAspect : 9f / 16f);
+            if (video > 0) ratio = video;                                            // a full-screen video: its own shape, no bars
+            else if (pd != null && !Prefs.displayFollows(this) && !editing) ratio = pd.width() / (float) pd.height();   // the fixed display, no bars
         }
+        if (inPip && pipRatio > 0) ratio = pipRatio;
+        int[] shape = SplitLayout.shapeOfRatio(ratio);
+        pipRatio = shape[0] / (float) shape[1];
         PictureInPictureParams.Builder b = new PictureInPictureParams.Builder().setAspectRatio(new Rational(shape[0], shape[1]));
         // The mic button works for any page: it is the same mute as the notification's (for a page that is not using the
         // microphone it simply keeps it from being sent when one is asked for).
@@ -673,8 +678,8 @@ public class SessionActivity extends Activity implements Session.Listener {
             // (usually three), so the ones that matter most come first.
             Session f = front();
             if (f != null) {
-                boolean playing = f.isMediaPlaying();
-                actions.add(pipAction(10, playing ? R.drawable.ic_pause : R.drawable.ic_play, playing ? "Pause" : "Play", "toggle"));
+                boolean paused = f.isFrozen();
+                actions.add(pipAction(10, paused ? R.drawable.ic_play : R.drawable.ic_pause, paused ? "Resume" : "Pause", "toggle"));
             }
             actions.add(new RemoteAction(Icon.createWithResource(this, muted ? R.drawable.ic_mic_off : R.drawable.ic_mic), muted ? "Unmute" : "Mute",
                     muted ? "Turn the microphone back on" : "Mute the microphone",
@@ -706,8 +711,12 @@ public class SessionActivity extends Activity implements Session.Listener {
                 Session f = front();
                 String op = intent.getStringExtra(EXTRA_OP);
                 if (f == null || op == null) return;
-                if (op.equals("toggle")) f.mediaToggle();
-                else f.mediaSeek(op.equals("fwd") ? 10 : -10);
+                if (op.equals("toggle")) {
+                    // Pause freezes and silences every page in the Mini window (and the same button lets them go again).
+                    boolean freeze = !f.isFrozen();
+                    for (Session p : pipPages()) p.setFrozen(freeze);
+                    updatePip();
+                } else f.mediaSeek(op.equals("fwd") ? 10 : -10);
                 return;
             }
             Sessions.toggleAllMuted();
@@ -747,6 +756,8 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (!canPip() || isInPictureInPictureMode() || Sessions.active().isEmpty() || allShownLocked()) return false;
         if (editing) stopEdit();
         if (sheet != null) sheet.dismiss();
+        pipRatio = 0;
+        lockBoxes(true);
         try {
             return enterPictureInPictureMode(pipParams().build());
         } catch (RuntimeException e) {
@@ -755,28 +766,21 @@ public class SessionActivity extends Activity implements Session.Listener {
         }
     }
 
-    /** Which layout the Mini window should have, asked from the Mini button's long press. */
-    private void choosePipLayout() {
-        String[] items = {LayoutsActivity.pipLayoutText(0), LayoutsActivity.pipLayoutText(1), LayoutsActivity.pipLayoutText(2), LayoutsActivity.pipLayoutText(3)};
-        new AlertDialog.Builder(this).setTitle("Mini window while Split is on")
-                .setSingleChoiceItems(items, Prefs.pipLayout(this), (d, which) -> {
-                    Prefs.setPipLayout(this, which);
-                    d.dismiss();
-                    updatePip();
-                    Toast.makeText(this, "Used when the Mini window opens while Split is on.", Toast.LENGTH_SHORT).show();
-                }).show();
-    }
-
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
         if (Build.VERSION.SDK_INT < 31) enterPip();
+        else lockBoxes(true);
     }
 
     @Override
     public void onPictureInPictureModeChanged(boolean in, Configuration config) {
         super.onPictureInPictureModeChanged(in, config);
         inPip = in;
+        if (!in) {
+            pipRatio = 0;
+            lockBoxes(false);
+        }
         for (Session s : Sessions.active()) s.setMiniMode(in);   // each page takes the zoom and shape set for that mode
         chromeBox.setVisibility(in ? View.GONE : View.VISIBLE);
         rebuild();
@@ -784,6 +788,11 @@ public class SessionActivity extends Activity implements Session.Listener {
         // size is left filling a corner of the new one. Lay everything out again once the window has settled.
         for (long delay : new long[]{150, 600}) mainHandler.postDelayed(this::relayoutPanes, delay);
         getWindow().getDecorView().post(this::applyBarMode);
+    }
+
+    /** Keeps every page at the size it has now while the window shrinks: the picture is scaled down, the page is not laid out again. */
+    private void lockBoxes(boolean on) {
+        for (int i = 0; i < Sessions.COUNT; i++) boxes[i].setLocked(on);
     }
 
     private void relayoutPanes() {
@@ -867,12 +876,8 @@ public class SessionActivity extends Activity implements Session.Listener {
         row3.addView(countdown, cp);
         int iw = Ui.dp(this, 46);
         if (canPip()) {
-            IconButton pip = new IconButton(this, IconButton.Icon.MINI, "Mini window (hold to choose its layout)");
+            IconButton pip = new IconButton(this, IconButton.Icon.MINI, "Mini window");
             pip.setOnClickListener(v -> enterPip());
-            pip.setOnLongClickListener(v -> {
-                choosePipLayout();
-                return true;
-            });
             row3.addView(pip, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
         layoutButton = new IconButton(this, IconButton.Icon.LAYOUT, "Arrange the pages (hold for more)");
@@ -887,6 +892,9 @@ public class SessionActivity extends Activity implements Session.Listener {
         IconButton lock = new IconButton(this, IconButton.Icon.LOCK, "Lock this page against touches");
         lock.setOnClickListener(v -> startPocketLock());
         row3.addView(lock, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
+        IconButton vol = new IconButton(this, IconButton.Icon.SPEAKER, "Volumes");
+        vol.setOnClickListener(v -> VolumeSheet.show(this));
+        row3.addView(vol, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
         IconButton hide = new IconButton(this, IconButton.Icon.HIDE, "Hide this bar");
         hide.setOnClickListener(v -> {
             Prefs.setBarHidden(this, true);
@@ -942,6 +950,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         dim.setFocusable(false);
         frame.addView(dim, new FrameLayout.LayoutParams(-1, -1));
         setContentView(frame);
+        frame.getViewTreeObserver().addOnGlobalLayoutListener(this::checkKeyboard);
     }
 
     /** Rotation of this screen: with the phone's setting, always with the sensor, or portrait only (Settings). */
@@ -950,6 +959,35 @@ public class SessionActivity extends Activity implements Session.Listener {
         setRequestedOrientation(mode == 1 ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
                 : mode == 2 ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
                 : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+    }
+
+    /**
+     * Typing: the page area gets smaller by the height the keyboard takes, so the page (shrunk, not cut off) stays above it. Only for
+     * pages that have "Shrink for the keyboard" on (the default).
+     */
+    private void checkKeyboard() {
+        if (paneHolder == null || inPip) return;
+        int overlap = 0;
+        Session f = front();
+        if (Build.VERSION.SDK_INT >= 30 && f != null && (f.pin() == null || f.pin().shrinkOnType)) {
+            android.view.WindowInsets wi = getWindow().getDecorView().getRootWindowInsets();
+            if (wi != null && wi.isVisible(android.view.WindowInsets.Type.ime())) {
+                int kb = wi.getInsets(android.view.WindowInsets.Type.ime()).bottom;
+                int nav = wi.getInsets(android.view.WindowInsets.Type.systemBars()).bottom;
+                overlap = Math.max(0, kb - nav);
+            }
+        } else if (Build.VERSION.SDK_INT < 30 && f != null && (f.pin() == null || f.pin().shrinkOnType)) {
+            android.graphics.Rect vis = new android.graphics.Rect();
+            getWindow().getDecorView().getWindowVisibleDisplayFrame(vis);
+            int[] at = new int[2];
+            paneHolder.getLocationOnScreen(at);
+            overlap = Math.max(0, at[1] + paneHolder.getHeight() + paneHolder.getPaddingBottom() - vis.bottom);
+        }
+        if (overlap != paneHolder.getPaddingBottom()) paneHolder.setPadding(0, 0, 0, overlap);
+    }
+
+    void refreshBrightness() {
+        applyBrightness();
     }
 
     private void applyBrightness() {

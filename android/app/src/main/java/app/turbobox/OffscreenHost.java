@@ -33,6 +33,7 @@ final class OffscreenHost {
     private int width;
     private int height;
     private int densityDpi;
+    private int cssWidth;   // the page's layout width in CSS pixels; the density follows from it (0 = use the density given)
     private final String name;
     private ImageReader reader;
     private VirtualDisplay display;
@@ -56,9 +57,20 @@ final class OffscreenHost {
      * Changes the display's size in place (the page keeps its state: it only gets a resize). Used when the display follows the
      * window; a fixed display never calls this.
      */
+    /** The layout width the page should see, in CSS pixels, whatever the display's pixel size: the density is derived from it. */
+    void setCssWidth(int css) {
+        cssWidth = css;
+    }
+
+    static int dpiFor(int pixelWidth, int css, int fallback) {
+        if (css <= 0) return fallback;
+        return Math.max(30, Math.min(800, Math.round(pixelWidth * 160f / css)));
+    }
+
     void resize(int w, int h, int dpi) {
         w = Math.max(16, Math.min(3000, w));
         h = Math.max(16, Math.min(3000, h));
+        dpi = dpiFor(w, cssWidth, dpi);
         if (display == null || (w == width && h == height && dpi == densityDpi)) return;
         try {
             ImageReader old = reader;

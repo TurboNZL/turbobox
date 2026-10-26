@@ -39,8 +39,8 @@ final class Prefs {
     static boolean headsetButton(Context c) { return sp(c).getBoolean("headsetButton", true); }
     static void setHeadsetButton(Context c, boolean v) { sp(c).edit().putBoolean("headsetButton", v).apply(); }
 
-    /** Experimental: every page lives on its own fixed-size private display, shown on screen as a live picture. Applies to pages opened afterwards. */
-    static boolean privateDisplay(Context c) { return sp(c).getBoolean("privateDisplay", false); }
+    /** Every page lives on its own fixed-size private display, shown on screen as a live picture. Applies to pages opened afterwards. */
+    static boolean privateDisplay(Context c) { return sp(c).getBoolean("privateDisplay", true); }
     static void setPrivateDisplay(Context c, boolean v) { sp(c).edit().putBoolean("privateDisplay", v).apply(); }
 
     /** Private display mode: false = the display keeps one fixed size and shape; true = it takes the size of the window it is shown in (hiding the bar, split, rotation). */

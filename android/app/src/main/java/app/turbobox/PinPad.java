@@ -83,6 +83,20 @@ final class PinPad {
             boolean action = k.length() > 1 || k.equals("⌫");
             b.setBackground(Ui.rounded(act, k.equals("OK") ? Ui.withAlpha(Ui.GREEN, 0.30f) : Ui.withAlpha(Color.WHITE, action ? 0.05f : 0.10f), 0, 100));
             b.setClickable(true);
+            // The key you press lights up (lime while the finger is down) and then eases back, so you can see what registered.
+            final int idle = k.equals("OK") ? Ui.withAlpha(Ui.GREEN, 0.30f) : Ui.withAlpha(Color.WHITE, action ? 0.05f : 0.10f);
+            b.setOnTouchListener((v, ev) -> {
+                if (ev.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
+                    b.setBackground(Ui.rounded(act, Ui.GREEN, 0, 100));
+                    b.setTextColor(Ui.BG);
+                } else if (ev.getActionMasked() == android.view.MotionEvent.ACTION_UP || ev.getActionMasked() == android.view.MotionEvent.ACTION_CANCEL) {
+                    b.postDelayed(() -> {
+                        b.setBackground(Ui.rounded(act, idle, 0, 100));
+                        b.setTextColor(Ui.TEXT);
+                    }, 120);
+                }
+                return false;
+            });
             b.setOnClickListener(v -> {
                 if (k.equals("⌫")) {
                     if (code.length() > 0) code.setLength(code.length() - 1);

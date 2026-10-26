@@ -108,36 +108,17 @@ final class SessionSheet implements Session.Listener {
         col.addView(head, Ui.lp(act, 0, 14));
         updateNav();
 
-        // Privacy: what this page may use
-        col.addView(Ui.label(act, "Privacy - this page may use"));
-        Switch micSwitch = Ui.toggle(act);
-        micSwitch.setText("Microphone");
-        micSwitch.setTextColor(Ui.TEXT);
-        micSwitch.setChecked(session.micAllowed());
-        micSwitch.setOnCheckedChangeListener((b, on) -> session.setMicAllowed(on));
-        col.addView(micSwitch, Ui.lp(act, 8, 4));
-        Switch camSwitch = Ui.toggle(act);
-        camSwitch.setText("Camera");
-        camSwitch.setTextColor(Ui.TEXT);
-        camSwitch.setChecked(session.cameraAllowed());
-        camSwitch.setOnCheckedChangeListener((b, on) -> {
-            session.setCameraAllowed(on);
-            if (on && act.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-                act.requestPermissions(new String[]{Manifest.permission.CAMERA}, 3);
-            }
-        });
-        col.addView(camSwitch, Ui.lp(act, 4, 4));
-        col.addView(Ui.hint(act, "Off means the page is refused, like pressing Block in a browser. Turning the microphone off also "
-                + "stops a page that is already using it. The camera is off until you allow it here and in Android."), Ui.lp(act, 2, 10));
-
+        Pin pin = session.pin();
+        if (pin != null) PinSheet.build(act, col, pin, this::dismiss);
+        TextView volumes = Ui.pill(act, "Volumes and brightness", 0);
+        volumes.setOnClickListener(v -> VolumeSheet.show(act));
+        col.addView(volumes, Ui.lp(act, 12, 4));
         TextView reload = Ui.pill(act, "Reload the page", 0);
         reload.setOnClickListener(v -> {
             session.reload();
             dismiss();
         });
-        col.addView(reload, Ui.lp(act, 0, 4));
-        col.addView(Ui.hint(act, "A page that was refused often keeps saying \"blocked\" until it is reloaded. The page is told when a switch "
-                + "changes, but if it still does not see the microphone or camera, reload it (this restarts whatever the page was doing)."), Ui.lp(act, 2, 18));
+        col.addView(reload, Ui.lp(act, 4, 18));
 
         // Mic level test
         col.addView(Ui.label(act, "Microphone level"));
@@ -190,96 +171,6 @@ final class SessionSheet implements Session.Listener {
         loopbackAction.setVisibility(View.GONE);
         loopbackAction.setOnClickListener(v -> applySuggestedGain());
         col.addView(loopbackAction, Ui.lp(act, 0, 16));
-
-        // This page's volume
-        Pin pin = session.pin();
-        float vol = session.volume();
-        TextView volValue = Ui.text(act, Ui.pct(vol), 30f, Ui.TEXT, "sans-serif");
-        col.addView(Ui.label(act, "Page volume"));
-        col.addView(volValue, Ui.lp(act, 4, 2));
-        col.addView(Ui.slider(act, 2f, vol, (value, fromUser) -> {
-            volValue.setText(Ui.pct(value));
-            if (!fromUser) return;
-            session.setVolume(value);
-            if (pin != null) {
-                pin.volume = value;
-                PinStore.put(act, pin);
-            }
-        }), new LinearLayout.LayoutParams(-1, -2));
-        col.addView(Ui.hint(act, "Only this page's sound. Past 100% boosts it. Kept with the pinned page."), Ui.lp(act, 0, 8));
-        TextView unmute = Ui.pill(act, "Turn the page's sound on", 0);
-        unmute.setOnClickListener(v -> session.unmutePageMedia());
-        col.addView(unmute, Ui.lp(act, 0, 4));
-        col.addView(Ui.hint(act, "For a video the site started muted. This switches the page's own mute off (the page's other mute "
-                + "buttons keep working). Your microphone's Mute is separate."), Ui.lp(act, 2, 14));
-
-        // Brightness (shared)
-        float bright = Prefs.brightness(act);
-        TextView brightValue = Ui.text(act, Ui.pct(bright), 30f, Ui.TEXT, "sans-serif");
-        col.addView(Ui.label(act, "Brightness"));
-        col.addView(brightValue, Ui.lp(act, 4, 2));
-        col.addView(Ui.slider(act, 1f, bright, (value, fromUser) -> {
-            brightValue.setText(Ui.pct(value));
-            if (!fromUser) return;
-            Prefs.setBrightness(act, value);
-            onBrightness.run();
-        }), new LinearLayout.LayoutParams(-1, -2));
-        col.addView(Ui.hint(act, "Dims this app below your screen's minimum brightness."), Ui.lp(act, 0, 14));
-
-        // Page zoom: lays the page out again at a different width, like browser zoom (not a magnifier)
-        float zoom = Math.max(0.5f, session.zoom());
-        TextView zoomValue = Ui.text(act, Ui.pct(zoom), 30f, Ui.TEXT, "sans-serif");
-        col.addView(Ui.label(act, "Page zoom (inside the page size)"));
-        col.addView(zoomValue, Ui.lp(act, 4, 2));
-        col.addView(Ui.slider(act, 3f, zoom, (value, fromUser) -> {
-            float z = Math.max(0.5f, value);
-            zoomValue.setText(Ui.pct(z));
-            if (!fromUser) return;
-            if (pin != null) {
-                pin.zoom = z;
-                PinStore.put(act, pin);
-            }
-            // Laying the page out again is heavy: wait until the slider has settled.
-            if (zoomApply != null) ui.removeCallbacks(zoomApply);
-            zoomApply = () -> session.setZoom(z);
-            ui.postDelayed(zoomApply, 250);
-        }), new LinearLayout.LayoutParams(-1, -2));
-        col.addView(Ui.hint(act, "Makes the whole page bigger or smaller by changing the width it is laid out at, like "
-                + "browser zoom. Pinch still magnifies. Kept with the pinned page."), Ui.lp(act, 0, 14));
-
-        if (pin != null) PinSheet.addPageToggles(act, col, pin);
-        PinSheet.addSizeControl(act, col, session.pageWidth(), px -> {
-            if (zoomApply != null) ui.removeCallbacks(zoomApply);
-            zoomApply = () -> session.setPageWidth(px);
-            ui.postDelayed(zoomApply, 250);
-        });
-
-        // Forced shape: the page's area is fitted into a box of this shape (bars around it) instead of filling the space
-        TextView aspectValue = Ui.text(act, Pin.ASPECT_LABELS[session.aspect()] + "  ›", 17f, Ui.GREEN, "sans-serif-medium");
-        aspectValue.setPadding(0, Ui.dp(act, 8), 0, Ui.dp(act, 8));
-        aspectValue.setClickable(true);
-        aspectValue.setOnClickListener(v -> new AlertDialog.Builder(act).setTitle("Force aspect ratio")
-                .setSingleChoiceItems(Pin.ASPECT_LABELS, session.aspect(), (dd, which) -> {
-                    session.setAspect(which);
-                    aspectValue.setText(Pin.ASPECT_LABELS[which] + "  ›");
-                    dd.dismiss();
-                }).show());
-        col.addView(Ui.label(act, "Aspect ratio"));
-        col.addView(aspectValue, Ui.lp(act, 0, 2));
-        col.addView(Ui.hint(act, "Fits the page into a box of this shape, centred with bars around it, and lays the page out to fit it "
-                + "(a 16:9 box suits a video). Kept with the pinned page."), Ui.lp(act, 0, 4));
-        PinSheet.addMiniControls(act, col, session.zoomMini(), session.zoom(), session.aspectMini(),
-                z -> session.setZoomMini(z), a -> session.setAspectMini(a));
-
-        // Desktop sites are the default; this page can ask for the phone layout instead
-        Switch mobileSwitch = Ui.toggle(act);
-        mobileSwitch.setText("Mobile site");
-        mobileSwitch.setTextColor(Ui.TEXT);
-        mobileSwitch.setChecked(session.isMobile());
-        mobileSwitch.setOnCheckedChangeListener((b, on) -> session.setMobile(on));
-        col.addView(mobileSwitch, Ui.lp(act, 0, 4));
-        col.addView(Ui.hint(act, "Off (the default) asks sites for their desktop layout. On asks for the phone layout, like a normal phone "
-                + "browser. The page is loaded again to switch. Kept with the pinned page."), Ui.lp(act, 2, 14));
 
         // Page info: what the page sees, to check the desktop layout
         TextView info = Ui.pill(act, "Show page info", 0);

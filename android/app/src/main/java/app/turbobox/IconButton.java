@@ -13,7 +13,7 @@ import android.widget.TextView;
  * description; the text itself is never drawn. Icons are drawn with paths on a 24 x 24 grid.
  */
 final class IconButton extends TextView {
-    enum Icon { PAUSE, PLAY, RECORD, BOTH, MIC, MIC_OFF, TIMER, GEAR, CLOSE, LAYOUT, MINI, LOCK, SPLIT, CAPTIONS, HIDE, STOP, UP, DOWN, EDIT, TRASH }
+    enum Icon { PAUSE, PLAY, RECORD, BOTH, MIC, MIC_OFF, TIMER, GEAR, CLOSE, LAYOUT, MINI, LOCK, SPLIT, CAPTIONS, HIDE, STOP, UP, DOWN, EDIT, TRASH, SPEAKER, TARGET, EYE, SHARE, ROTATE }
 
     private Icon icon;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -220,6 +220,55 @@ final class IconButton extends TextView {
                 c.drawLine(9.5f, 4, 14.5f, 4, paint);
                 c.drawLine(10, 11, 10, 16, paint);
                 c.drawLine(14, 11, 14, 16, paint);
+                paint.setStyle(Paint.Style.FILL);
+                break;
+            case SPEAKER:
+                path.moveTo(4, 9);
+                path.lineTo(8, 9);
+                path.lineTo(13, 4);
+                path.lineTo(13, 20);
+                path.lineTo(8, 15);
+                path.lineTo(4, 15);
+                path.close();
+                c.drawPath(path, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                c.drawArc(new RectF(11, 8, 19, 16), -50, 100, false, paint);
+                c.drawArc(new RectF(9, 4, 23, 20), -50, 100, false, paint);
+                paint.setStyle(Paint.Style.FILL);
+                break;
+            case TARGET:
+                paint.setStyle(Paint.Style.STROKE);
+                c.drawCircle(12, 12, 8, paint);
+                c.drawCircle(12, 12, 3, paint);
+                c.drawLine(12, 1.5f, 12, 5, paint);
+                c.drawLine(12, 19, 12, 22.5f, paint);
+                c.drawLine(1.5f, 12, 5, 12, paint);
+                c.drawLine(19, 12, 22.5f, 12, paint);
+                paint.setStyle(Paint.Style.FILL);
+                break;
+            case EYE:
+                paint.setStyle(Paint.Style.STROKE);
+                path.moveTo(2, 12);
+                path.quadTo(12, 2, 22, 12);
+                path.quadTo(12, 22, 2, 12);
+                c.drawPath(path, paint);
+                c.drawCircle(12, 12, 3, paint);
+                paint.setStyle(Paint.Style.FILL);
+                break;
+            case SHARE:
+                c.drawCircle(6, 12, 2.6f, paint);
+                c.drawCircle(18, 5.5f, 2.6f, paint);
+                c.drawCircle(18, 18.5f, 2.6f, paint);
+                line(c, 6, 12, 18, 5.5f);
+                line(c, 6, 12, 18, 18.5f);
+                break;
+            case ROTATE:
+                paint.setStyle(Paint.Style.STROKE);
+                c.drawArc(new RectF(4, 4, 20, 20), 40, 270, false, paint);
+                path.moveTo(15, 3);
+                path.lineTo(20, 5.5f);
+                path.lineTo(16.5f, 9.5f);
+                c.drawPath(path, paint);
                 paint.setStyle(Paint.Style.FILL);
                 break;
             case HIDE:

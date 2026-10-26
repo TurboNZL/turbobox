@@ -246,4 +246,104 @@ final class Ui {
         p.bottomMargin = dp(c, bottomDp);
         return p;
     }
+
+    /**
+     * A section of a settings sheet: a card with a coloured icon and title, and the content added to the returned column.
+     */
+    static LinearLayout section(Context c, LinearLayout parent, IconButton.Icon icon, String title, int tint) {
+        LinearLayout card = new LinearLayout(c);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackground(rounded(c, withAlpha(tint, 0.07f), withAlpha(tint, 0.28f), 16));
+        int p = dp(c, 14);
+        card.setPadding(p, dp(c, 12), p, dp(c, 12));
+        LinearLayout head = new LinearLayout(c);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        IconButton ic = new IconButton(c, icon, title);
+        ic.setClickable(false);
+        ic.setOnLongClickListener(null);
+        ic.setIconColor(tint);
+        ic.setBackground(rounded(c, withAlpha(tint, 0.18f), 0, 100));
+        head.addView(ic, new LinearLayout.LayoutParams(dp(c, 34), dp(c, 34)));
+        TextView t = text(c, title, 16f, tint, "semibold");
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-2, -2);
+        tp.leftMargin = dp(c, 10);
+        head.addView(t, tp);
+        card.addView(head);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = dp(c, 12);
+        parent.addView(card, lp);
+        return card;
+    }
+
+    interface OnPick {
+        void picked(int index);
+    }
+
+    /** A row of choices where exactly one is on: a segmented control that scrolls sideways when it is long. */
+    static android.widget.HorizontalScrollView segmented(Context c, String[] labels, int selected, int tint, OnPick l) {
+        android.widget.HorizontalScrollView scroll = new android.widget.HorizontalScrollView(c);
+        scroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout row = new LinearLayout(c);
+        row.setBackground(rounded(c, withAlpha(Color.WHITE, 0.06f), STROKE, 100));
+        row.setPadding(dp(c, 3), dp(c, 3), dp(c, 3), dp(c, 3));
+        TextView[] chips = new TextView[labels.length];
+        for (int i = 0; i < labels.length; i++) {
+            final int at = i;
+            TextView t = text(c, labels[i], 13.5f, i == selected ? BG : DIM, "sans-serif-medium");
+            t.setGravity(Gravity.CENTER);
+            t.setPadding(dp(c, 13), dp(c, 8), dp(c, 13), dp(c, 8));
+            t.setBackground(i == selected ? rounded(c, tint, 0, 100) : null);
+            t.setOnClickListener(v -> {
+                for (int k = 0; k < chips.length; k++) {
+                    chips[k].setTextColor(k == at ? BG : DIM);
+                    chips[k].setBackground(k == at ? rounded(c, tint, 0, 100) : null);
+                }
+                l.picked(at);
+            });
+            chips[i] = t;
+            row.addView(t);
+        }
+        scroll.addView(row);
+        return scroll;
+    }
+
+    /** A slider with its label and current value on one line above it. */
+    static LinearLayout sliderRow(Context c, String label, String value, float max, float start, int tint, OnValue l, java.util.function.Function<Float, String> format) {
+        LinearLayout col = new LinearLayout(c);
+        col.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout line = new LinearLayout(c);
+        line.addView(text(c, label, 14.5f, TEXT, "sans-serif-medium"), new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView v = text(c, value, 14.5f, tint, "sans-serif-medium");
+        line.addView(v);
+        col.addView(line);
+        SeekBar bar = slider(c, max, start, (val, fromUser) -> {
+            v.setText(format.apply(val));
+            l.onValue(val, fromUser);
+        });
+        bar.setProgressTintList(ColorStateList.valueOf(tint));
+        bar.setThumbTintList(ColorStateList.valueOf(tint));
+        col.addView(bar, new LinearLayout.LayoutParams(-1, -2));
+        return col;
+    }
+
+    /** A switch with a title and a one-line explanation under it. */
+    static LinearLayout switchRow(Context c, String title, String sub, boolean on, int tint, android.widget.CompoundButton.OnCheckedChangeListener l) {
+        LinearLayout col = new LinearLayout(c);
+        col.setOrientation(LinearLayout.VERTICAL);
+        android.widget.Switch sw = toggle(c);
+        sw.setText(title);
+        sw.setTextColor(TEXT);
+        sw.setTextSize(15f);
+        sw.setChecked(on);
+        sw.setThumbTintList(new ColorStateList(new int[][]{{android.R.attr.state_checked}, {}}, new int[]{tint, 0xFFD6D6DE}));
+        sw.setTrackTintList(new ColorStateList(new int[][]{{android.R.attr.state_checked}, {}}, new int[]{withAlpha(tint, 0.55f), 0xFF6A6A78}));
+        sw.setOnCheckedChangeListener(l);
+        col.addView(sw);
+        if (sub != null && !sub.isEmpty()) {
+            TextView h = hint(c, sub);
+            h.setTextSize(12f);
+            col.addView(h, lp(c, 1, 0));
+        }
+        return col;
+    }
 }

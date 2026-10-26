@@ -197,13 +197,13 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         });
         screen.addView(keep, Ui.lp(this, 8, 2));
         Switch pd = Ui.toggle(this);
-        pd.setText("Pages live on a private display (experimental)");
+        pd.setText("Pages live on a private display");
         pd.setChecked(Prefs.privateDisplay(this));
         pd.setOnCheckedChangeListener((b, on) -> Prefs.setPrivateDisplay(this, on));
         screen.addView(pd, Ui.lp(this, 8, 2));
         screen.addView(Ui.hint(this, "Every page is drawn on its own fixed-size display and the screen shows a live picture of it, so turning the "
                 + "screen off, pausing or switching tabs changes nothing for the page. Touches are passed in; typing opens a text box. Applies to pages "
-                + "opened afterwards. Turn it off if touching or typing misbehaves."), Ui.lp(this, 0, 8));
+                + "opened afterwards. Turn it off if touching or typing misbehaves on a page."), Ui.lp(this, 0, 8));
         Switch follow = Ui.toggle(this);
         follow.setText("Private display follows the window");
         follow.setChecked(Prefs.displayFollows(this));

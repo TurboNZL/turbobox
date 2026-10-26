@@ -1156,6 +1156,45 @@
     }
     return true;
   };
+
+  // ---- element picker: tap an element to get a css selector for a workflow step ---------------------------------
+  var picking = false;
+  function unique(sel, el) { try { var l = document.querySelectorAll(sel); return l.length === 1 && l[0] === el; } catch (e) { return false; } }
+  function esc(v) { return window.CSS && CSS.escape ? CSS.escape(v) : String(v).replace(/[^\w-]/g, '\\$&'); }
+  function selectorFor(el) {
+    if (el.id && unique('#' + esc(el.id), el)) return '#' + esc(el.id);
+    var tag = el.tagName.toLowerCase(), attrs = ['data-testid', 'data-test', 'data-test-id', 'aria-label', 'name', 'title', 'placeholder', 'alt', 'role'];
+    for (var i = 0; i < attrs.length; i++) {
+      var v = el.getAttribute && el.getAttribute(attrs[i]);
+      if (v && v.length < 80) { var s1 = tag + '[' + attrs[i] + '="' + v.replace(/"/g, '\\"') + '"]'; if (unique(s1, el)) return s1; }
+    }
+    var parts = [], node = el;
+    for (var depth = 0; node && node.nodeType === 1 && depth < 6; depth++, node = node.parentElement) {
+      var part = node.tagName.toLowerCase();
+      if (node.id && unique('#' + esc(node.id), node)) { parts.unshift('#' + esc(node.id)); break; }
+      var cls = Array.prototype.filter.call(node.classList || [], function (c) { return c.length < 30 && !/\d{3,}/.test(c); }).slice(0, 2);
+      if (cls.length) part += '.' + cls.map(esc).join('.');
+      var sib = node.parentElement ? Array.prototype.filter.call(node.parentElement.children, function (x) { return x.tagName === node.tagName; }) : [];
+      if (sib.length > 1) part += ':nth-of-type(' + (sib.indexOf(node) + 1) + ')';
+      parts.unshift(part);
+      if (unique(parts.join(' > '), el)) break;
+    }
+    return parts.join(' > ');
+  }
+  function pickHandler(e) {
+    if (!picking) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (e.type !== 'click') return;
+    var el = e.composedPath ? e.composedPath()[0] : e.target;
+    if (!el || el.nodeType !== 1) return;
+    picking = false;
+    var sel = selectorFor(el);
+    post('picked', JSON.stringify({ selector: sel, text: (el.innerText || el.getAttribute('aria-label') || '').trim().slice(0, 60) }));
+  }
+  ['click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'touchstart', 'touchend'].forEach(function (n) {
+    window.addEventListener(n, pickHandler, { capture: true, passive: false });
+  });
+  T.pick = function (on) { picking = !!on; return picking; };
   // ---- keep the scroll position when the window changes size --------------------------------------------
   // Entering or resizing the Mini window re-lays the page out and a long feed (Twitter/X) jumps a few posts. The scroll
   // position from just before the resize is put back for a moment after it, unless the user touches the page meanwhile.

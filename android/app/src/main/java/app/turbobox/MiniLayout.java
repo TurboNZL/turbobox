@@ -123,6 +123,42 @@ final class MiniLayout {
      * edges of the window and of the other pages when they are within {@code threshold} (a fraction). Pages can still overlap:
      * this only makes edges meet when you bring them close.
      */
+    /** Snaps just the edges being dragged (any of the four) to the window and to the other pages' edges, leaving the others where they are. */
+    static float[] snapEdges(float[] r, float[][] all, int self, boolean left, boolean top, boolean right, boolean bottom, float threshold) {
+        float l = r[0], t = r[1], rr = r[0] + r[2], b = r[1] + r[3];
+        float[] xs = new float[all.length * 2 + 2];
+        float[] ys = new float[all.length * 2 + 2];
+        int k = 0;
+        xs[k] = 0f;
+        ys[k++] = 0f;
+        xs[k] = 1f;
+        ys[k++] = 1f;
+        for (int i = 0; i < all.length; i++) {
+            if (i == self) continue;
+            xs[k] = all[i][0];
+            ys[k++] = all[i][1];
+            xs[k] = all[i][0] + all[i][2];
+            ys[k++] = all[i][1] + all[i][3];
+        }
+        if (left) l = nearest(l, xs, k, threshold);
+        if (right) rr = nearest(rr, xs, k, threshold);
+        if (top) t = nearest(t, ys, k, threshold);
+        if (bottom) b = nearest(b, ys, k, threshold);
+        return clamp(new float[]{l, t, rr - l, b - t});
+    }
+
+    private static float nearest(float v, float[] targets, int n, float threshold) {
+        float best = threshold, out = v;
+        for (int i = 0; i < n; i++) {
+            float d = Math.abs(targets[i] - v);
+            if (d < best) {
+                best = d;
+                out = targets[i];
+            }
+        }
+        return out;
+    }
+
     static float[] snap(float[] r, float[][] all, int self, boolean resizing, float threshold) {
         float[] o = r.clone();
         float[] xs = new float[all.length * 2 + 2];
