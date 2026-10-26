@@ -802,6 +802,7 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     private void updatePip() {
         if (!canPip()) return;
+        forceCrop();
         try {
             PictureInPictureParams params = pipParams().build();
             // Setting the same params again makes Android re-evaluate the window, which is what made it jump while it was being
@@ -824,6 +825,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (sheet != null) sheet.dismiss();
         pipRatio = 0;
         pipSignature = "";
+        forceCrop();
         prepareMini();
         try {
             return enterPictureInPictureMode(pipParams().build());
@@ -837,7 +839,10 @@ public class SessionActivity extends Activity implements Session.Listener {
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
         if (Build.VERSION.SDK_INT < 31) enterPip();
-        else if (canPip() && !Sessions.active().isEmpty() && !allShownLocked() && !editing) prepareMini();
+        else if (canPip() && !Sessions.active().isEmpty() && !allShownLocked() && !editing) {
+            forceCrop();
+            prepareMini();
+        }
     }
 
     @Override
@@ -883,6 +888,16 @@ public class SessionActivity extends Activity implements Session.Listener {
         }
         if (u == null || !u.intersect(0, 0, w, h) || u.width() < 16 || u.height() < 16) return full;
         return u;
+    }
+
+    /** Measures where the pages are right now (not what was last laid out): the Mini window's shape is taken from this. */
+    private void forceCrop() {
+        if (inPip || preparedMini || paneStage == null || paneStage.getWidth() < 16) return;
+        android.graphics.Rect c = computeCrop();
+        if (c == null) return;
+        lastCrop = c;
+        lastStageW = paneStage.getWidth();
+        lastStageH = paneStage.getHeight();
     }
 
     private void refreshCrop() {
@@ -1077,7 +1092,10 @@ public class SessionActivity extends Activity implements Session.Listener {
         dim.setFocusable(false);
         frame.addView(dim, new FrameLayout.LayoutParams(-1, -1));
         setContentView(frame);
-        frame.getViewTreeObserver().addOnGlobalLayoutListener(this::checkKeyboard);
+        frame.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
+            checkKeyboard();
+            if (!editing) refreshCrop();
+        });
     }
 
     /** Rotation of this screen: with the phone's setting, always with the sensor, or portrait only (Settings). */
