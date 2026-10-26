@@ -104,7 +104,10 @@
     var w = Math.round(cfg.pageWidth / cfg.zoom);
     // The scale fits the layout width to the area the page really has (a small floating window, half of a split
     // screen), not to the whole screen, or a page in a small window would show only its top-left corner.
-    var want = 'width=' + w + ', initial-scale=' + ((cfg.viewW || window.screen.width || w) / w).toFixed(3);
+    // Fit the layout width to the physical width of the view: physical pixels over the browser's own pixel ratio is the CSS width that
+    // really fills it, whatever density the display was created with (it can go stale when a display is resized).
+    var fit = cfg.viewPx ? cfg.viewPx / (window.devicePixelRatio || 1) : (cfg.viewW || window.screen.width || w);
+    var want = 'width=' + w + ', initial-scale=' + (fit / w).toFixed(3);
     if (m.content !== want) m.content = want;
   }
   // The virtual screen the page believes it has (desktop mode): its width is the page size setting, its shape the phone's.
@@ -122,6 +125,7 @@
   T.setPageWidth = function (w) { cfg.pageWidth = Math.max(480, Math.min(3840, Math.round(+w) || 1280)); viewport(); };
   // The page's virtual screen takes the forced shape (wider for 16:9 or 21:9), and a size change re-fits the layout cleanly: the scale
   // is applied again from scratch so a stale pinch/fit state (after hiding the bar, a split, the Mini window) cannot stay.
+  T.setViewPx = function (px) { px = Math.max(0, +px || 0); if (px === cfg.viewPx) return; cfg.viewPx = px; viewport(); setTimeout(viewport, 300); };
   T.setShape = function (r) { cfg.shape = Math.max(0, +r || 0); viewport(); };
   T.refit = function () {
     var m = document.querySelector('meta[name=viewport]');
@@ -1325,6 +1329,7 @@
     if ('micAllowed' in o || 'cameraAllowed' in o) { permissionsChanged(); relayToFrames({ __tb: 'cfg', cfg: { micAllowed: cfg.micAllowed, cameraAllowed: cfg.cameraAllowed } }); }
     if ('muted' in o) relayToFrames({ __tb: 'cfg', cfg: { muted: !!o.muted } });
     if ('viewWidth' in o) T.setViewWidth(o.viewWidth);
+    if ('viewPx' in o) T.setViewPx(o.viewPx);
     if ('localMute' in o) T.setLocalMute(o.localMute);
     if ('tap' in o) T.setTap(o.tap);
     if ('keepVisible' in o) cfg.keepVisible = !!o.keepVisible;

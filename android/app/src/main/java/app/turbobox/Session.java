@@ -1215,6 +1215,7 @@ final class Session {
             if (w > 0 && w != or - ol) {
                 viewCssWidth = Math.round(w / v.getResources().getDisplayMetrics().density);
                 js("__turbobox.setViewWidth(" + viewCssWidth + ")");
+                js("__turbobox.setViewPx(" + w + ")");
             }
         });
         wv.addJavascriptInterface(new Bridge(), "TurboBoxBridge");
@@ -1341,6 +1342,7 @@ final class Session {
                     .put("tap", isRecording()).put("micAllowed", micAllowed).put("cameraAllowed", cameraAllowed).put("localMute", frozen)
                     .put("keepVisible", Prefs.keepPlaying(app)).put("desktop", !mobile);
             if (viewCssWidth > 0) settings.put("viewWidth", viewCssWidth);
+            if (webView != null && webView.getWidth() > 0) settings.put("viewPx", webView.getWidth());
             return sessionScript() + "\nwindow.__turbobox.configure(" + settings + ");"
                     + (callMeter ? "\nwindow.__turbobox.setMeter(true);" : "");
         } catch (JSONException e) {
