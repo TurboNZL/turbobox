@@ -667,7 +667,9 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (pages.size() == 1) {
             OffscreenHost pd = pages.get(0).privateDisplay();
             float video = pages.get(0).fullscreenRatio();
-            if (video > 0) ratio = video;                                            // a full-screen video: its own shape, no bars
+            float forced = Pin.ASPECTS[pages.get(0).effectiveAspect()];
+            if (forced > 0 && !editing) ratio = forced;                              // a forced shape: the window has it, so no bars
+            else if (video > 0) ratio = video;                                       // a full-screen video: its own shape, no bars
             else if (pd != null && !Prefs.displayFollows(this) && !editing) ratio = pd.width() / (float) pd.height();   // the fixed display, no bars
         }
         if (inPip && pipRatio > 0) ratio = pipRatio;
