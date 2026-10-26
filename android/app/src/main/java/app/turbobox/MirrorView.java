@@ -15,6 +15,7 @@ import android.view.ViewGroup;
 final class MirrorView extends ViewGroup {
     private final TextureView texture;
     private OffscreenHost host;
+    private SurfaceTexture kept;   // survives the view being taken out of the layout and put back, so there is no black flash
     private float scale = 1f, offX, offY;
     private final Runnable sizeToWindow = this::syncSize;
 
@@ -24,6 +25,7 @@ final class MirrorView extends ViewGroup {
         texture.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
             @Override
             public void onSurfaceTextureAvailable(SurfaceTexture st, int w, int h) {
+                kept = st;
                 if (host != null) host.output(texture, st);
             }
 
@@ -33,8 +35,7 @@ final class MirrorView extends ViewGroup {
 
             @Override
             public boolean onSurfaceTextureDestroyed(SurfaceTexture st) {
-                if (host != null) host.output(null, null);
-                return true;
+                return false;   // kept: the display goes on drawing into it and the picture is there the moment the view is back
             }
 
             @Override
@@ -55,6 +56,10 @@ final class MirrorView extends ViewGroup {
     void release() {
         if (host != null && host.mirror() == texture) host.output(null, null);
         host = null;
+        if (kept != null) {
+            kept.release();
+            kept = null;
+        }
     }
 
     /** Fixed: the display keeps the shape it was made in. Follows: it takes this view's size, so the page is laid out for the space it really has. */

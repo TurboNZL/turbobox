@@ -18,6 +18,7 @@ final class Workflow {
     final String id;
     String name = "";
     final List<String> pinIds = new ArrayList<>();   // the pinned pages it runs on; every one gets its own run of the steps
+    final java.util.Map<String, Long> pinDelays = new java.util.HashMap<>();   // seconds after the start that each page's run begins (absent = at once)
     String steps = "";
     boolean timed;                       // run by itself at hour:minute on the chosen days
     boolean hotkey;                      // shown as a one-tap button on the page screen
@@ -45,13 +46,28 @@ final class Workflow {
     JSONObject toJson() {
         try {
             return new JSONObject().put("id", id).put("name", name).put("pinId", firstPinId())
-                    .put("pinIds", new JSONArray(pinIds)).put("steps", steps)
+                    .put("pinIds", new JSONArray(pinIds)).put("steps", steps).put("pinDelays", delaysJson())
                     .put("timed", timed).put("enabled", enabled).put("hotkey", hotkey).put("hour", hour).put("minute", minute)
                     .put("days", days).put("lastRunAt", lastRunAt).put("lastOk", lastOk)
                     .put("lastMessage", lastMessage);
         } catch (JSONException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    private JSONObject delaysJson() {
+        JSONObject d = new JSONObject();
+        try {
+            for (java.util.Map.Entry<String, Long> e : pinDelays.entrySet()) if (e.getValue() > 0 && pinIds.contains(e.getKey())) d.put(e.getKey(), e.getValue());
+        } catch (JSONException ignored) {
+            // Plain values cannot fail.
+        }
+        return d;
+    }
+
+    long delayFor(String pinId) {
+        Long d = pinDelays.get(pinId);
+        return d == null ? 0 : d;
     }
 
     static Workflow fromJson(JSONObject o) {
@@ -67,6 +83,11 @@ final class Workflow {
             w.pinIds.add(o.optString("pinId"));   // saved before a workflow could have several pages
         }
         w.steps = o.optString("steps");
+        JSONObject delays = o.optJSONObject("pinDelays");
+        if (delays != null) for (java.util.Iterator<String> it = delays.keys(); it.hasNext(); ) {
+            String k = it.next();
+            w.pinDelays.put(k, delays.optLong(k));
+        }
         w.timed = o.optBoolean("timed");
         w.enabled = o.optBoolean("enabled", true);
         w.hotkey = o.optBoolean("hotkey", false);

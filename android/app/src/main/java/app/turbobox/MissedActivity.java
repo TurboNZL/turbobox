@@ -212,7 +212,104 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
             row.addView(caps, Ui.weight(this, 8));
         }
         c.addView(row, Ui.lp(this, 10, 0));
+        LinearLayout row2 = new LinearLayout(this);
+        TextView tr = Ui.pill(this, "Transcribe", 0);
+        tr.setOnClickListener(v -> transcribeRun(r, vtt));
+        row2.addView(tr, Ui.weight(this, 0));
+        if (vtt.exists()) {
+            TextView share = Ui.pill(this, "Share captions", 0);
+            share.setOnClickListener(v -> shareCaptions(r, vtt));
+            row2.addView(share, Ui.weight(this, 8));
+        }
+        TextView export = Ui.pill(this, "Export", 0);
+        export.setOnClickListener(v -> exportRun(r));
+        row2.addView(export, Ui.weight(this, 8));
+        c.addView(row2, Ui.lp(this, 8, 0));
         return c;
+    }
+
+    /** Makes captions for a recording that is already made (Android 13+): it takes about as long as the recording. */
+    private void transcribeRun(BufferStore.Run r, File vtt) {
+        if (isLive(r)) {
+            Toast.makeText(this, "It is still recording. Stop it first, or use live captions.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        String why = Transcriber.unavailableReason(this);
+        if (why != null) {
+            Toast.makeText(this, why, Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, 5);
+            return;
+        }
+        final RecordingTranscribe[] job = new RecordingTranscribe[1];
+        TextView status = Ui.text(this, "Starting...", 15f, Ui.TEXT, "sans-serif");
+        status.setPadding(Ui.dp(this, 22), Ui.dp(this, 14), Ui.dp(this, 22), Ui.dp(this, 6));
+        AlertDialog dlg = new AlertDialog.Builder(this).setTitle("Transcribing").setView(status)
+                .setNegativeButton("Stop", (d, w) -> {
+                    if (job[0] != null) job[0].stop();
+                })
+                .setCancelable(false).create();
+        dlg.show();
+        job[0] = new RecordingTranscribe(this, r, (text, finished) -> {
+            status.setText(text + (finished ? "" : "\n\nThis takes about as long as the recording. You can leave this screen on."));
+            if (finished) {
+                dlg.getButton(AlertDialog.BUTTON_NEGATIVE).setText("Close");
+                dlg.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(x -> {
+                    dlg.dismiss();
+                    showList();
+                });
+            }
+        });
+        job[0].start();
+    }
+
+    /** Copies the recording's pieces (and captions) to Downloads/TurboBox, where a file manager sees them. */
+    private void exportRun(BufferStore.Run r) {
+        File[] files = r.dir.listFiles();
+        if (files == null || files.length == 0) {
+            Toast.makeText(this, "Nothing to export yet.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String folder = (r.name.isEmpty() ? "Recording" : r.name.replaceAll("[^A-Za-z0-9 _-]", "")) + " "
+                + new java.text.SimpleDateFormat("yyyy-MM-dd HH-mm", Locale.US).format(r.startedAt);
+        int n = 0;
+        try {
+            for (File f : files) {
+                String name = f.getName();
+                if (!(name.endsWith(".mp4") || name.endsWith(".vtt") || name.endsWith(".json") || name.endsWith(".txt"))) continue;
+                String mime = name.endsWith(".mp4") ? "video/mp4" : name.endsWith(".vtt") ? "text/vtt" : "text/plain";
+                java.io.OutputStream out;
+                if (android.os.Build.VERSION.SDK_INT >= 29) {
+                    android.content.ContentValues v = new android.content.ContentValues();
+                    v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
+                    v.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mime);
+                    v.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Download/TurboBox/" + folder);
+                    android.net.Uri uri = getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+                    if (uri == null) continue;
+                    out = getContentResolver().openOutputStream(uri);
+                } else {
+                    File dir = new File(getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), "TurboBox/" + folder);
+                    dir.mkdirs();
+                    out = new java.io.FileOutputStream(new File(dir, name));
+                }
+                try (java.io.InputStream in = new java.io.FileInputStream(f); java.io.OutputStream o = out) {
+                    byte[] buf = new byte[65536];
+                    int k;
+                    while ((k = in.read(buf)) > 0) o.write(buf, 0, k);
+                }
+                n++;
+            }
+        } catch (java.io.IOException | RuntimeException e) {
+            Toast.makeText(this, "Export stopped: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            return;
+        }
+        new AlertDialog.Builder(this).setTitle("Exported")
+                .setMessage(n + " files were copied to Downloads/TurboBox/" + folder + ". The recording is in 30-second pieces.")
+                .setPositiveButton("Open Downloads", (d, w) -> startActivity(new android.content.Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)))
+                .setNegativeButton("OK", null).show();
     }
 
     /** The captions of a recording as readable text, with a button that sends the .vtt file. */

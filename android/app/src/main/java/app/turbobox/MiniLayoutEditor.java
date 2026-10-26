@@ -120,24 +120,73 @@ final class MiniLayoutEditor extends View {
             if (!floats[i]) {
                 fill.setColor(col);
                 fill.setAlpha(255);
-                c.drawRect(r.right - handle / 2, r.bottom - handle / 2, r.right, r.bottom, fill);   // the resize corner
+                float h2 = handle / 2f;   // the resize corners: all four
+                c.drawRect(r.left, r.top, r.left + h2, r.top + h2, fill);
+                c.drawRect(r.right - h2, r.top, r.right, r.top + h2, fill);
+                c.drawRect(r.right - h2, r.bottom - h2, r.right, r.bottom, fill);
+                c.drawRect(r.left, r.bottom - h2, r.left + h2, r.bottom, fill);
             }
         }
     }
 
+    private int corner = -1;   // 0 top left, 1 top right, 2 bottom right, 3 bottom left; -1 = moving
+    private android.view.ScaleGestureDetector pinch;
+    private boolean pinching;
+
+    private int cornerAt(RectF r, float x, float y) {
+        float[][] pts = {{r.left, r.top}, {r.right, r.top}, {r.right, r.bottom}, {r.left, r.bottom}};
+        for (int i = 0; i < 4; i++) if (Math.abs(x - pts[i][0]) < handle && Math.abs(y - pts[i][1]) < handle) return i;
+        return -1;
+    }
+
+    private void apply(float[] want, boolean l, boolean t, boolean r, boolean b) {
+        float[] fixed = MiniLayout.clamp(want);
+        float[] out = fixed;
+        if (snap && !pinching) out = (l || t || r || b) ? MiniLayout.snapEdges(fixed, rects, selected, l, t, r, b, 0.03f) : MiniLayout.snap(fixed, rects, selected, false, 0.03f);
+        rects[selected] = out;
+        invalidate();
+        onChange.changed(rects, order, floats);
+    }
+
     @Override
     public boolean onTouchEvent(MotionEvent e) {
+        if (pinch == null) {
+            pinch = new android.view.ScaleGestureDetector(getContext(), new android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                @Override
+                public boolean onScale(android.view.ScaleGestureDetector d) {
+                    if (selected < 0 || raw == null) return true;
+                    pinching = true;
+                    // Pinching resizes about the centre and keeps the page's shape.
+                    float k = d.getScaleFactor();
+                    float cx = raw[0] + raw[2] / 2f, cy = raw[1] + raw[3] / 2f;
+                    float w = raw[2] * k, h = raw[3] * k;
+                    raw = new float[]{cx - w / 2f, cy - h / 2f, w, h};
+                    float[] c = MiniLayout.clamp(raw);
+                    apply(c, false, false, false, false);
+                    return true;
+                }
+            });
+        }
+        pinch.onTouchEvent(e);
+        if (e.getPointerCount() > 1 || pinch.isInProgress()) {
+            pinching = true;
+            getParent().requestDisallowInterceptTouchEvent(true);
+            return true;
+        }
         float x = e.getX(), y = e.getY();
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 dragging = false;
+                pinching = false;
+                corner = -1;
                 for (int k = pages - 1; k >= 0; k--) {   // the one in front first
                     int i = order[k];
                     RectF r = px(i);
-                    if (!r.contains(x, y) && !(Math.abs(x - r.right) < handle && Math.abs(y - r.bottom) < handle)) continue;
+                    int cn = floats[i] ? -1 : cornerAt(r, x, y);
+                    if (!r.contains(x, y) && cn < 0) continue;
                     selected = i;
                     raw = rects[i].clone();
-                    resizing = !floats[i] && x > r.right - handle && y > r.bottom - handle;
+                    corner = cn;
                     dragging = true;
                     break;
                 }
@@ -147,28 +196,33 @@ final class MiniLayoutEditor extends View {
                 if (dragging) getParent().requestDisallowInterceptTouchEvent(true);
                 return dragging;
             case MotionEvent.ACTION_MOVE: {
+                if (pinching) return true;
                 if (!dragging || selected < 0 || getWidth() == 0) return true;
                 float dx = (x - lastX) / getWidth(), dy = (y - lastY) / getHeight();
                 lastX = x;
                 lastY = y;
                 float[] r = raw != null ? raw : rects[selected].clone();
-                if (resizing) {
-                    r[2] += dx;
-                    r[3] += dy;
+                boolean l = false, t = false, rt = false, b = false;
+                if (corner >= 0) {
+                    float left = r[0], top = r[1], right = r[0] + r[2], bottom = r[1] + r[3];
+                    if (corner == 0 || corner == 3) { left += dx; l = true; } else { right += dx; rt = true; }
+                    if (corner == 0 || corner == 1) { top += dy; t = true; } else { bottom += dy; b = true; }
+                    if (right - left < MiniLayout.MIN) { if (l) left = right - MiniLayout.MIN; else right = left + MiniLayout.MIN; }
+                    if (bottom - top < MiniLayout.MIN) { if (t) top = bottom - MiniLayout.MIN; else bottom = top + MiniLayout.MIN; }
+                    r = new float[]{left, top, right - left, bottom - top};
                 } else {
                     r[0] += dx;
                     r[1] += dy;
                 }
                 raw = r;
-                float[] fixed = MiniLayout.clamp(r);
-                rects[selected] = snap ? MiniLayout.snap(fixed, rects, selected, resizing, 0.03f) : fixed;
-                invalidate();
-                onChange.changed(rects, order, floats);
+                apply(r, l, t, rt, b);
                 return true;
             }
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
                 dragging = false;
+                pinching = false;
+                corner = -1;
                 invalidate();
                 return true;
             default:

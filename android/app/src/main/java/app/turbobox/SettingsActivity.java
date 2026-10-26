@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.text.format.DateFormat;
+import android.view.ViewGroup;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.Switch;
@@ -27,6 +28,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
             {"ko-KR", "Korean"}, {"zh-CN", "Chinese (Mandarin)"}, {"hi-IN", "Hindi"}, {"ar-SA", "Arabic"}, {"tr-TR", "Turkish"}};
     private static final int[] KEEP_RUNS = {1, 2, 3, 5, 8, 12};
 
+    private int pendingRotation = -1;
     private LinearLayout body;
     private TextView updateStatus;
     private TextView updateButton;
@@ -53,6 +55,16 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
     protected void onPause() {
         super.onPause();
         AppUpdater.setListener(null);
+    }
+
+    private void moveBar(int at, int by) {
+        java.util.List<String> order = BarItems.order(this);
+        int to = at + by;
+        if (to < 0 || to >= order.size()) return;
+        String id = order.remove(at);
+        order.add(to, id);
+        BarItems.save(this, order, BarItems.off(this));
+        render();
     }
 
     private void render() {
@@ -181,6 +193,67 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         }
         body.addView(ads, Ui.lp(this, 12, 0));
 
+        // Top bar
+        LinearLayout bar = Ui.card(this);
+        bar.addView(Ui.text(this, "Top bar", 17f, Ui.TEXT, "sans-serif-medium"));
+        bar.addView(Ui.hint(this, "Move buttons with the arrows, switch off the ones you never use. Seven fit on a row."), Ui.lp(this, 4, 6));
+        java.util.List<String> order = BarItems.order(this);
+        java.util.List<String> off = BarItems.off(this);
+        for (int i = 0; i < order.size(); i++) {
+            final int at = i;
+            final String id = order.get(i);
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            Switch on = Ui.toggle(this);
+            on.setText(BarItems.name(id));
+            on.setChecked(!off.contains(id));
+            on.setEnabled(!id.equals("settings"));
+            on.setOnCheckedChangeListener((b, checked) -> {
+                java.util.List<String> o = BarItems.off(this);
+                o.remove(id);
+                if (!checked) o.add(id);
+                BarItems.save(this, BarItems.order(this), o);
+            });
+            row.addView(on, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            IconButton up = new IconButton(this, IconButton.Icon.UP, "Move up");
+            up.setBackground(null);
+            up.setEnabled(at > 0);
+            up.setOnClickListener(v -> moveBar(at, -1));
+            IconButton down = new IconButton(this, IconButton.Icon.DOWN, "Move down");
+            down.setBackground(null);
+            down.setEnabled(at < order.size() - 1);
+            down.setOnClickListener(v -> moveBar(at, 1));
+            row.addView(up, new LinearLayout.LayoutParams(Ui.dp(this, 40), Ui.dp(this, 40)));
+            row.addView(down, new LinearLayout.LayoutParams(Ui.dp(this, 40), Ui.dp(this, 40)));
+            bar.addView(row);
+        }
+        body.addView(bar, Ui.lp(this, 12, 0));
+
+        // Mini window buttons
+        LinearLayout pipCard = Ui.card(this);
+        pipCard.addView(Ui.text(this, "Mini window buttons", 17f, Ui.TEXT, "sans-serif-medium"));
+        pipCard.addView(Ui.hint(this, "What each button on the Mini window does. Android shows the first three on most phones, so put the ones you use most first."), Ui.lp(this, 4, 4));
+        for (int i = 0; i < PipButtons.SLOTS; i++) {
+            final int slot = i;
+            TextView row = Ui.text(this, (i + 1) + ".  " + PipButtons.name(this, PipButtons.get(this, i)) + "  \u203A", 15f, Ui.GREEN, "sans-serif-medium");
+            row.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 8));
+            row.setOnClickListener(v -> {
+                java.util.List<String> ids = new java.util.ArrayList<>(java.util.Arrays.asList(PipButtons.IDS));
+                java.util.List<String> names = new java.util.ArrayList<>(java.util.Arrays.asList(PipButtons.NAMES));
+                for (Workflow w : WorkflowStore.load(this)) {
+                    ids.add("workflow:" + w.id);
+                    names.add("Run the workflow: " + w.name);
+                }
+                new AlertDialog.Builder(this).setTitle("Button " + (slot + 1))
+                        .setItems(names.toArray(new String[0]), (d, which) -> {
+                            PipButtons.set(this, slot, ids.get(which));
+                            render();
+                        }).show();
+            });
+            pipCard.addView(row);
+        }
+        body.addView(pipCard, Ui.lp(this, 12, 0));
+
         // The session screen
         LinearLayout screen = Ui.card(this);
         screen.addView(Ui.text(this, "Pages on screen", 17f, Ui.TEXT, "sans-serif-medium"));
@@ -197,13 +270,13 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         });
         screen.addView(keep, Ui.lp(this, 8, 2));
         Switch pd = Ui.toggle(this);
-        pd.setText("Pages live on a private display (experimental)");
+        pd.setText("Pages live on a private display");
         pd.setChecked(Prefs.privateDisplay(this));
         pd.setOnCheckedChangeListener((b, on) -> Prefs.setPrivateDisplay(this, on));
         screen.addView(pd, Ui.lp(this, 8, 2));
         screen.addView(Ui.hint(this, "Every page is drawn on its own fixed-size display and the screen shows a live picture of it, so turning the "
                 + "screen off, pausing or switching tabs changes nothing for the page. Touches are passed in; typing opens a text box. Applies to pages "
-                + "opened afterwards. Turn it off if touching or typing misbehaves."), Ui.lp(this, 0, 8));
+                + "opened afterwards. Turn it off if touching or typing misbehaves on a page."), Ui.lp(this, 0, 8));
         Switch follow = Ui.toggle(this);
         follow.setText("Private display follows the window");
         follow.setChecked(Prefs.displayFollows(this));
@@ -212,15 +285,32 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         screen.addView(Ui.hint(this, "Off: the display keeps one fixed size and shape (most static; the picture is fitted into the window). "
                 + "On: it takes the size of the space the page is shown in, so hiding the bar, a split or rotating gives the page that size."), Ui.lp(this, 0, 8));
         String[] rotations = {"Follow the phone's rotation setting", "Always rotate with the phone", "Portrait only"};
-        TextView rot = Ui.text(this, "Rotation: " + rotations[Prefs.rotation(this)] + "  \u203A", 15f, Ui.GREEN, "sans-serif-medium");
+        if (pendingRotation < 0) pendingRotation = Prefs.rotation(this);
+        TextView rot = Ui.text(this, "Rotation: " + rotations[pendingRotation] + "  \u203A", 15f, Ui.GREEN, "sans-serif-medium");
         rot.setPadding(0, Ui.dp(this, 10), 0, Ui.dp(this, 6));
         rot.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("Rotation of the page screen")
-                .setSingleChoiceItems(rotations, Prefs.rotation(this), (d, which) -> {
-                    Prefs.setRotation(this, which);
+                .setSingleChoiceItems(rotations, pendingRotation, (d, which) -> {
+                    pendingRotation = which;   // kept until Update is pressed
                     d.dismiss();
                     render();
                 }).show());
         screen.addView(rot);
+        boolean changed = pendingRotation != Prefs.rotation(this);
+        String[] forceNames = {"normal", "turned the other way", "held as it was"};
+        int force = Prefs.forceRotate(this);
+        TextView rotButton = Ui.pill(this, changed ? "Update rotation" : "Force rotate (now: " + forceNames[force] + ")", changed ? Ui.GREEN : 0);
+        rotButton.setOnClickListener(v -> {
+            if (changed) {
+                Prefs.setRotation(this, pendingRotation);
+                Toast.makeText(this, "Rotation updated.", Toast.LENGTH_SHORT).show();
+            } else {
+                Prefs.cycleForce(this, getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE);
+            }
+            render();
+        });
+        screen.addView(rotButton, Ui.lp(this, 4, 4));
+        screen.addView(Ui.hint(this, "Pick a rotation, then press Update to use it. With nothing to update the button forces a turn: the other way, "
+                + "then held as it was, then normal again. The page screen's rotate icon does the same."), Ui.lp(this, 0, 4));
         screen.addView(Ui.hint(this, "Each orientation remembers its own arrangement of the pages; until you arrange one, it starts stacked or as a grid."), Ui.lp(this, 0, 6));
         screen.addView(Ui.hint(this, "Sites like YouTube pause a video when the browser says nobody can see the page. With this on, the page "
                 + "is told it is visible and is kept on a private display of its own while the screen is off, so it carries on."), Ui.lp(this, 0, 8));

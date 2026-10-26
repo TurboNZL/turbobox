@@ -1,22 +1,19 @@
 package app.turbobox;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.app.Dialog;
-import android.view.Gravity;
-import android.view.ViewGroup;
 import android.widget.LinearLayout;
-import android.widget.Switch;
-import android.widget.TextView;
+import android.widget.Toast;
 
 import java.util.function.Consumer;
 
 /**
- * A pinned page's own settings from the home screen: the ones that belong to the pin (volume, zoom, aspect ratio, desktop or
- * mobile site, microphone and camera, recording). If the page is running the change reaches it at once; the microphone
- * device, its volume and brightness are shared by every page and stay in the page's settings on the session screen.
+ * A page's own settings: the same sheet from the home screen (a pinned page) and from the page screen (the running one). Grouped in
+ * coloured sections with an icon each. If the page is running a change reaches it at once. Volumes live in {@link VolumeSheet}.
  */
 final class PinSheet {
+    static final int PURPLE = 0xFFB48EF7, BLUE = 0xFF66D9EF, ORANGE = 0xFFFD971F, PINK = 0xFFF92672;
+
     private PinSheet() {
     }
 
@@ -25,155 +22,100 @@ final class PinSheet {
         Dialog d = Ui.sheet(act, col);
         col.addView(Ui.text(act, "Page settings - " + pin.name, 20f, Ui.TEXT, "semibold"), Ui.lp(act, 0, 4));
         Session running = Sessions.forPin(pin.id);
-        col.addView(Ui.hint(act, running == null ? "Used the next time this page opens." : "This page is running: changes apply now."), Ui.lp(act, 0, 10));
-
-        Switch mic = Ui.toggle(act);
-        mic.setText("Page may use the microphone");
-        mic.setTextColor(Ui.TEXT);
-        mic.setChecked(pin.allowMic);
-        mic.setOnCheckedChangeListener((b, on) -> {
-            change(act, pin, p -> p.allowMic = on);
-            Session s = Sessions.forPin(pin.id);
-            if (s != null) s.setMicAllowed(on);
-        });
-        col.addView(mic, Ui.lp(act, 4, 4));
-        Switch cam = Ui.toggle(act);
-        cam.setText("Page may use the camera");
-        cam.setTextColor(Ui.TEXT);
-        cam.setChecked(pin.allowCamera);
-        cam.setOnCheckedChangeListener((b, on) -> {
-            change(act, pin, p -> p.allowCamera = on);
-            Session s = Sessions.forPin(pin.id);
-            if (s != null) s.setCameraAllowed(on);
-        });
-        col.addView(cam, Ui.lp(act, 4, 4));
-        Switch mobile = Ui.toggle(act);
-        mobile.setText("Mobile site (instead of desktop)");
-        mobile.setTextColor(Ui.TEXT);
-        mobile.setChecked(pin.mobile);
-        mobile.setOnCheckedChangeListener((b, on) -> {
-            change(act, pin, p -> p.mobile = on);
-            Session s = Sessions.forPin(pin.id);
-            if (s != null) s.setMobile(on);
-        });
-        col.addView(mobile, Ui.lp(act, 4, 10));
-
-        TextView vol = Ui.text(act, Ui.pct(pin.volume), 26f, Ui.TEXT, "sans-serif");
-        col.addView(Ui.label(act, "Page volume"));
-        col.addView(vol, Ui.lp(act, 2, 2));
-        col.addView(Ui.slider(act, 2f, pin.volume, (value, fromUser) -> {
-            vol.setText(Ui.pct(value));
-            if (!fromUser) return;
-            change(act, pin, p -> p.volume = value);
-            Session s = Sessions.forPin(pin.id);
-            if (s != null) s.setVolume(value);
-        }), new LinearLayout.LayoutParams(-1, -2));
-
-        float zoom0 = Math.max(0.5f, pin.zoom);
-        TextView zoom = Ui.text(act, Ui.pct(zoom0), 26f, Ui.TEXT, "sans-serif");
-        col.addView(Ui.label(act, "Page zoom"), Ui.lp(act, 12, 0));
-        col.addView(zoom, Ui.lp(act, 2, 2));
-        col.addView(Ui.slider(act, 3f, zoom0, (value, fromUser) -> {
-            float z = Math.max(0.5f, value);
-            zoom.setText(Ui.pct(z));
-            if (!fromUser) return;
-            change(act, pin, p -> p.zoom = z);
-            Session s = Sessions.forPin(pin.id);
-            if (s != null) s.setZoom(z);
-        }), new LinearLayout.LayoutParams(-1, -2));
-
-        addSizeControl(act, col, pin.pageWidth, px -> {
-            change(act, pin, p -> p.pageWidth = px);
-            Session s = Sessions.forPin(pin.id);
-            if (s != null) s.setPageWidth(px);
-        });
-
-        TextView aspect = Ui.text(act, Pin.ASPECT_LABELS[pin.aspect] + "  ›", 17f, Ui.GREEN, "sans-serif-medium");
-        aspect.setPadding(0, Ui.dp(act, 8), 0, Ui.dp(act, 8));
-        aspect.setOnClickListener(v -> new AlertDialog.Builder(act).setTitle("Force aspect ratio")
-                .setSingleChoiceItems(Pin.ASPECT_LABELS, pin.aspect, (dd, which) -> {
-                    change(act, pin, p -> p.aspect = which);
-                    pin.aspect = which;
-                    Session s = Sessions.forPin(pin.id);
-                    if (s != null) s.setAspect(which);
-                    aspect.setText(Pin.ASPECT_LABELS[which] + "  ›");
-                    dd.dismiss();
-                }).show());
-        col.addView(Ui.label(act, "Aspect ratio"), Ui.lp(act, 12, 0));
-        col.addView(aspect);
-        addMiniControls(act, col, pin.zoomMini, pin.zoom, pin.aspectMini, z -> {
-            change(act, pin, p -> p.zoomMini = z);
-            pin.zoomMini = z;
-            Session s = Sessions.forPin(pin.id);
-            if (s != null) s.setZoomMini(z);
-        }, a -> {
-            change(act, pin, p -> p.aspectMini = a);
-            pin.aspectMini = a;
-            Session s = Sessions.forPin(pin.id);
-            if (s != null) s.setAspectMini(a);
-        });
-
-        TextView rec = Ui.text(act, Pin.recordModeText(pin.recordMode, Prefs.recordByDefault(act)) + "  ›", 16f, Ui.GREEN, "sans-serif-medium");
-        rec.setPadding(0, Ui.dp(act, 8), 0, Ui.dp(act, 8));
-        rec.setOnClickListener(v -> {
-            int next = (pin.recordMode + 1) % 3;
-            pin.recordMode = next;
-            change(act, pin, p -> p.recordMode = next);
-            rec.setText(Pin.recordModeText(next, Prefs.recordByDefault(act)) + "  ›");
-        });
-        col.addView(Ui.label(act, "Recording (tap to change)"), Ui.lp(act, 12, 0));
-        col.addView(rec);
-
-        TextView done = Ui.pill(act, "Done", Ui.GREEN);
+        col.addView(Ui.hint(act, running == null ? "Used the next time this page opens." : "This page is running: changes apply now."), Ui.lp(act, 0, 4));
+        build(act, col, pin, d::dismiss);
+        android.widget.TextView done = Ui.pill(act, "Done", Ui.GREEN);
         done.setOnClickListener(v -> d.dismiss());
-        addPageToggles(act, col, pin);
-        col.addView(done, Ui.lp(act, 14, 0));
+        col.addView(done, Ui.lp(act, 16, 0));
         d.show();
     }
 
-    /** The per-page switches that are the same on the home screen and on the page screen: close confirmation, ad blocking, cursor mode, protected video. */
-    static void addPageToggles(Activity act, LinearLayout col, Pin pin) {
-        Switch confirm = Ui.toggle(act);
-        confirm.setText("Ask before closing this page");
-        confirm.setChecked(pin.confirmClose);
-        confirm.setOnCheckedChangeListener((b, on) -> change(act, pin, p -> p.confirmClose = on));
-        col.addView(confirm, Ui.lp(act, 12, 4));
-        Switch ads = Ui.toggle(act);
-        ads.setText("Block ads and trackers on this page");
-        ads.setChecked(!pin.noAdblock);
-        ads.setOnCheckedChangeListener((b, on) -> change(act, pin, p -> p.noAdblock = !on));
-        col.addView(ads, Ui.lp(act, 4, 4));
-        Switch cursor = Ui.toggle(act);
-        cursor.setText("Cursor mode (trackpad style)");
-        cursor.setChecked(pin.cursorMode);
-        cursor.setOnCheckedChangeListener((b, on) -> {
+    /** Adds every section for this page to {@code col}. {@code close} dismisses the sheet (for actions that need the page in view). */
+    static void build(Activity act, LinearLayout col, Pin pin, Runnable close) {
+        // ---- Privacy
+        LinearLayout priv = Ui.section(act, col, IconButton.Icon.LOCK, "Privacy", PINK);
+        priv.addView(Ui.switchRow(act, "Microphone", "Off refuses the page, like pressing Block", pin.allowMic, PINK, (b, on) -> {
+            change(act, pin, p -> p.allowMic = on);
+            Session s = Sessions.forPin(pin.id);
+            if (s != null) s.setMicAllowed(on);
+        }), Ui.lp(act, 0, 4));
+        priv.addView(Ui.switchRow(act, "Camera", "Off until you allow it here and in Android", pin.allowCamera, PINK, (b, on) -> {
+            change(act, pin, p -> p.allowCamera = on);
+            Session s = Sessions.forPin(pin.id);
+            if (s != null) s.setCameraAllowed(on);
+            if (on && act.checkSelfPermission(android.Manifest.permission.CAMERA) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                act.requestPermissions(new String[]{android.Manifest.permission.CAMERA}, 3);
+            }
+        }), Ui.lp(act, 8, 4));
+
+        // ---- Look
+        LinearLayout look = Ui.section(act, col, IconButton.Icon.LAYOUT, "Size and shape", BLUE);
+        look.addView(Ui.sliderRow(act, "Page size", pin.pageWidth + " px", 3.84f, pin.pageWidth / 1000f, BLUE, (v, fromUser) -> {
+            int px = Math.max(480, Math.round(v * 100f) * 10);
+            if (!fromUser) return;
+            change(act, pin, p -> p.pageWidth = px);
+            Session s = Sessions.forPin(pin.id);
+            if (s != null) s.setPageWidth(px);
+        }, v -> Math.max(480, Math.round(v * 100f) * 10) + " px"), Ui.lp(act, 0, 0));
+        look.addView(Ui.hint(act, "How wide the page lays itself out, like a screen of that many pixels: smaller is bigger text, larger fits more. "
+                + "Nothing extra is drawn."), Ui.lp(act, 0, 8));
+        String[] shortAspects = {"Fill", "16:9", "4:3", "21:9", "1:1", "9:16", "3:2"};
+        look.addView(Ui.segmented(act, shortAspects, pin.aspect, BLUE, which -> {
+            change(act, pin, p -> p.aspect = which);
+            Session s = Sessions.forPin(pin.id);
+            if (s != null) s.setAspect(which);
+        }), Ui.lp(act, 4, 8));
+        look.addView(Ui.switchRow(act, "Mobile site", "Off asks for the desktop layout; changing it reloads the page", pin.mobile, BLUE, (b, on) -> {
+            change(act, pin, p -> p.mobile = on);
+            Session s = Sessions.forPin(pin.id);
+            if (s != null) s.setMobile(on);
+        }), Ui.lp(act, 0, 4));
+        look.addView(Ui.switchRow(act, "Cursor mode", "One finger moves a pointer, a tap clicks, two fingers scroll", pin.cursorMode, BLUE, (b, on) -> {
             change(act, pin, p -> p.cursorMode = on);
             Session s = Sessions.forPin(pin.id);
             if (s != null) s.setCursorMode(on);
-        });
-        col.addView(cursor, Ui.lp(act, 4, 0));
-        col.addView(Ui.hint(act, "One finger moves a pointer, a tap clicks where it is, hold then drag to drag, two fingers scroll. For sites made for a mouse."), Ui.lp(act, 0, 4));
-        Switch drm = Ui.toggle(act);
-        drm.setText("Allow protected video (Widevine)");
-        drm.setChecked(pin.allowDrm);
-        drm.setOnCheckedChangeListener((b, on) -> change(act, pin, p -> p.allowDrm = on));
-        col.addView(drm, Ui.lp(act, 4, 0));
-        col.addView(Ui.hint(act, "Needed by streaming sites that protect their video. Tradeoff: protected video cannot be recorded (it comes out black) and may "
-                + "not play while the screen is off. Takes effect when the page is opened again."), Ui.lp(act, 0, 4));
-    }
+        }), Ui.lp(act, 8, 4));
+        look.addView(Ui.switchRow(act, "Shrink for the keyboard", "Typing makes the page smaller so the keyboard does not cover it", pin.shrinkOnType, BLUE,
+                (b, on) -> change(act, pin, p -> p.shrinkOnType = on)), Ui.lp(act, 8, 4));
 
-    /** The page size: the width of the virtual screen the page believes it has. Separate from zoom, which works inside it. */
-    static void addSizeControl(Activity act, LinearLayout col, int current, java.util.function.IntConsumer onChange) {
-        TextView value = Ui.text(act, current + " px", 22f, Ui.TEXT, "sans-serif");
-        col.addView(Ui.label(act, "Page size (what the page thinks the screen is)"), Ui.lp(act, 12, 0));
-        col.addView(value, Ui.lp(act, 2, 2));
-        col.addView(Ui.slider(act, 3.84f, current / 1000f, (v, fromUser) -> {
-            int px = Math.max(480, Math.round(v * 100f) * 10);
-            value.setText(px + " px");
-            if (fromUser) onChange.accept(px);
-        }), new LinearLayout.LayoutParams(-1, -2));
-        col.addView(Ui.hint(act, "A wider screen lays the page out the way a big monitor would, in the same pixels as the phone draws. "
-                + "Zoom below works inside it."), Ui.lp(act, 0, 4));
+        // ---- Behaviour
+        LinearLayout beh = Ui.section(act, col, IconButton.Icon.GEAR, "Behaviour", ORANGE);
+        beh.addView(Ui.switchRow(act, "Ask before closing", "A confirmation for pages where closing could cost you something", pin.confirmClose, ORANGE,
+                (b, on) -> change(act, pin, p -> p.confirmClose = on)), Ui.lp(act, 0, 4));
+        beh.addView(Ui.switchRow(act, "Block ads and trackers", null, !pin.noAdblock, ORANGE,
+                (b, on) -> change(act, pin, p -> p.noAdblock = !on)), Ui.lp(act, 8, 4));
+        beh.addView(Ui.switchRow(act, "Protected video (Widevine)", "Needed by streaming sites. It cannot be recorded (comes out black). Applies when the page is opened again.",
+                pin.allowDrm, ORANGE, (b, on) -> change(act, pin, p -> p.allowDrm = on)), Ui.lp(act, 8, 4));
+        String[] rec = {"Follow default", "Always record", "Never record"};
+        beh.addView(Ui.label(act, "Recording when it opens"), Ui.lp(act, 12, 4));
+        beh.addView(Ui.segmented(act, rec, pin.recordMode, ORANGE, which -> {
+            pin.recordMode = which;
+            change(act, pin, p -> p.recordMode = which);
+        }));
+
+        // ---- Tools
+        LinearLayout tools = Ui.section(act, col, IconButton.Icon.TARGET, "Tools", PURPLE);
+        android.widget.TextView pick = Ui.pill(act, "Pick an element (copy its selector)", 0);
+        pick.setOnClickListener(v -> {
+            Session s = Sessions.forPin(pin.id);
+            if (s == null) {
+                Toast.makeText(act, "Open the page first, then pick from its settings.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            s.startPick();
+            close.run();
+            Toast.makeText(act, "Tap the element on the page. Its selector is copied for a workflow step.", Toast.LENGTH_LONG).show();
+        });
+        tools.addView(pick);
+        android.widget.TextView sound = Ui.pill(act, "Turn the page's own sound on", 0);
+        sound.setOnClickListener(v -> {
+            Session s = Sessions.forPin(pin.id);
+            if (s != null) s.unmutePageMedia();
+        });
+        tools.addView(sound, Ui.lp(act, 8, 0));
+        android.widget.TextView vols = Ui.pill(act, "Volumes", 0);
+        vols.setOnClickListener(v -> VolumeSheet.show(act));
+        tools.addView(vols, Ui.lp(act, 8, 0));
     }
 
     /**
@@ -188,51 +130,6 @@ final class PinSheet {
         }
         Session s = Sessions.forPin(pin.id);
         if (s != null && s.pin() != null) edit.accept(s.pin());
-    }
-
-    /**
-     * The Mini window's own zoom and shape, for the page settings of a running page and of a pinned one. Both default to "same
-     * as the normal window"; turning one on gives the Mini window its own value.
-     */
-    static void addMiniControls(Activity act, LinearLayout col, float zoomMini, float zoomNormal, int aspectMini,
-                                java.util.function.Consumer<Float> onZoom, java.util.function.IntConsumer onAspect) {
-        col.addView(Ui.label(act, "In the Mini window"), Ui.lp(act, 14, 0));
-        android.widget.Switch own = Ui.toggle(act);
-        own.setText("Its own page zoom");
-        own.setTextColor(Ui.TEXT);
-        own.setChecked(zoomMini > 0);
-        col.addView(own, Ui.lp(act, 4, 2));
-        float start = zoomMini > 0 ? zoomMini : Math.max(0.5f, zoomNormal);
-        TextView value = Ui.text(act, Ui.pct(start), 22f, Ui.TEXT, "sans-serif");
-        android.widget.SeekBar bar = Ui.slider(act, 3f, start, (v, fromUser) -> {
-            float z = Math.max(0.5f, v);
-            value.setText(Ui.pct(z));
-            if (fromUser) onZoom.accept(z);
-        });
-        int vis = zoomMini > 0 ? android.view.View.VISIBLE : android.view.View.GONE;
-        value.setVisibility(vis);
-        bar.setVisibility(vis);
-        own.setOnCheckedChangeListener((b, on) -> {
-            value.setVisibility(on ? android.view.View.VISIBLE : android.view.View.GONE);
-            bar.setVisibility(on ? android.view.View.VISIBLE : android.view.View.GONE);
-            onZoom.accept(on ? start : 0f);
-        });
-        col.addView(value, Ui.lp(act, 2, 2));
-        col.addView(bar, new LinearLayout.LayoutParams(-1, -2));
-        String[] labels = new String[Pin.ASPECT_LABELS.length + 1];
-        labels[0] = "Same as the normal window";
-        System.arraycopy(Pin.ASPECT_LABELS, 0, labels, 1, Pin.ASPECT_LABELS.length);
-        TextView aspect = Ui.text(act, "Aspect ratio: " + labels[aspectMini + 1] + "  ›", 17f, Ui.GREEN, "sans-serif-medium");
-        aspect.setPadding(0, Ui.dp(act, 8), 0, Ui.dp(act, 8));
-        aspect.setOnClickListener(v -> new AlertDialog.Builder(act).setTitle("Aspect ratio in the Mini window")
-                .setSingleChoiceItems(labels, aspect.getTag() instanceof Integer ? (Integer) aspect.getTag() : aspectMini + 1, (dd, which) -> {
-                    aspect.setTag(which);
-                    onAspect.accept(which - 1);
-                    aspect.setText("Aspect ratio: " + labels[which] + "  ›");
-                    dd.dismiss();
-                }).show());
-        col.addView(aspect, Ui.lp(act, 4, 0));
-        col.addView(Ui.hint(act, "The Mini window's shape follows this page's shape: the Mini window's own aspect ratio if set, else the normal "
-                + "one, else the shape of the page area on screen. Kept with the pinned page."), Ui.lp(act, 0, 8));
+        if (s != null && s.pin() != pin) edit.accept(pin);
     }
 }

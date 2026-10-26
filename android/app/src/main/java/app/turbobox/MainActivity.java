@@ -99,6 +99,11 @@ public class MainActivity extends Activity {
         titles.addView(Ui.text(this, "TurboBox", 28f, Ui.TEXT, "semibold"));
         titles.addView(Ui.text(this, "Pinned pages, running in the background", 13f, Ui.DIM, "sans-serif"), Ui.lp(this, 2, 0));
         head.addView(titles, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        IconButton volumes = new IconButton(this, IconButton.Icon.SPEAKER, "Volumes");
+        volumes.setOnClickListener(v -> VolumeSheet.show(this));
+        LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(Ui.dp(this, 46), ViewGroup.LayoutParams.WRAP_CONTENT);
+        vp.rightMargin = Ui.dp(this, 8);
+        head.addView(volumes, vp);
         TextView settings = Ui.pill(this, "Settings", 0);
         settings.setPadding(Ui.dp(this, 14), Ui.dp(this, 9), Ui.dp(this, 14), Ui.dp(this, 9));
         settings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));

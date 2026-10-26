@@ -86,15 +86,6 @@ public class LayoutsActivity extends Activity {
                         }).show()));
         card.addView(Ui.hint(this, "\"Last used\" is the arrangement you finished with Arrange or applied last for that number of pages; "
                 + "until there is one, it is the grid."), Ui.lp(this, 0, 4));
-        String[] items = {pipLayoutText(0), pipLayoutText(1), pipLayoutText(2), pipLayoutText(3)};
-        card.addView(choiceRow("The Mini window starts as", pipLayoutText(Prefs.pipLayout(this)), () ->
-                new AlertDialog.Builder(this).setTitle("The Mini window starts as")
-                        .setSingleChoiceItems(items, Prefs.pipLayout(this), (d, which) -> {
-                            Prefs.setPipLayout(this, which);
-                            d.dismiss();
-                            render();
-                        }).show()));
-        card.addView(Ui.hint(this, "With Split on, the Mini window shows the pages you chose to split. Without Split it shows the page in front."), Ui.lp(this, 0, 4));
         Switch reclaim = Ui.toggle(this);
         reclaim.setText("Let other pages use the empty space");
         reclaim.setTextColor(Ui.TEXT);

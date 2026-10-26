@@ -235,7 +235,7 @@ final class Session {
 
     /** The zoom in force right now (the Mini window can have its own). */
     float effectiveZoom() {
-        return miniMode && zoomMini > 0 ? zoomMini : zoom;
+        return zoom;
     }
 
     /** The forced shape in force right now (an index into Pin.ASPECTS; the Mini window can have its own). */
@@ -244,17 +244,12 @@ final class Session {
     }
 
     int effectiveAspect(boolean mini) {
-        return mini && aspectMini >= 0 ? aspectMini : aspect;
+        return aspect;
     }
 
     /** The Mini window opened or closed: the page takes that mode's zoom and shape. */
     void setMiniMode(boolean on) {
-        if (miniMode == on) return;
-        float before = effectiveZoom();
-        miniMode = on;
-        updateShape();
-        if (Math.abs(before - effectiveZoom()) > 0.001f) js(String.format(Locale.US, "__turbobox.setZoom(%.3f)", effectiveZoom()));
-        for (Listener l : listeners) l.onAspect(this);
+        miniMode = on;   // the Mini window changes nothing about the page: only the picture of it is scaled
     }
 
     /** The Mini window's own shape (-1 = same as normal); kept with the pin. */
@@ -635,6 +630,10 @@ final class Session {
             PinStore.put(app, pin);
         }
         js("__turbobox.setPageWidth(" + pageWidth + ")");
+        if (pdisplay != null) {
+            pdisplay.setCssWidth(Math.round(pageWidth / zoom));
+            pdisplay.resize(pdisplay.width(), pdisplay.height(), 0);   // same pixels, a different density: the page lays out at the new width
+        }
     }
 
     /** Page zoom, 0.5..3: lays the page out again at 1280 / zoom CSS pixels wide (not a magnifier). */
@@ -1008,14 +1007,20 @@ final class Session {
         leaveHost();
         android.util.DisplayMetrics dm = app.getResources().getDisplayMetrics();
         int w = Math.min(dm.widthPixels, dm.heightPixels), h = Math.max(dm.widthPixels, dm.heightPixels);
-        OffscreenHost host = new OffscreenHost(app, "page" + slot, webView, w, h, dm.densityDpi);
+        OffscreenHost host = new OffscreenHost(app, "page" + slot, webView, w, h, OffscreenHost.dpiFor(w, Math.round(pageWidth / zoom), dm.densityDpi));
+        host.setCssWidth(Math.round(pageWidth / zoom));
         if (host.start()) {
             pdisplay = host;
-            viewCssWidth = Math.round(w / dm.density);
+            viewCssWidth = Math.round(pageWidth / zoom);
             js("__turbobox.configure({privateDisplay:true})");
         } else {
             notice("The private display could not be made (" + host.error() + "); this page is shown the normal way.");
         }
+    }
+
+    /** The next tap on the page does not click: it copies a css selector for that element (paste it into a workflow step). */
+    void startPick() {
+        js("__turbobox.pick(true)");
     }
 
     void leavePrivate() {
@@ -1355,6 +1360,16 @@ final class Session {
                     JSONObject o = new JSONObject(data);
                     main.post(() -> {
                         for (Listener l : listeners) l.onField(this, o.optString("value"), o.optBoolean("multi"));
+                    });
+                    break;
+                }
+                case "picked": {
+                    JSONObject o = new JSONObject(data);
+                    final String sel = "css:" + o.optString("selector");
+                    main.post(() -> {
+                        android.content.ClipboardManager cm = (android.content.ClipboardManager) app.getSystemService(Context.CLIPBOARD_SERVICE);
+                        if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("selector", sel));
+                        notice("Copied to the clipboard: " + sel);
                     });
                     break;
                 }

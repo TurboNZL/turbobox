@@ -83,6 +83,8 @@ public class SessionActivity extends Activity implements Session.Listener {
     private IconButton ccButton;
     private IconButton awayButton;
     private TextView countdown;
+    private final java.util.Map<String, IconButton> barItems = new java.util.HashMap<>();
+    private LinearLayout barRow1, barRow2;
     private IconButton pauseButton;
     private android.widget.HorizontalScrollView hotkeyScroll;
     private LinearLayout hotkeyRow;
@@ -103,6 +105,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     private FloatLayer floatLayer;
     private boolean editing;
     private boolean editMini;
+    private float pipRatio;            // the Mini window's shape, kept while it is open
     private String editingLayoutId;
     private int editSelected = -1;
     private LinearLayout editBar;
@@ -280,6 +283,7 @@ public class SessionActivity extends Activity implements Session.Listener {
      * as. Nothing is ever applied by itself.
      */
     private Arr arrangement(boolean mini, int n, boolean landscape) {
+        mini = false;   // the Mini window shows the same arrangement as the screen, only smaller
         Arr a = new Arr();
         float[][] live = mini ? liveMiniRects : liveRects;
         int[] liveOrder = mini ? liveMiniZ : liveZ;
@@ -506,10 +510,9 @@ public class SessionActivity extends Activity implements Session.Listener {
     }
 
     private void layoutMenu() {
-        String[] items = {"Arrange the pages here (live)", "Arrange the Mini window here", "Use a saved layout..."};
+        String[] items = {"Arrange the pages here (live)", "Use a saved layout..."};
         new AlertDialog.Builder(this).setTitle("Layout").setItems(items, (d, which) -> {
             if (which == 0) startEdit(false, null);
-            else if (which == 1) startEdit(true, null);
             else chooseSavedLayout();
         }).show();
     }
@@ -551,6 +554,8 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     @Override
     protected void onResume() {
+        if (barRow1 != null) arrangeBar();
+        if (!isInPictureInPictureMode()) lockBoxes(false);   // the Home gesture locked the sizes in case the Mini window opened; it did not
         applyRotation();
         super.onResume();
         Profiles.returning();
@@ -597,6 +602,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     protected void onDestroy() {
         // The pages and the timers outlive this screen; only the view of them goes away.
         for (int i = 0; i < freezePopups.length; i++) dismissFreeze(i);
+        for (int i = 0; i < mirrors.length; i++) if (mirrors[i] != null) mirrors[i].release();
         dismissFloat();
         dismissLocks();
         for (Session s : Sessions.all()) {
@@ -629,6 +635,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     @Override
     public void onConfigurationChanged(Configuration c) {
         super.onConfigurationChanged(c);
+        if (inPip) return;   // the Mini window is not affected by rotation
         rebuild();
         getWindow().getDecorView().post(this::applyBarMode);   // the floating button belongs in the new shape of the screen
     }
@@ -649,40 +656,65 @@ public class SessionActivity extends Activity implements Session.Listener {
         return members();
     }
 
+    /**
+     * The Mini window takes the shape of what the pages look like on screen when it opens (the page area, without the bar or any
+     * empty space around the picture), and keeps it: rotating the phone does not change it.
+     */
     private PictureInPictureParams.Builder pipParams() {
         List<Session> pages = pipPages();
-        boolean wide = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
-        Arr arr = arrangement(true, Math.max(1, pages.size()), wide);
-        int[] shape = arr.rects != null && pages.size() >= 2 ? MiniLayout.shape(Prefs.miniShape(this))   // an arrangement of your own has the shape you chose
-                : SplitLayout.shape(arr.rows != null ? arr.rows : new int[]{1});
+        float ratio = paneAspect > 0 ? paneAspect : 9f / 16f;
         if (pages.size() == 1) {
-            // One page: the window has the shape the page is forced to (its own for the Mini window, else the normal one), and
-            // when it is not forced, the shape its area has on screen now, so nothing is squeezed into 16:9 by surprise.
-            float forced = Pin.ASPECTS[pages.get(0).effectiveAspect(true)];
-            // Set to fill the space: a video in full screen gives the window its own shape, so there are no black bars around it.
+            OffscreenHost pd = pages.get(0).privateDisplay();
             float video = pages.get(0).fullscreenRatio();
-            shape = SplitLayout.shapeOfRatio(forced > 0 ? forced : video > 0 ? video : paneAspect > 0 ? paneAspect : 9f / 16f);
+            if (video > 0) ratio = video;                                            // a full-screen video: its own shape, no bars
+            else if (pd != null && !Prefs.displayFollows(this) && !editing) ratio = pd.width() / (float) pd.height();   // the fixed display, no bars
         }
+        if (inPip && pipRatio > 0) ratio = pipRatio;
+        int[] shape = SplitLayout.shapeOfRatio(ratio);
+        pipRatio = shape[0] / (float) shape[1];
         PictureInPictureParams.Builder b = new PictureInPictureParams.Builder().setAspectRatio(new Rational(shape[0], shape[1]));
         // The mic button works for any page: it is the same mute as the notification's (for a page that is not using the
         // microphone it simply keeps it from being sent when one is asked for).
         if (!Sessions.active().isEmpty()) {
             boolean muted = Sessions.allMuted();
             List<RemoteAction> actions = new ArrayList<>();
-            // The page in front: play / pause and a jump of ten seconds either way. Android shows only as many as it allows
-            // (usually three), so the ones that matter most come first.
+            // What each Mini window button does is set in Settings > Mini window buttons (PipButtons). Android shows only as many as
+            // it allows (usually three), taking them in order.
             Session f = front();
-            if (f != null) {
-                boolean playing = f.isMediaPlaying();
-                actions.add(pipAction(10, playing ? R.drawable.ic_pause : R.drawable.ic_play, playing ? "Pause" : "Play", "toggle"));
-            }
-            actions.add(new RemoteAction(Icon.createWithResource(this, muted ? R.drawable.ic_mic_off : R.drawable.ic_mic), muted ? "Unmute" : "Mute",
-                    muted ? "Turn the microphone back on" : "Mute the microphone",
-                    PendingIntent.getBroadcast(this, 7, new Intent(ACTION_PIP_MUTE).setPackage(getPackageName()),
-                            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT)));
-            if (f != null) {
-                actions.add(pipAction(11, R.drawable.ic_forward, "Forward 10 seconds", "fwd"));
-                actions.add(pipAction(12, R.drawable.ic_back, "Back 10 seconds", "back"));
+            for (int i = 0; i < PipButtons.SLOTS; i++) {
+                String fn = PipButtons.get(this, i);
+                if (fn.equals("none")) continue;
+                int code = 20 + i;
+                switch (fn) {
+                    case "pause": {
+                        boolean paused = f != null && f.isFrozen();
+                        actions.add(pipAction(code, paused ? R.drawable.ic_play : R.drawable.ic_pause, paused ? "Resume" : "Pause", fn));
+                        break;
+                    }
+                    case "mute":
+                        actions.add(pipAction(code, muted ? R.drawable.ic_mic_off : R.drawable.ic_mic, muted ? "Unmute" : "Mute", fn));
+                        break;
+                    case "record":
+                        actions.add(pipAction(code, R.drawable.ic_record, f != null && f.isRecording() ? "Stop recording" : "Record", fn));
+                        break;
+                    case "both":
+                        actions.add(pipAction(code, R.drawable.ic_both, f != null && f.awayAtWall != 0 ? "Back" : "Pause and record", fn));
+                        break;
+                    case "play":
+                        actions.add(pipAction(code, f != null && f.isMediaPlaying() ? R.drawable.ic_pause : R.drawable.ic_play, "Play or pause the video", fn));
+                        break;
+                    case "fwd":
+                        actions.add(pipAction(code, R.drawable.ic_forward, "Forward 10 seconds", fn));
+                        break;
+                    case "back":
+                        actions.add(pipAction(code, R.drawable.ic_back, "Back 10 seconds", fn));
+                        break;
+                    default:
+                        if (fn.startsWith("workflow:")) {
+                            Workflow w = WorkflowStore.find(this, fn.substring(9));
+                            if (w != null) actions.add(pipAction(code, R.drawable.ic_flow, w.name, fn));
+                        }
+                }
             }
             int max = Build.VERSION.SDK_INT >= 26 ? getMaxNumPictureInPictureActions() : 3;
             while (actions.size() > Math.max(1, max)) actions.remove(actions.size() - 1);
@@ -706,8 +738,35 @@ public class SessionActivity extends Activity implements Session.Listener {
                 Session f = front();
                 String op = intent.getStringExtra(EXTRA_OP);
                 if (f == null || op == null) return;
-                if (op.equals("toggle")) f.mediaToggle();
-                else f.mediaSeek(op.equals("fwd") ? 10 : -10);
+                switch (op) {
+                    case "pause": {
+                        // Pause freezes and silences every page in the Mini window (and the same button lets them go again).
+                        boolean freeze = !f.isFrozen();
+                        for (Session p : pipPages()) p.setFrozen(freeze);
+                        break;
+                    }
+                    case "mute":
+                        Sessions.toggleAllMuted();
+                        break;
+                    case "record":
+                        if (f.isRecording()) f.stopRecording(); else f.startRecording();
+                        break;
+                    case "both":
+                        stepAwayOrBack();
+                        break;
+                    case "play":
+                        f.mediaToggle();
+                        break;
+                    case "fwd":
+                        f.mediaSeek(10);
+                        break;
+                    case "back":
+                        f.mediaSeek(-10);
+                        break;
+                    default:
+                        if (op.startsWith("workflow:")) WorkflowRunner.start(SessionActivity.this, op.substring(9), false);
+                }
+                updatePip();
                 return;
             }
             Sessions.toggleAllMuted();
@@ -747,6 +806,8 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (!canPip() || isInPictureInPictureMode() || Sessions.active().isEmpty() || allShownLocked()) return false;
         if (editing) stopEdit();
         if (sheet != null) sheet.dismiss();
+        pipRatio = 0;
+        lockBoxes(true);
         try {
             return enterPictureInPictureMode(pipParams().build());
         } catch (RuntimeException e) {
@@ -755,28 +816,21 @@ public class SessionActivity extends Activity implements Session.Listener {
         }
     }
 
-    /** Which layout the Mini window should have, asked from the Mini button's long press. */
-    private void choosePipLayout() {
-        String[] items = {LayoutsActivity.pipLayoutText(0), LayoutsActivity.pipLayoutText(1), LayoutsActivity.pipLayoutText(2), LayoutsActivity.pipLayoutText(3)};
-        new AlertDialog.Builder(this).setTitle("Mini window while Split is on")
-                .setSingleChoiceItems(items, Prefs.pipLayout(this), (d, which) -> {
-                    Prefs.setPipLayout(this, which);
-                    d.dismiss();
-                    updatePip();
-                    Toast.makeText(this, "Used when the Mini window opens while Split is on.", Toast.LENGTH_SHORT).show();
-                }).show();
-    }
-
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
         if (Build.VERSION.SDK_INT < 31) enterPip();
+        else lockBoxes(true);
     }
 
     @Override
     public void onPictureInPictureModeChanged(boolean in, Configuration config) {
         super.onPictureInPictureModeChanged(in, config);
         inPip = in;
+        if (!in) {
+            pipRatio = 0;
+            lockBoxes(false);
+        }
         for (Session s : Sessions.active()) s.setMiniMode(in);   // each page takes the zoom and shape set for that mode
         chromeBox.setVisibility(in ? View.GONE : View.VISIBLE);
         rebuild();
@@ -784,6 +838,11 @@ public class SessionActivity extends Activity implements Session.Listener {
         // size is left filling a corner of the new one. Lay everything out again once the window has settled.
         for (long delay : new long[]{150, 600}) mainHandler.postDelayed(this::relayoutPanes, delay);
         getWindow().getDecorView().post(this::applyBarMode);
+    }
+
+    /** Keeps every page at the size it has now while the window shrinks: the picture is scaled down, the page is not laid out again. */
+    private void lockBoxes(boolean on) {
+        for (int i = 0; i < Sessions.COUNT; i++) boxes[i].setLocked(on);
     }
 
     private void relayoutPanes() {
@@ -824,56 +883,37 @@ public class SessionActivity extends Activity implements Session.Listener {
         tabRow.addView(splitButton, new LinearLayout.LayoutParams(Ui.dp(this, 48), ViewGroup.LayoutParams.WRAP_CONTENT));
         chromeBox.addView(tabRow, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // Row 1: the three things you do to a page while it runs: pause it, record it, or both at once (the old Step away);
-        // then captions and the microphone mute.
-        LinearLayout row1 = new LinearLayout(this);
-        row1.setGravity(Gravity.CENTER_VERTICAL);
-        row1.setPadding(side, Ui.dp(this, 6), side, 0);
+        // The bar's buttons. Which ones show, and in what order, is set in Settings > Top bar (BarItems).
+        int side2 = side;
         pauseButton = new IconButton(this, IconButton.Icon.PAUSE, "Pause: freeze the page and silence it on this phone");
         pauseButton.setOnClickListener(v -> pauseOrResume());
-        row1.addView(pauseButton, Ui.weight(this, 0));
+        barItems.put("pause", pauseButton);
         awayButton = new IconButton(this, IconButton.Icon.BOTH, "Pause and record: catch up on what you missed when you come back");
         awayButton.setOnClickListener(v -> stepAwayOrBack());
-        row1.addView(awayButton, Ui.weight(this, gap));
+        barItems.put("both", awayButton);
         recButton = new IconButton(this, IconButton.Icon.RECORD, "Record (hold for marks, playback and captions)");
         recButton.setOnClickListener(v -> toggleRecording());
         recButton.setOnLongClickListener(v -> {
             recordingMenu();
             return true;
         });
-        row1.addView(recButton, Ui.weight(this, gap));
+        barItems.put("record", recButton);
         ccButton = new IconButton(this, IconButton.Icon.CAPTIONS, "Live captions");
         ccButton.setOnClickListener(v -> toggleCaptions());
-        row1.addView(ccButton, Ui.weight(this, gap));
+        barItems.put("captions", ccButton);
         muteButton = new IconButton(this, IconButton.Icon.MIC, "Mute or unmute your microphone");
         muteButton.setOnClickListener(v -> {
             Session s = front();
             if (s != null) s.setMuted(!s.isMuted());
         });
-        row1.addView(muteButton, Ui.weight(this, gap));
-        chromeBox.addView(row1, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        // Row 2: the timer and its countdown, then layout, Mini window, lock, hide the bar, settings and close.
-        LinearLayout row3 = new LinearLayout(this);
-        row3.setGravity(Gravity.CENTER_VERTICAL);
-        row3.setPadding(side, Ui.dp(this, 6), side, Ui.dp(this, 4));
+        barItems.put("mute", muteButton);
         IconButton timer = new IconButton(this, IconButton.Icon.TIMER, "Timer: hang up after a while or at a time");
         timer.setOnClickListener(v -> showTimerDialog());
-        row3.addView(timer, new LinearLayout.LayoutParams(Ui.dp(this, 48), ViewGroup.LayoutParams.WRAP_CONTENT));
-        countdown = Ui.text(this, "", 13f, Ui.DIM, "sans-serif-medium");
-        countdown.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        cp.leftMargin = Ui.dp(this, 8);
-        row3.addView(countdown, cp);
-        int iw = Ui.dp(this, 46);
+        barItems.put("timer", timer);
         if (canPip()) {
-            IconButton pip = new IconButton(this, IconButton.Icon.MINI, "Mini window (hold to choose its layout)");
+            IconButton pip = new IconButton(this, IconButton.Icon.MINI, "Mini window");
             pip.setOnClickListener(v -> enterPip());
-            pip.setOnLongClickListener(v -> {
-                choosePipLayout();
-                return true;
-            });
-            row3.addView(pip, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
+            barItems.put("mini", pip);
         }
         layoutButton = new IconButton(this, IconButton.Icon.LAYOUT, "Arrange the pages (hold for more)");
         layoutButton.setOnClickListener(v -> {
@@ -883,23 +923,41 @@ public class SessionActivity extends Activity implements Session.Listener {
             layoutMenu();
             return true;
         });
-        row3.addView(layoutButton, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
+        barItems.put("layout", layoutButton);
         IconButton lock = new IconButton(this, IconButton.Icon.LOCK, "Lock this page against touches");
         lock.setOnClickListener(v -> startPocketLock());
-        row3.addView(lock, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
+        barItems.put("lock", lock);
+        IconButton rotate = new IconButton(this, IconButton.Icon.ROTATE, "Force rotation: other way, then held, then normal");
+        rotate.setOnClickListener(v -> forceRotation());
+        barItems.put("rotate", rotate);
+        IconButton vol = new IconButton(this, IconButton.Icon.SPEAKER, "Volumes");
+        vol.setOnClickListener(v -> VolumeSheet.show(this));
+        barItems.put("volume", vol);
         IconButton hide = new IconButton(this, IconButton.Icon.HIDE, "Hide this bar");
         hide.setOnClickListener(v -> {
             Prefs.setBarHidden(this, true);
             applyBarMode();
         });
-        row3.addView(hide, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
+        barItems.put("hide", hide);
         IconButton settings = new IconButton(this, IconButton.Icon.GEAR, "This page's settings");
         settings.setOnClickListener(v -> showSettings());
-        row3.addView(settings, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
+        barItems.put("settings", settings);
         IconButton close = new IconButton(this, IconButton.Icon.CLOSE, "Close this page");
         close.setOnClickListener(v -> confirmClose());
-        row3.addView(close, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
-        chromeBox.addView(row3, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
+        barItems.put("close", close);
+        barRow1 = new LinearLayout(this);
+        barRow1.setGravity(Gravity.CENTER_VERTICAL);
+        barRow1.setPadding(side2, Ui.dp(this, 6), side2, 0);
+        barRow2 = new LinearLayout(this);
+        barRow2.setGravity(Gravity.CENTER_VERTICAL);
+        barRow2.setPadding(side2, Ui.dp(this, 6), side2, Ui.dp(this, 4));
+        chromeBox.addView(barRow1, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
+        chromeBox.addView(barRow2, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
+        countdown = Ui.text(this, "", 13f, Ui.DIM, "sans-serif-medium");
+        countdown.setGravity(Gravity.CENTER);
+        countdown.setVisibility(View.GONE);
+        chromeBox.addView(countdown, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
+        arrangeBar();
 
         // Workflows marked as a hotkey: one tap runs them, no questions asked.
         hotkeyScroll = new android.widget.HorizontalScrollView(this);
@@ -942,14 +1000,59 @@ public class SessionActivity extends Activity implements Session.Listener {
         dim.setFocusable(false);
         frame.addView(dim, new FrameLayout.LayoutParams(-1, -1));
         setContentView(frame);
+        frame.getViewTreeObserver().addOnGlobalLayoutListener(this::checkKeyboard);
     }
 
     /** Rotation of this screen: with the phone's setting, always with the sensor, or portrait only (Settings). */
     private void applyRotation() {
+        int force = Prefs.forceRotate(this);
+        if (force != 0) {
+            boolean basePortrait = Prefs.forceBase(this) == 1;
+            boolean portrait = force == 1 ? !basePortrait : basePortrait;   // 1: the other way, 2: held as it was
+            setRequestedOrientation(portrait ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                    : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+            return;
+        }
         int mode = Prefs.rotation(this);
         setRequestedOrientation(mode == 1 ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
                 : mode == 2 ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
                 : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+    }
+
+    /** The bar's rotate button: current -> other -> current but forced -> current. */
+    private void forceRotation() {
+        int state = Prefs.cycleForce(this, isLandscape());
+        applyRotation();
+        Toast.makeText(this, state == 1 ? "Turned the other way" : state == 2 ? "Held as it was" : "Back to normal rotation", Toast.LENGTH_SHORT).show();
+    }
+
+    /**
+     * Typing: the page area gets smaller by the height the keyboard takes, so the page (shrunk, not cut off) stays above it. Only for
+     * pages that have "Shrink for the keyboard" on (the default).
+     */
+    private void checkKeyboard() {
+        if (paneHolder == null || inPip) return;
+        int overlap = 0;
+        Session f = front();
+        if (Build.VERSION.SDK_INT >= 30 && f != null && (f.pin() == null || f.pin().shrinkOnType)) {
+            android.view.WindowInsets wi = getWindow().getDecorView().getRootWindowInsets();
+            if (wi != null && wi.isVisible(android.view.WindowInsets.Type.ime())) {
+                int kb = wi.getInsets(android.view.WindowInsets.Type.ime()).bottom;
+                int nav = wi.getInsets(android.view.WindowInsets.Type.systemBars()).bottom;
+                overlap = Math.max(0, kb - nav);
+            }
+        } else if (Build.VERSION.SDK_INT < 30 && f != null && (f.pin() == null || f.pin().shrinkOnType)) {
+            android.graphics.Rect vis = new android.graphics.Rect();
+            getWindow().getDecorView().getWindowVisibleDisplayFrame(vis);
+            int[] at = new int[2];
+            paneHolder.getLocationOnScreen(at);
+            overlap = Math.max(0, at[1] + paneHolder.getHeight() + paneHolder.getPaddingBottom() - vis.bottom);
+        }
+        if (overlap != paneHolder.getPaddingBottom()) paneHolder.setPadding(0, 0, 0, overlap);
+    }
+
+    void refreshBrightness() {
+        applyBrightness();
     }
 
     private void applyBrightness() {
@@ -1064,6 +1167,11 @@ public class SessionActivity extends Activity implements Session.Listener {
                 boxes[i].setRatio(editing ? 0f : Pin.ASPECTS[s.effectiveAspect()]);   // while arranging, the frame you drag is the page
             } else if (wv != null && wv.getParent() == boxes[i]) {
                 boxes[i].removeView(wv);
+            }
+            if (!s.isActive() && mirrors[i] != null) {
+                mirrors[i].release();
+                if (mirrors[i].getParent() instanceof ViewGroup) ((ViewGroup) mirrors[i].getParent()).removeView(mirrors[i]);
+                mirrors[i] = null;
             }
             if (panes[i].getParent() != null) ((ViewGroup) panes[i].getParent()).removeView(panes[i]);
         }
@@ -1196,6 +1304,23 @@ public class SessionActivity extends Activity implements Session.Listener {
         float[] r = new float[gridPages.size()];
         for (int i = 0; i < r.length; i++) r[i] = shapeOf(gridPages.get(i));
         grid.setRatios(r, Prefs.reclaimEmpty(this));
+    }
+
+    /** Puts the bar's buttons in the order set in Settings > Top bar, hiding the ones switched off; seven to a row. */
+    private void arrangeBar() {
+        barRow1.removeAllViews();
+        barRow2.removeAllViews();
+        int n = 0;
+        for (String id : BarItems.visibleOrder(this)) {
+            IconButton b = barItems.get(id);
+            if (b == null) continue;
+            if (b.getParent() instanceof ViewGroup) ((ViewGroup) b.getParent()).removeView(b);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            p.leftMargin = Ui.dp(this, n % 7 == 0 ? 0 : 5);
+            (n < 7 ? barRow1 : barRow2).addView(b, p);
+            n++;
+        }
+        barRow2.setVisibility(n > 7 ? View.VISIBLE : View.GONE);
     }
 
     private void updateHotkeys() {
@@ -1696,9 +1821,11 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (s.slot != focus) return;
         if (remainingMs < 0) {
             countdown.setText("");
+            countdown.setVisibility(View.GONE);
             return;
         }
         long sec = (remainingMs + 999) / 1000;
+        countdown.setVisibility(View.VISIBLE);
         countdown.setText(sec >= 3600
                 ? String.format(Locale.US, "Closes in %d:%02d:%02d", sec / 3600, sec % 3600 / 60, sec % 60)
                 : String.format(Locale.US, "Closes in %d:%02d", sec / 60, sec % 60));

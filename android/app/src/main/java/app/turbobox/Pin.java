@@ -17,6 +17,7 @@ final class Pin {
     int pageWidth = 1280;   // the virtual screen width the page believes it has, in CSS pixels (desktop sites)
     boolean allowDrm = true; // protected video (Widevine): the page may play it. Such video is black in a recording and may not play on the private display
     boolean cursorMode;     // drive the page with a pointer (trackpad style) instead of touching it directly
+    boolean shrinkOnType = true; // typing shrinks the page area to the space the keyboard leaves
     boolean noAdblock;      // this page is exempt from ad blocking
     boolean confirmClose;   // ask before closing this page (off by default)
     float volume = 1f;      // 0..2, gain on the page's audio
@@ -50,7 +51,7 @@ final class Pin {
         try {
             return new JSONObject().put("id", id).put("name", name).put("url", url)
                     .put("zoom", zoom).put("volume", volume).put("recordMode", recordMode)
-                    .put("allowMic", allowMic).put("allowCamera", allowCamera).put("aspect", aspect).put("zoomMini", zoomMini).put("aspectMini", aspectMini).put("mobile", mobile).put("pageWidth", pageWidth).put("confirmClose", confirmClose).put("noAdblock", noAdblock).put("cursorMode", cursorMode).put("allowDrm", allowDrm).put("profile", profileId);
+                    .put("allowMic", allowMic).put("allowCamera", allowCamera).put("aspect", aspect).put("zoomMini", zoomMini).put("aspectMini", aspectMini).put("mobile", mobile).put("pageWidth", pageWidth).put("confirmClose", confirmClose).put("noAdblock", noAdblock).put("shrinkOnType", shrinkOnType).put("cursorMode", cursorMode).put("allowDrm", allowDrm).put("profile", profileId);
         } catch (JSONException e) {
             throw new IllegalStateException(e);
         }
@@ -66,6 +67,11 @@ final class Pin {
         p.allowCamera = o.optBoolean("allowCamera", false);
         p.mobile = o.optBoolean("mobile", false);
         p.pageWidth = Math.max(480, Math.min(3840, o.optInt("pageWidth", 1280)));
+        if (Math.abs(p.zoom - 1f) > 0.01f) {   // zoom and page size are one setting now: what the page lays itself out at
+            p.pageWidth = Math.max(480, Math.min(3840, Math.round(p.pageWidth / Math.max(0.5f, p.zoom))));
+            p.zoom = 1f;
+        }
+        p.shrinkOnType = o.optBoolean("shrinkOnType", true);
         p.confirmClose = o.optBoolean("confirmClose", false);
         p.noAdblock = o.optBoolean("noAdblock", false);
         p.cursorMode = o.optBoolean("cursorMode", false);

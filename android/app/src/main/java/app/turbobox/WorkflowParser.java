@@ -31,6 +31,8 @@ import java.util.regex.Pattern;
  * close others | close all   close every other running page / every running page, without asking
  * media play|pause|toggle|next|previous   press that media key (the music app that last played gets it)
  * app spotify                open another app (spotify, youtube music, or its package name)
+ * wait until 22:30         wait for that time of day (today, or tomorrow if it has passed)
+ * run Name                  start another workflow
  * js document.title          run a script on the page
  * hangup | close            close the page right now
  * </pre>
@@ -42,7 +44,7 @@ final class WorkflowParser {
     private WorkflowParser() {
     }
 
-    enum Kind { OPEN, WAIT, WAITFOR, CLICK, TYPE, KEY, SCROLL, MUTE, UNMUTE, VOLUME, HANGUP, RECORD_START, RECORD_STOP, TRANSCRIBE_ON, TRANSCRIBE_OFF, STEP_AWAY, STEP_BACK, PAUSE, RESUME, MARK, JS, CLOSE, CLOSE_OTHERS, CLOSE_ALL, MEDIA, APP }
+    enum Kind { OPEN, WAIT, WAITFOR, CLICK, TYPE, KEY, SCROLL, MUTE, UNMUTE, VOLUME, HANGUP, RECORD_START, RECORD_STOP, TRANSCRIBE_ON, TRANSCRIBE_OFF, STEP_AWAY, STEP_BACK, PAUSE, RESUME, MARK, JS, CLOSE, CLOSE_OTHERS, CLOSE_ALL, MEDIA, APP, RUN, WAIT_UNTIL }
 
     static final class Step {
         Kind kind;
@@ -104,8 +106,20 @@ final class WorkflowParser {
                 s.kind = Kind.OPEN;
                 break;
             case "wait":
+                if (rest.toLowerCase(Locale.ROOT).startsWith("until ")) {
+                    s.kind = Kind.WAIT_UNTIL;
+                    int minutes = clockMinutes(rest.substring(6).trim());
+                    if (minutes < 0) throw new ParseError(no, "wait until needs a time of day, like 22:30 or 6:15 am");
+                    s.number = minutes;
+                    break;
+                }
                 s.kind = Kind.WAIT;
                 s.seconds = durationOrFail(rest, no);
+                break;
+            case "run":
+                if (rest.isEmpty()) throw new ParseError(no, "run needs the name of a workflow");
+                s.kind = Kind.RUN;
+                s.text = rest;
                 break;
             case "waitfor":
                 s.kind = Kind.WAITFOR;
@@ -243,7 +257,7 @@ final class WorkflowParser {
     /** Does a step of this kind need a page to act on? (The others work in a workflow that has none.) */
     static boolean needsPage(Kind k) {
         switch (k) {
-            case WAIT: case CLOSE_ALL: case CLOSE_OTHERS: case MEDIA: case APP:
+            case WAIT: case WAIT_UNTIL: case RUN: case CLOSE_ALL: case CLOSE_OTHERS: case MEDIA: case APP:
                 return false;
             default:
                 return true;
@@ -287,6 +301,24 @@ final class WorkflowParser {
             t = t.substring(1, t.length() - 1);
         }
         return t.isEmpty() ? null : "text:" + t;
+    }
+
+    /** Minutes after midnight for "22:30", "6:15", "6:15 am", "7pm"; -1 when it is not a time of day. */
+    static int clockMinutes(String raw) {
+        if (raw == null) return -1;
+        Matcher m = Pattern.compile("^(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?$", Pattern.CASE_INSENSITIVE).matcher(raw.trim());
+        if (!m.matches()) return -1;
+        int h = Integer.parseInt(m.group(1));
+        int min = m.group(2) == null ? 0 : Integer.parseInt(m.group(2));
+        String ap = m.group(3) == null ? "" : m.group(3).toLowerCase(Locale.ROOT);
+        if (min > 59) return -1;
+        if (!ap.isEmpty()) {
+            if (h < 1 || h > 12) return -1;
+            h = h % 12 + (ap.equals("pm") ? 12 : 0);
+        } else if (h > 23) {
+            return -1;
+        }
+        return h * 60 + min;
     }
 
     private static final Pattern DURATION = Pattern.compile("^(?:(\\d+)h)?(?:(\\d+)m)?(?:(\\d+)s)?$", Pattern.CASE_INSENSITIVE);
