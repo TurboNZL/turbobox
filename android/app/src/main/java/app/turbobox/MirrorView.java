@@ -46,6 +46,11 @@ final class MirrorView extends ViewGroup {
         setBackgroundColor(0xFF000000);
     }
 
+    /** The view that draws the page (without the bars around it), for working out where the page really is on screen. */
+    android.view.View contentView() {
+        return texture;
+    }
+
     void setHost(OffscreenHost h) {
         host = h;
         if (h != null && texture.isAvailable()) h.output(texture, texture.getSurfaceTexture());

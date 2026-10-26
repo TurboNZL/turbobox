@@ -77,6 +77,10 @@ public class SessionActivity extends Activity implements Session.Listener {
     private PopupWindow floatButton;
     private boolean pipReceiverOn;
     private LinearLayout paneHolder;
+    private PipStage paneStage;
+    private android.graphics.Rect lastCrop;   // where the pages really are inside the page area (kept current while not in the Mini window)
+    private int lastStageW, lastStageH;
+    private boolean preparedMini;
     private IconButton splitButton;
     private IconButton muteButton;
     private IconButton recButton;
@@ -133,6 +137,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         setVolumeControlStream(AudioManager.STREAM_MUSIC);
         getWindow().setStatusBarColor(Ui.BG);
         getWindow().setNavigationBarColor(Ui.BG);
+        getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Ui.BG));   // never a grey flash while the window is resized
         buildUi();
         for (Session s : Sessions.all()) s.addListener(this);
         applyBrightness();
@@ -556,7 +561,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     protected void onResume() {
         if (dim != null) applyBrightness();
         if (barRow1 != null) arrangeBar();
-        if (!isInPictureInPictureMode()) lockBoxes(false);   // the Home gesture locked the sizes in case the Mini window opened; it did not
+        if (!isInPictureInPictureMode()) unprepareMini();   // the Home gesture got things ready in case the Mini window opened; it did not
         applyRotation();
         super.onResume();
         Profiles.returning();
@@ -584,6 +589,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         // Stopped while still a Mini window = the person dismissed it with its X. Finish the screen so no empty window is left;
         // the pages themselves keep running (they belong to the service, not to this screen).
         if (inPip && Build.VERSION.SDK_INT >= 24 && isInPictureInPictureMode() && !isChangingConfigurations()) finish();
+        unprepareMini();
         for (Session s : Sessions.all()) {
             s.setFrameWindow(null);
             s.setCallMeter(false); // the level strip is only useful while it can be seen
@@ -664,14 +670,11 @@ public class SessionActivity extends Activity implements Session.Listener {
     private PictureInPictureParams.Builder pipParams() {
         List<Session> pages = pipPages();
         float ratio = paneAspect > 0 ? paneAspect : 9f / 16f;
-        if (pages.size() == 1) {
-            OffscreenHost pd = pages.get(0).privateDisplay();
-            float video = pages.get(0).fullscreenRatio();
-            float forced = Pin.ASPECTS[pages.get(0).effectiveAspect()];
-            if (forced > 0 && !editing) ratio = forced;                              // a forced shape: the window has it, so no bars
-            else if (video > 0) ratio = video;                                       // a full-screen video: its own shape, no bars
-            else if (pd != null && !Prefs.displayFollows(this) && !editing) ratio = pd.width() / (float) pd.height();   // the fixed display, no bars
-        }
+        // The shape of the box that holds every page (forced shapes, stacked and overlapping pages, letterboxing all included), so the
+        // window has no empty bars: that box is what the stage shows.
+        android.graphics.Rect cropNow = lastCrop;
+        if (cropNow != null && cropNow.width() > 16 && cropNow.height() > 16 && !editing) ratio = cropNow.width() / (float) cropNow.height();
+        if (pages.size() == 1 && pages.get(0).fullscreenRatio() > 0) ratio = pages.get(0).fullscreenRatio();   // a video in full screen: its own shape
         if (inPip && pipRatio > 0) ratio = pipRatio;
         int[] shape = SplitLayout.shapeOfRatio(ratio);
         pipRatio = shape[0] / (float) shape[1];
@@ -821,7 +824,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (sheet != null) sheet.dismiss();
         pipRatio = 0;
         pipSignature = "";
-        lockBoxes(true);
+        prepareMini();
         try {
             return enterPictureInPictureMode(pipParams().build());
         } catch (RuntimeException e) {
@@ -834,7 +837,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
         if (Build.VERSION.SDK_INT < 31) enterPip();
-        else lockBoxes(true);
+        else if (canPip() && !Sessions.active().isEmpty() && !allShownLocked() && !editing) prepareMini();
     }
 
     @Override
@@ -843,7 +846,9 @@ public class SessionActivity extends Activity implements Session.Listener {
         inPip = in;
         if (!in) {
             pipRatio = 0;
-            lockBoxes(false);
+            unprepareMini();
+        } else {
+            prepareMini();   // entered by the Home gesture without a warning: the sizes kept from before are used
         }
         for (Session s : Sessions.active()) s.setMiniMode(in);   // each page takes the zoom and shape set for that mode
         chromeBox.setVisibility(in ? View.GONE : View.VISIBLE);
@@ -854,9 +859,67 @@ public class SessionActivity extends Activity implements Session.Listener {
         getWindow().getDecorView().post(this::applyBarMode);
     }
 
-    /** Keeps every page at the size it has now while the window shrinks: the picture is scaled down, the page is not laid out again. */
-    private void lockBoxes(boolean on) {
-        for (int i = 0; i < Sessions.COUNT; i++) boxes[i].setLocked(on);
+    /** Where the pages really are inside the page area: the box that holds all of them (not the empty space around or between). */
+    private android.graphics.Rect computeCrop() {
+        if (paneStage == null || paneStage.getWidth() < 8) return null;
+        int w = paneStage.getWidth(), h = paneStage.getHeight();
+        android.graphics.Rect full = new android.graphics.Rect(0, 0, w, h);
+        int[] so = new int[2];
+        paneStage.getLocationOnScreen(so);
+        android.graphics.Rect u = null;
+        for (Session s : gridPages) {
+            View c = null;
+            MirrorView m = mirrors[s.slot];
+            if (s.privateDisplay() != null && m != null && m.getParent() != null) c = m.contentView();
+            else {
+                WebView wv = s.peekWebView();
+                if (wv != null && wv.getParent() == boxes[s.slot]) c = wv;
+            }
+            if (c == null || c.getWidth() < 8 || !c.isShown()) continue;
+            int[] at = new int[2];
+            c.getLocationOnScreen(at);
+            android.graphics.Rect r = new android.graphics.Rect(at[0] - so[0], at[1] - so[1], at[0] - so[0] + c.getWidth(), at[1] - so[1] + c.getHeight());
+            if (u == null) u = r; else u.union(r);
+        }
+        if (u == null || !u.intersect(0, 0, w, h) || u.width() < 16 || u.height() < 16) return full;
+        return u;
+    }
+
+    private void refreshCrop() {
+        if (inPip || preparedMini) return;
+        android.graphics.Rect c = computeCrop();
+        if (c == null) return;
+        boolean changed = lastCrop == null || !lastCrop.equals(c);
+        lastCrop = c;
+        lastStageW = paneStage.getWidth();
+        lastStageH = paneStage.getHeight();
+        if (changed) updatePip();   // the window is made in this shape if it has to be made from the Home gesture
+    }
+
+    /**
+     * Gets the page area ready for the Mini window: pages move to private displays of the size they have (so they are never resized),
+     * and the stage shows only the part that has pages in it. Done before the window shrinks.
+     */
+    private void prepareMini() {
+        if (preparedMini || paneStage == null) return;
+        android.graphics.Rect crop = lastCrop != null && lastStageW > 0 ? lastCrop : computeCrop();
+        int sw = lastStageW > 0 ? lastStageW : paneStage.getWidth(), sh = lastStageH > 0 ? lastStageH : paneStage.getHeight();
+        if (crop == null || sw < 16) return;
+        for (Session s : gridPages) {
+            WebView wv = s.peekWebView();
+            if (s.privateDisplay() == null && wv != null && wv.getWidth() >= 16) s.hostForMini(wv.getWidth(), wv.getHeight());
+        }
+        paneStage.enter(sw, sh, crop);
+        preparedMini = true;
+        rebuild();
+    }
+
+    /** Back to the normal screen: pages that were moved for the Mini window come home, and the stage fills the space again. */
+    private void unprepareMini() {
+        if (!preparedMini && !paneStage.isPip()) return;
+        preparedMini = false;
+        paneStage.exit();
+        for (Session s : Sessions.all()) s.leaveMiniHost();
     }
 
     private void relayoutPanes() {
@@ -991,10 +1054,8 @@ public class SessionActivity extends Activity implements Session.Listener {
         paneHolder.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
             if (inPip || editing || r - l < 50 || b - t < 50) return;
             float now = (r - l) / (float) (b - t);
-            if (Math.abs(now - paneAspect) > 0.01f) {
-                paneAspect = now;
-                updatePip();   // the window is made in this shape if it has to be made from the Home gesture
-            }
+            if (Math.abs(now - paneAspect) > 0.01f) paneAspect = now;
+            refreshCrop();
         });
         for (int i = 0; i < Sessions.COUNT; i++) {
             panes[i] = new FrameLayout(this);
@@ -1003,7 +1064,9 @@ public class SessionActivity extends Activity implements Session.Listener {
         }
         buildEditBar();
         root.addView(editBar, new LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT));
-        root.addView(paneHolder, new LinearLayout.LayoutParams(-1, 0, 1f));
+        paneStage = new PipStage(this);
+        paneStage.addView(paneHolder, new FrameLayout.LayoutParams(-1, -1));
+        root.addView(paneStage, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         // Brightness veil over everything, the same trick as Tether's main screen.
         FrameLayout frame = new FrameLayout(this);
