@@ -93,7 +93,7 @@
   // The layout width is also the zoom: a narrower layout shows the same page bigger (like browser zoom,
   // everything is laid out again, nothing is just magnified).
   function viewport() {
-    if (!cfg.desktop) return;   // mobile mode: the page's own viewport stands
+    if (!cfg.desktop || cfg.privateDisplay) return;   // mobile mode: the page's own viewport stands. A private display is sized and given its density so the page fills it at scale 1: no meta, no fitting
     var m = document.querySelector('meta[name=viewport]');
     if (!m) {
       if (!document.head) return;

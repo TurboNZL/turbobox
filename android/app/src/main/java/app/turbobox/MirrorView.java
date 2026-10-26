@@ -74,9 +74,9 @@ final class MirrorView extends ViewGroup {
         if (h == null || w <= 0 || ht <= 0) return;
         android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
         if (Prefs.displayFollows(getContext())) {
-            h.resize(w, ht, dm.densityDpi);
+            h.resize(w, ht, 0);
         } else {
-            h.resize(Math.min(dm.widthPixels, dm.heightPixels), Math.max(dm.widthPixels, dm.heightPixels), dm.densityDpi);
+            h.resize(Math.min(dm.widthPixels, dm.heightPixels), Math.max(dm.widthPixels, dm.heightPixels), 0);
         }
         requestLayout();
     }

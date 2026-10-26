@@ -2038,6 +2038,11 @@ public class SessionActivity extends Activity implements Session.Listener {
     }
 
     @Override
+    public void onHostChanged(Session s) {
+        rebuild();
+    }
+
+    @Override
     public void onFieldEnd(Session s) {
         if (s == typeSession) hideTypeBox();
     }
