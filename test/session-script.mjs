@@ -247,6 +247,11 @@ check('ad boxes are hidden and the page is left alone', hid.ad === 'none' && hid
   await tp.touchscreen.tap(300, 430);
   const hit2 = await tp.evaluate(() => window.hit || '');
   check('with it off the finger clicks as usual', hit2 === 'b', hit2);
+  // element picker: a touch picks the element and does not click it
+  await tp.evaluate(() => { window.hit = ''; window.__picked = []; window.TurboBoxBridge.post = function (k, d) { if (k === 'picked') window.__picked.push(d); }; window.__turbobox.pick(true); });
+  await tp.touchscreen.tap(300, 430);
+  const got = await tp.evaluate(() => ({ picked: window.__picked, hit: window.hit }));
+  check('a tap in pick mode copies the element\'s selector and does not click it', got.picked.length === 1 && /#b/.test(got.picked[0]) && got.hit === '', got);
   await ctx.close();
 }
 

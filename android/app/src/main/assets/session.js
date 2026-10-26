@@ -802,7 +802,10 @@
       try { if (el.form.requestSubmit) el.form.requestSubmit(); else el.form.submit(); } catch (e) { /* ignore */ }
     }
   }
+  var stepping = false;
   T.step = function (s) {
+    stepping = true;
+    setTimeout(function () { stepping = false; }, 600);   // a field a step focuses must not open the keyboard
     function ok(msg) { return { ok: true, msg: msg || '' }; }
     function no(msg) { return { ok: false, msg: msg }; }
     try {
@@ -1131,7 +1134,7 @@
   }
   var fieldEl = null;
   document.addEventListener('focusin', function (e) {
-    if (!cfg.privateDisplay) return;
+    if (!cfg.privateDisplay || stepping || picking) return;
     var el = editable(e.composedPath ? e.composedPath()[0] : e.target);
     if (!el) return;
     fieldEl = el;
@@ -1188,8 +1191,11 @@
   }
   function pickHandler(e) {
     if (!picking) return;
+    // A touch is swallowed whole (otherwise the page would act on it, or the browser would turn it into a click later) and the
+    // element is taken when the finger lifts; a mouse or a synthetic click is taken as it comes.
     e.preventDefault(); e.stopImmediatePropagation();
-    if (e.type !== 'click') return;
+    if (e.type !== 'click' && e.type !== 'touchend' && e.type !== 'pointerup') return;
+    if (e.type === 'pointerup' && e.pointerType === 'touch') return;   // the touchend that follows does it
     var el = e.composedPath ? e.composedPath()[0] : e.target;
     if (!el || el.nodeType !== 1) return;
     picking = false;

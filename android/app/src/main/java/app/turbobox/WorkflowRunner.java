@@ -255,7 +255,7 @@ final class WorkflowRunner {
                 finish(false, "the page was closed before step " + (index + 1));
                 return;
             }
-            log("Step " + (index + 1) + ": " + s.raw);
+            log("Step " + (index + 1) + ": " + s.raw + (session != null && session.privateDisplay() != null ? "   [page on a private display]" : ""));
             switch (s.kind) {
                 case OPEN:
                     if (!session.isActive()) {
