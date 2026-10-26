@@ -633,13 +633,7 @@ final class Session {
             PinStore.put(app, pin);
         }
         js("__turbobox.setPageWidth(" + pageWidth + ")");
-        if (pdisplay != null && !miniHosted) {
-            // The page size is the display's density: a new display is made with it (changing it under a live page leaves the browser
-            // with the old one), and the page keeps its place in it.
-            leavePrivate();
-            syncPrivateDisplay();
-            for (Listener l : listeners) l.onHostChanged(this);
-        }
+
     }
 
     /** Page zoom, 0.5..3: lays the page out again at 1280 / zoom CSS pixels wide (not a magnifier). */
@@ -1014,11 +1008,9 @@ final class Session {
         leaveHost();
         android.util.DisplayMetrics dm = app.getResources().getDisplayMetrics();
         int w = Math.min(dm.widthPixels, dm.heightPixels), h = Math.max(dm.widthPixels, dm.heightPixels);
-        OffscreenHost host = new OffscreenHost(app, "page" + slot, webView, w, h, OffscreenHost.dpiFor(w, Math.round(pageWidth / zoom), dm.densityDpi));
-        host.setCssWidth(Math.round(pageWidth / zoom));
+        OffscreenHost host = new OffscreenHost(app, "page" + slot, webView, w, h, dm.densityDpi);
         if (host.start()) {
             pdisplay = host;
-            fillMode(true);
             viewCssWidth = Math.round(pageWidth / zoom);
             js("__turbobox.configure({privateDisplay:true})");
         } else {
@@ -1361,6 +1353,7 @@ final class Session {
                     .put("tap", isRecording()).put("micAllowed", micAllowed).put("cameraAllowed", cameraAllowed).put("localMute", frozen)
                     .put("keepVisible", Prefs.keepPlaying(app)).put("desktop", !mobile);
             if (viewCssWidth > 0) settings.put("viewWidth", viewCssWidth);
+            settings.put("dsf", app.getResources().getDisplayMetrics().density);   // the density the WebView was created with: what its CSS pixels are
             if (webView != null && webView.getWidth() > 0) settings.put("viewPx", webView.getWidth());
             return sessionScript() + "\nwindow.__turbobox.configure(" + settings + ");"
                     + (callMeter ? "\nwindow.__turbobox.setMeter(true);" : "");
