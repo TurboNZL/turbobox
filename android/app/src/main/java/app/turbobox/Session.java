@@ -252,6 +252,7 @@ final class Session {
         if (miniMode == on) return;
         float before = effectiveZoom();
         miniMode = on;
+        updateShape();
         if (Math.abs(before - effectiveZoom()) > 0.001f) js(String.format(Locale.US, "__turbobox.setZoom(%.3f)", effectiveZoom()));
         for (Listener l : listeners) l.onAspect(this);
     }
@@ -263,6 +264,7 @@ final class Session {
             pin.aspectMini = aspectMini;
             PinStore.put(app, pin);
         }
+        updateShape();
         for (Listener l : listeners) l.onAspect(this);
     }
 
@@ -318,7 +320,18 @@ final class Session {
             pin.aspect = aspect;
             PinStore.put(app, pin);
         }
+        updateShape();
         for (Listener l : listeners) l.onAspect(this);
+    }
+
+    /** Fits the page to the space it has now, from scratch (after the bar was hidden or shown, a split changed...). */
+    void refit() {
+        main.postDelayed(() -> js("__turbobox.refit()"), 250);
+    }
+
+    /** Tells the page the shape of its virtual screen (the forced aspect ratio, 0 = the phone's own). */
+    void updateShape() {
+        js(String.format(Locale.US, "__turbobox.setShape(%.4f)", Pin.ASPECTS[effectiveAspect()]));
     }
 
     // ---- history ---------------------------------------------------------------------------------
@@ -1167,7 +1180,10 @@ final class Session {
         // screen), so it lays out to fit instead of showing one corner.
         wv.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
             int w = r - l;
-            if ((or - ol) > 0 && (ob - ot) > 0 && (w != or - ol || (b - t) != ob - ot)) js("__turbobox.resized()");   // keeps the scroll position
+            if ((or - ol) > 0 && (ob - ot) > 0 && (w != or - ol || (b - t) != ob - ot)) {
+                js("__turbobox.resized()");   // keeps the scroll position
+                js("__turbobox.refit()");     // and the scale fits the new size from scratch
+            }
             if (w > 0 && w != or - ol) {
                 viewCssWidth = Math.round(w / v.getResources().getDisplayMetrics().density);
                 js("__turbobox.setViewWidth(" + viewCssWidth + ")");
@@ -1292,7 +1308,7 @@ final class Session {
     private String pageScript() {
         try {
             JSONObject settings = new JSONObject()
-                    .put("muted", silenced()).put("volume", volume).put("aec", aec).put("virtualDevices", Prefs.virtualDevices(app)).put("privateDisplay", pdisplay != null).put("pageWidth", pageWidth).put("cursorMode", cursorMode).put("zoom", effectiveZoom())
+                    .put("muted", silenced()).put("volume", volume).put("aec", aec).put("virtualDevices", Prefs.virtualDevices(app)).put("privateDisplay", pdisplay != null).put("shape", Pin.ASPECTS[effectiveAspect()]).put("pageWidth", pageWidth).put("cursorMode", cursorMode).put("zoom", effectiveZoom())
                     .put("micGain", micGain).put("micLabel", micLabel())
                     .put("tap", isRecording()).put("micAllowed", micAllowed).put("cameraAllowed", cameraAllowed).put("localMute", frozen)
                     .put("keepVisible", Prefs.keepPlaying(app)).put("desktop", !mobile);

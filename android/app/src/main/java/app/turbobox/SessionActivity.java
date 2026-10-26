@@ -328,10 +328,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     /** Starts arranging the split's pages (or the Mini window's) with frames over the live pages. */
     private void startEdit(boolean mini, String layoutId) {
         if (inPip) return;
-        if (Sessions.active().size() < 2) {
-            Toast.makeText(this, "Open at least two pages to arrange them.", Toast.LENGTH_LONG).show();
-            return;
-        }
+        if (Sessions.active().isEmpty()) return;
         if (!split) {
             split = true;
             splitSet.clear();
@@ -339,10 +336,7 @@ public class SessionActivity extends Activity implements Session.Listener {
             splitOrder = null;
         }
         int n = members().size();
-        if (n < 2) {
-            Toast.makeText(this, "Tap the tabs to choose at least two pages for the split first.", Toast.LENGTH_LONG).show();
-            return;
-        }
+        if (n < 1) return;
         Arr a = arrangement(mini, n, isLandscape());
         float[][] r = new float[n][];
         if (a.rects != null) {
@@ -1022,7 +1016,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         List<Session> active = Sessions.active();
         if (active.isEmpty()) return;
         if (!Sessions.get(focus).isActive()) focus = active.get(0).slot;
-        if (active.size() < 2) split = false;
+        if (active.size() < 2 && !editing && liveRects == null && liveMiniRects == null) split = false;   // one page stays in a layout while it has one
         if (split) {
             java.util.Iterator<Integer> it = splitSet.iterator();
             while (it.hasNext()) if (!Sessions.get(it.next()).isActive()) it.remove();
@@ -1035,7 +1029,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         boolean landscape = isLandscape();
         List<Session> shown = new ArrayList<>(inPip ? pipPages() : split ? members() : new ArrayList<Session>());
         if (shown.isEmpty() && front() != null) shown.add(front());
-        boolean together = split && shown.size() >= 2;
+        boolean together = split && (shown.size() >= 2 || editing || (liveRects != null && liveRects.length == 1) || (inPip && liveMiniRects != null && liveMiniRects.length == 1));
         // An arrangement made for another number of pages no longer applies.
         if (liveRects != null && (liveRects.length != shown.size() || liveFloats == null || liveFloats.length != shown.size())) liveRects = null;
         if (liveMiniRects != null && (liveMiniRects.length != shown.size() || liveMiniFloats == null || liveMiniFloats.length != shown.size())) liveMiniRects = null;
@@ -1062,12 +1056,12 @@ public class SessionActivity extends Activity implements Session.Listener {
                         boxes[i].addView(mirrors[i], new FrameLayout.LayoutParams(-1, -1));
                     }
                     mirrors[i].setHost(s.privateDisplay());
-                    boxes[i].setRatio(Pin.ASPECTS[s.effectiveAspect()]);
+                    boxes[i].setRatio(editing ? 0f : Pin.ASPECTS[s.effectiveAspect()]);   // while arranging, the frame you drag is the page
                 } else if (wv.getParent() != boxes[i]) {
                     if (wv.getParent() instanceof ViewGroup) ((ViewGroup) wv.getParent()).removeView(wv);
                     boxes[i].addView(wv, new FrameLayout.LayoutParams(-1, -1));
                 }
-                boxes[i].setRatio(Pin.ASPECTS[s.effectiveAspect()]);
+                boxes[i].setRatio(editing ? 0f : Pin.ASPECTS[s.effectiveAspect()]);   // while arranging, the frame you drag is the page
             } else if (wv != null && wv.getParent() == boxes[i]) {
                 boxes[i].removeView(wv);
             }
@@ -1167,6 +1161,11 @@ public class SessionActivity extends Activity implements Session.Listener {
         updateControls();
         updateFreeze();
         updateLocks();
+        boolean anyPrivate = false;
+        for (Session a : Sessions.active()) anyPrivate |= a.privateDisplay() != null;
+        // With the pages on private displays the keyboard types into an invisible box, so the app must not move or shrink for it.
+        getWindow().setSoftInputMode(anyPrivate ? android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+                : android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
     }
 
     /** The rectangles in the order the pages are stacked (back first), which is the order of the children in the stack. */
@@ -1234,7 +1233,7 @@ public class SessionActivity extends Activity implements Session.Listener {
             Ui.tint(this, tabs[i], i == focus ? Ui.GREEN : split && splitSet.contains(i) ? 0xFF6B8F1F : 0);
         }
         splitButton.setVisibility(Sessions.active().size() > 1 ? View.VISIBLE : View.GONE);
-        layoutButton.setVisibility(Sessions.active().size() > 1 ? View.VISIBLE : View.GONE);
+        layoutButton.setVisibility(View.VISIBLE);
         updateEditBar();
         Ui.tint(this, layoutButton, editing ? Ui.GREEN : 0);
         Ui.tint(this, splitButton, split ? Ui.GREEN : 0);
@@ -1262,6 +1261,9 @@ public class SessionActivity extends Activity implements Session.Listener {
      * cover, so a recording of the page never shows it.
      */
     private void applyBarMode() {
+        for (Session a : Sessions.active()) {
+            a.refit();   // the page area changes size when the bar goes or comes back: fit the page to it again
+        }
         dismissFloat();
         boolean hidden = Prefs.barHidden(this) && !inPip && !isFinishing();
         chromeBox.setVisibility(inPip || hidden ? View.GONE : View.VISIBLE);
