@@ -70,7 +70,7 @@ final class OffscreenHost {
     void resize(int w, int h, int dpi) {
         w = Math.max(16, Math.min(3000, w));
         h = Math.max(16, Math.min(3000, h));
-        dpi = dpiFor(w, cssWidth, dpi);
+        if (dpi <= 0) dpi = densityDpi;   // the density is set when the display is made (a changed page size makes a new display), never changed under a live page
         if (display == null || (w == width && h == height && dpi == densityDpi)) return;
         try {
             ImageReader old = reader;

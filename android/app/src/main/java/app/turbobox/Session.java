@@ -84,6 +84,9 @@ final class Session {
         /** The page's text field lost focus: the keyboard can go. */
         default void onFieldEnd(Session s) {}
 
+        /** The page moved to a different display (its page size changed): the screen must show the new one. */
+        default void onHostChanged(Session s) {}
+
         /** The recording buffer started or stopped. */
         default void onRecording(Session s, boolean on, String note) {}
 
@@ -630,9 +633,12 @@ final class Session {
             PinStore.put(app, pin);
         }
         js("__turbobox.setPageWidth(" + pageWidth + ")");
-        if (pdisplay != null) {
-            pdisplay.setCssWidth(Math.round(pageWidth / zoom));
-            pdisplay.resize(pdisplay.width(), pdisplay.height(), 0);   // same pixels, a different density: the page lays out at the new width
+        if (pdisplay != null && !miniHosted) {
+            // The page size is the display's density: a new display is made with it (changing it under a live page leaves the browser
+            // with the old one), and the page keeps its place in it.
+            leavePrivate();
+            syncPrivateDisplay();
+            for (Listener l : listeners) l.onHostChanged(this);
         }
     }
 
@@ -1000,6 +1006,7 @@ final class Session {
     private void syncPrivateDisplay() {
         if (webView == null || app == null) return;
         if (!Prefs.privateDisplay(app)) {
+            if (pdisplay != null) fillMode(false);
             leavePrivate();
             return;
         }
@@ -1011,6 +1018,7 @@ final class Session {
         host.setCssWidth(Math.round(pageWidth / zoom));
         if (host.start()) {
             pdisplay = host;
+            fillMode(true);
             viewCssWidth = Math.round(pageWidth / zoom);
             js("__turbobox.configure({privateDisplay:true})");
         } else {
@@ -1044,6 +1052,17 @@ final class Session {
         if (!miniHosted) return;
         miniHosted = false;
         leavePrivate();
+    }
+
+    /**
+     * On a private display the page is laid out the way a phone browser does without a viewport tag: at the display's own width, at
+     * scale 1, so it always fills the display and nothing is cut off or left empty. (Wide-viewport fitting is for the normal view.)
+     */
+    private void fillMode(boolean on) {
+        if (webView == null) return;
+        WebSettings st = webView.getSettings();
+        st.setUseWideViewPort(!on);
+        st.setLoadWithOverviewMode(!on);
     }
 
     void leavePrivate() {
