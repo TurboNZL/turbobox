@@ -229,6 +229,31 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         }
         body.addView(bar, Ui.lp(this, 12, 0));
 
+        // Mini window buttons
+        LinearLayout pipCard = Ui.card(this);
+        pipCard.addView(Ui.text(this, "Mini window buttons", 17f, Ui.TEXT, "sans-serif-medium"));
+        pipCard.addView(Ui.hint(this, "What each button on the Mini window does. Android shows the first three on most phones, so put the ones you use most first."), Ui.lp(this, 4, 4));
+        for (int i = 0; i < PipButtons.SLOTS; i++) {
+            final int slot = i;
+            TextView row = Ui.text(this, (i + 1) + ".  " + PipButtons.name(this, PipButtons.get(this, i)) + "  \u203A", 15f, Ui.GREEN, "sans-serif-medium");
+            row.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 8));
+            row.setOnClickListener(v -> {
+                java.util.List<String> ids = new java.util.ArrayList<>(java.util.Arrays.asList(PipButtons.IDS));
+                java.util.List<String> names = new java.util.ArrayList<>(java.util.Arrays.asList(PipButtons.NAMES));
+                for (Workflow w : WorkflowStore.load(this)) {
+                    ids.add("workflow:" + w.id);
+                    names.add("Run the workflow: " + w.name);
+                }
+                new AlertDialog.Builder(this).setTitle("Button " + (slot + 1))
+                        .setItems(names.toArray(new String[0]), (d, which) -> {
+                            PipButtons.set(this, slot, ids.get(which));
+                            render();
+                        }).show();
+            });
+            pipCard.addView(row);
+        }
+        body.addView(pipCard, Ui.lp(this, 12, 0));
+
         // The session screen
         LinearLayout screen = Ui.card(this);
         screen.addView(Ui.text(this, "Pages on screen", 17f, Ui.TEXT, "sans-serif-medium"));

@@ -678,20 +678,43 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (!Sessions.active().isEmpty()) {
             boolean muted = Sessions.allMuted();
             List<RemoteAction> actions = new ArrayList<>();
-            // The page in front: play / pause and a jump of ten seconds either way. Android shows only as many as it allows
-            // (usually three), so the ones that matter most come first.
+            // What each Mini window button does is set in Settings > Mini window buttons (PipButtons). Android shows only as many as
+            // it allows (usually three), taking them in order.
             Session f = front();
-            if (f != null) {
-                boolean paused = f.isFrozen();
-                actions.add(pipAction(10, paused ? R.drawable.ic_play : R.drawable.ic_pause, paused ? "Resume" : "Pause", "toggle"));
-            }
-            actions.add(new RemoteAction(Icon.createWithResource(this, muted ? R.drawable.ic_mic_off : R.drawable.ic_mic), muted ? "Unmute" : "Mute",
-                    muted ? "Turn the microphone back on" : "Mute the microphone",
-                    PendingIntent.getBroadcast(this, 7, new Intent(ACTION_PIP_MUTE).setPackage(getPackageName()),
-                            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT)));
-            if (f != null) {
-                actions.add(pipAction(11, R.drawable.ic_forward, "Forward 10 seconds", "fwd"));
-                actions.add(pipAction(12, R.drawable.ic_back, "Back 10 seconds", "back"));
+            for (int i = 0; i < PipButtons.SLOTS; i++) {
+                String fn = PipButtons.get(this, i);
+                if (fn.equals("none")) continue;
+                int code = 20 + i;
+                switch (fn) {
+                    case "pause": {
+                        boolean paused = f != null && f.isFrozen();
+                        actions.add(pipAction(code, paused ? R.drawable.ic_play : R.drawable.ic_pause, paused ? "Resume" : "Pause", fn));
+                        break;
+                    }
+                    case "mute":
+                        actions.add(pipAction(code, muted ? R.drawable.ic_mic_off : R.drawable.ic_mic, muted ? "Unmute" : "Mute", fn));
+                        break;
+                    case "record":
+                        actions.add(pipAction(code, R.drawable.ic_record, f != null && f.isRecording() ? "Stop recording" : "Record", fn));
+                        break;
+                    case "both":
+                        actions.add(pipAction(code, R.drawable.ic_both, f != null && f.awayAtWall != 0 ? "Back" : "Pause and record", fn));
+                        break;
+                    case "play":
+                        actions.add(pipAction(code, f != null && f.isMediaPlaying() ? R.drawable.ic_pause : R.drawable.ic_play, "Play or pause the video", fn));
+                        break;
+                    case "fwd":
+                        actions.add(pipAction(code, R.drawable.ic_forward, "Forward 10 seconds", fn));
+                        break;
+                    case "back":
+                        actions.add(pipAction(code, R.drawable.ic_back, "Back 10 seconds", fn));
+                        break;
+                    default:
+                        if (fn.startsWith("workflow:")) {
+                            Workflow w = WorkflowStore.find(this, fn.substring(9));
+                            if (w != null) actions.add(pipAction(code, R.drawable.ic_flow, w.name, fn));
+                        }
+                }
             }
             int max = Build.VERSION.SDK_INT >= 26 ? getMaxNumPictureInPictureActions() : 3;
             while (actions.size() > Math.max(1, max)) actions.remove(actions.size() - 1);
@@ -715,12 +738,35 @@ public class SessionActivity extends Activity implements Session.Listener {
                 Session f = front();
                 String op = intent.getStringExtra(EXTRA_OP);
                 if (f == null || op == null) return;
-                if (op.equals("toggle")) {
-                    // Pause freezes and silences every page in the Mini window (and the same button lets them go again).
-                    boolean freeze = !f.isFrozen();
-                    for (Session p : pipPages()) p.setFrozen(freeze);
-                    updatePip();
-                } else f.mediaSeek(op.equals("fwd") ? 10 : -10);
+                switch (op) {
+                    case "pause": {
+                        // Pause freezes and silences every page in the Mini window (and the same button lets them go again).
+                        boolean freeze = !f.isFrozen();
+                        for (Session p : pipPages()) p.setFrozen(freeze);
+                        break;
+                    }
+                    case "mute":
+                        Sessions.toggleAllMuted();
+                        break;
+                    case "record":
+                        if (f.isRecording()) f.stopRecording(); else f.startRecording();
+                        break;
+                    case "both":
+                        stepAwayOrBack();
+                        break;
+                    case "play":
+                        f.mediaToggle();
+                        break;
+                    case "fwd":
+                        f.mediaSeek(10);
+                        break;
+                    case "back":
+                        f.mediaSeek(-10);
+                        break;
+                    default:
+                        if (op.startsWith("workflow:")) WorkflowRunner.start(SessionActivity.this, op.substring(9), false);
+                }
+                updatePip();
                 return;
             }
             Sessions.toggleAllMuted();
