@@ -14,7 +14,15 @@ public class WorkflowReceiver extends BroadcastReceiver {
             Workflow wf = WorkflowStore.find(context, id);
             if (wf == null) return;
             WorkflowScheduler.schedule(context, wf);        // the next occurrence, before this one starts
-            if (wf.timed && wf.enabled) WorkflowRunner.start(context, wf.id, false);
+            String pin = intent.getStringExtra(WorkflowScheduler.EXTRA_PIN);
+            if (pin != null) {
+                // A page with its own time: only that page runs the steps now.
+                Workflow.PageSchedule ps = wf.pageSchedules.get(pin);
+                if (ps != null && ps.enabled && wf.pinIds.contains(pin)) WorkflowRunner.startPages(context, wf.id, java.util.Collections.singleton(pin), false);
+            } else if (wf.timed && wf.enabled) {
+                // The workflow's own time: the pages that do not have a time of their own.
+                WorkflowRunner.startPages(context, wf.id, null, true);
+            }
         } else {
             // Boot, app update, clock or zone change: the planned alarms are gone or wrong.
             WorkflowScheduler.scheduleAll(context);

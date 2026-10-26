@@ -81,10 +81,27 @@ final class WorkflowRunner {
 
     /** Starts a workflow on each of its pages; false (with the reason logged) when it cannot start. */
     static boolean start(Context context, String workflowId, boolean manual) {
+        return startInternal(context, workflowId, manual, null, false);
+    }
+
+    /**
+     * A scheduled start: only the given pages ({@code only}, or all when null), leaving out the pages that have a schedule of their own
+     * when {@code skipOwnSchedule} is set (they run at their own time with the same steps).
+     */
+    static boolean startPages(Context context, String workflowId, java.util.Collection<String> only, boolean skipOwnSchedule) {
+        return startInternal(context, workflowId, false, only, skipOwnSchedule);
+    }
+
+    private static boolean pageBusy(String workflowId, String pinId) {
+        return RUNS.containsKey(workflowId + ":" + pinId);
+    }
+
+    private static boolean startInternal(Context context, String workflowId, boolean manual, java.util.Collection<String> only, boolean skipOwnSchedule) {
         Context app = context.getApplicationContext();
         Workflow wf = WorkflowStore.find(app, workflowId);
-        if (wf == null || isRunning(workflowId)) return false;
-        LOGS.put(workflowId, new ArrayList<String>());
+        if (wf == null) return false;
+        if (manual && isRunning(workflowId)) return false;
+        if (!isRunning(workflowId)) LOGS.put(workflowId, new ArrayList<String>());
         List<WorkflowParser.Step> steps;
         Group group = new Group(wf);
         try {
@@ -97,8 +114,15 @@ final class WorkflowRunner {
             return false;
         }
         List<String> ids = new ArrayList<>();
-        for (String id : wf.pinIds) if (PinStore.find(app, id) != null) ids.add(id);
+        for (String id : wf.pinIds) {
+            if (PinStore.find(app, id) == null) continue;
+            if (only != null && !only.contains(id)) continue;
+            if (skipOwnSchedule && wf.hasOwnSchedule(id)) continue;
+            if (pageBusy(workflowId, id)) continue;   // that page is still running an earlier start
+            ids.add(id);
+        }
         if (ids.isEmpty()) {
+            if (only != null || skipOwnSchedule || !wf.pinIds.isEmpty()) return false;   // every page is busy, or all of them have their own times
             boolean needs = false;
             for (WorkflowParser.Step st : steps) needs |= WorkflowParser.needsPage(st.kind);
             if (needs) {
@@ -111,15 +135,19 @@ final class WorkflowRunner {
             ids.add("");   // a workflow with no page: one run that only does what needs none
         }
         group.runs = group.open = ids.size();
-        for (String id : ids) RUNS.put(workflowId + ":" + id, new Run(app, wf, steps, id, group));
+        List<Run> mine = new ArrayList<>();
+        for (String id : ids) {
+            Run run = new Run(app, wf, steps, id, group);
+            RUNS.put(workflowId + ":" + id, run);
+            mine.add(run);
+        }
         acquire(app);
         SessionService.ensure(app);
-        for (Run run : new ArrayList<>(RUNS.values())) {
-            if (run.group != group) continue;
+        for (Run run : mine) {
             run.log((manual ? "Started by hand" : "Started by its schedule") + ", " + steps.size() + " steps");
             MAIN.post(run::begin);
         }
-        if (manual) {
+        if (manual && !ids.get(0).isEmpty()) {
             // Started by hand: show the first page, so it has a window to be recorded from (a timed run with the screen off has none).
             app.startActivity(new Intent(app, SessionActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     .setAction(SessionActivity.ACTION_OPEN_PIN).putExtra(SessionActivity.EXTRA_PIN, ids.get(0)));
@@ -150,7 +178,6 @@ final class WorkflowRunner {
         Session session;
         boolean ownsTemporary;   // this run borrowed an extra slot for its page
         boolean finished;
-        boolean started;   // the page's start delay has been waited out
         long waitUntil;
         int attemptToken;
 
@@ -179,14 +206,6 @@ final class WorkflowRunner {
 
         void begin() {
             if (finished) return;
-            long wait = wf.delayFor(pinId) * 1000;
-            if (wait > 0 && !started) {
-                started = true;
-                log("This page starts " + StepTemplates.duration(wait / 1000) + " after the workflow");
-                MAIN.postDelayed(this::begin, wait);
-                return;
-            }
-            started = true;
             if (pinId.isEmpty()) {
                 next();   // no page: the steps that need none
                 return;
@@ -212,7 +231,7 @@ final class WorkflowRunner {
                 waitUntil = System.currentTimeMillis() + OPEN_TIMEOUT_MS;
                 awaitLoad(this::next);
             } else {
-                log("Using " + pin.name + ", already open");
+                log("Using " + pin.name + ", already open (slot " + (session.slot + 1) + ")");
                 next();
             }
         }
@@ -255,7 +274,26 @@ final class WorkflowRunner {
                 finish(false, "the page was closed before step " + (index + 1));
                 return;
             }
+            // Every step acts on the page this run was started for: if the session it holds is not showing that page any more, look it
+            // up again, and stop rather than click on another page.
+            if (session != null && !pinId.isEmpty() && (session.pin() == null || !session.pin().id.equals(pinId))) {
+                Session again = Sessions.forPin(pinId);
+                if (again == null) {
+                    finish(false, "the page for this run (" + pinName() + ") is not open any more");
+                    return;
+                }
+                log("  the page is now in another slot; following it");
+                session = again;
+            }
             log("Step " + (index + 1) + ": " + s.raw + (session != null && session.privateDisplay() != null ? "   [page on a private display]" : ""));
+            if (s.condition != 0 && session != null) {
+                boolean onMobile = session.isMobile();
+                if ((s.condition == 1) != onMobile) {
+                    log("  skipped: the page is on the " + (onMobile ? "mobile" : "desktop") + " site");
+                    next();
+                    return;
+                }
+            }
             switch (s.kind) {
                 case OPEN:
                     if (!session.isActive()) {

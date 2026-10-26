@@ -214,6 +214,25 @@ check('the page still reads back what it set', lm.seen.every(v => v === false), 
 await page.evaluate(() => window.__turbobox.setLocalMute(false));
 const lm2 = await page.evaluate(() => ({ master: window.__turbobox.state().masters, real: [document.getElementById('a'), window.__na].map(e => window.__turbobox.realMuted(e)) }));
 check('letting go restores the page\'s own settings', lm2.master.every(g => g === 1) && lm2.real.every(v => v === false), lm2);
+// page volume 0 silences everything, including a live stream element; 50% takes a stream through the output stage
+await page.evaluate(async () => {
+  const ac = new AudioContext(); const osc = ac.createOscillator(); const dest = ac.createMediaStreamDestination(); osc.connect(dest); osc.start();
+  const v = document.createElement('video'); v.id = 'livevid'; v.srcObject = dest.stream; v.muted = false; document.body.appendChild(v);
+  try { await v.play(); } catch (e) { /* autoplay rules */ }
+  window.__turbobox.setVolume(0);
+});
+await page.waitForTimeout(700);
+const vol0 = await page.evaluate(() => { const v = document.getElementById('livevid'); return { real: window.__turbobox.realMuted(v), page: v.muted }; });
+check('page volume 0 silences a live stream element and the page still reads unmuted', vol0.real === true && vol0.page === false, vol0);
+await page.evaluate(() => window.__turbobox.setVolume(0.5));
+await page.waitForTimeout(1200);
+const vol50 = await page.evaluate(() => { const v = document.getElementById('livevid'); return { real: window.__turbobox.realMuted(v), page: v.muted }; });
+check('at 50% the stream is taken through the output stage (element silent, page unchanged)', vol50.real === true && vol50.page === false, vol50);
+await page.evaluate(() => window.__turbobox.setVolume(1));
+await page.waitForTimeout(1200);
+const vol100 = await page.evaluate(() => { const v = document.getElementById('livevid'); const r = window.__turbobox.realMuted(v); v.remove(); return r; });
+check('back at 100% the element plays by itself again', vol100 === false, vol100);
+
 // page volume is a middleman: the page's own volume stays readable and is not the one that is scaled
 await page.evaluate(() => window.__turbobox.setVolume(0.5));
 await page.waitForTimeout(300);

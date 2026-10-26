@@ -37,6 +37,7 @@ import java.util.regex.Pattern;
  * js document.title          run a script on the page
  * hangup | close            close the page right now
  * </pre>
+ * if mobile <step> | if desktop <step>   run that step only when the page is on the mobile / desktop site (otherwise it is skipped)
  * A target is {@code css:SELECTOR}, {@code text:WORDS}, or just the words (matched against visible text, labels,
  * placeholders and titles). A leading {@code ?} makes a step optional: if it fails the workflow carries on.
  * No Android classes, so it is tested on the JVM.
@@ -55,6 +56,7 @@ final class WorkflowParser {
         int number;           // volume percent, scroll pixels
         long withinMs;        // how long to keep trying before the step fails
         boolean optional;
+        int condition;        // 0 always, 1 only when the page is on the mobile site, 2 only on the desktop site
         int line;             // 1-based, for messages
         String raw = "";
 
@@ -98,6 +100,14 @@ final class WorkflowParser {
         if (line.startsWith("?")) {
             s.optional = true;
             line = line.substring(1).trim();
+        }
+        String lowLine = line.toLowerCase(Locale.ROOT);
+        if (lowLine.startsWith("if mobile ")) {
+            s.condition = 1;
+            line = line.substring(10).trim();
+        } else if (lowLine.startsWith("if desktop ")) {
+            s.condition = 2;
+            line = line.substring(11).trim();
         }
         int sp = line.indexOf(' ');
         String verb = (sp < 0 ? line : line.substring(0, sp)).toLowerCase(Locale.ROOT);

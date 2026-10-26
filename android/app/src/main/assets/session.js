@@ -439,6 +439,8 @@
     cfg.volume = Math.max(0, Math.min(2, +v || 0));
     applyVolume();
     if (T.volumeSweep) T.volumeSweep();
+    clearInterval(lmTimer);
+    if (quiet()) lmTimer = setInterval(localMuteSweep, 500);   // at 0% a page that un-mutes or adds a player is caught within half a second
     relayToFrames({ __tb: 'cfg', cfg: { volume: cfg.volume } });
   };
 
@@ -548,7 +550,7 @@
   // stream plays, and captureStream / a media source node ignore that) is not part of what the listener hears.
   function elAudible(el) {
     // what the page set: our own copy while local mute holds the real property at true, the real property otherwise
-    var muted = cfg.localMute && el.__tbWant !== undefined ? el.__tbWant : mutedDesc.get.call(el);
+    var muted = (quiet() || el.__tbStream) && el.__tbWant !== undefined ? el.__tbWant : mutedDesc.get.call(el);
     return !muted && el.volume > 0;
   }
   // el: the element a track came from (null for a call's track)
@@ -863,13 +865,17 @@
     Object.defineProperty(HTMLMediaElement.prototype, 'muted', {
       configurable: true,
       get: function () { return this.__tbWant === undefined ? mutedDesc.get.call(this) : this.__tbWant; },
-      set: function (v) { noteMedia(this); this.__tbWant = !!v; if (cfg.localMute) applyLocalMute(this); else mutedDesc.set.call(this, !!v); }
+      set: function (v) { noteMedia(this); this.__tbWant = !!v; if (quiet() || this.__tbStream) applyLocalMute(this); else mutedDesc.set.call(this, !!v); }
     });
-    hook(HTMLMediaElement.prototype, 'play', function () { noteMedia(this); if (cfg.localMute) applyLocalMute(this); });
+    hook(HTMLMediaElement.prototype, 'play', function () { noteMedia(this); if (quiet() || wantsRoute()) applyLocalMute(this); });
   }
+  // Silent for the phone: Pause, or the page volume at 0 (which must silence everything the page plays, whatever the page does).
+  function quiet() { return cfg.localMute || cfg.volume <= 0.001; }
+  // Is the page's sound taken through our Web Audio output stage (volume other than 100%), or silent?
+  function wantsRoute() { return quiet() || Math.abs(cfg.volume - 1) > 0.01; }
   // The last stage between the page and the phone's speaker: Pause closes it, the page volume scales it. (Our own context
   // carries a call's remote voices, which apply the volume themselves.) The page's own volume and mute buttons act before it.
-  function masterLevel(m) { return cfg.localMute ? 0 : (m && m.__own ? 1 : cfg.volume); }
+  function masterLevel(m) { return quiet() ? 0 : (m && m.__own ? 1 : cfg.volume); }
   var masters = [], origConnect = AudioNode.prototype.connect, origDisconnect = AudioNode.prototype.disconnect;
   var LiveContext = window.AudioContext || window.webkitAudioContext;
   function isLiveDestination(d) { return window.AudioDestinationNode && d instanceof AudioDestinationNode && LiveContext && d.context instanceof LiveContext; }
@@ -913,7 +919,31 @@
     if (/^(blob|data):/.test(src)) return true;
     try { return new URL(src, location.href).origin === location.origin || !!el.crossOrigin; } catch (e) { return false; }
   }
+  // A live stream (srcObject) cannot be moved into Web Audio like a file, so its sound is taken from the stream instead and the
+  // element itself is silenced: the stream goes through the same output stage (the page volume, Pause) as everything else.
+  function routeStream(el) {
+    var st = el.srcObject;
+    if (el.__tbStream && el.__tbStreamOf === st) return;
+    unrouteStream(el);
+    if (!st || !st.getAudioTracks || !st.getAudioTracks().length) return;
+    try {
+      var c = ensureCtx();
+      if (c.state !== 'running') return;
+      var src = c.createMediaStreamSource(st), g = c.createGain();
+      src.connect(g);
+      g.connect(c.destination);   // goes through the master gain
+      el.__tbStream = { src: src, g: g };
+      el.__tbStreamOf = st;
+    } catch (e) { /* this stream cannot be routed: the native volume scaling stays */ }
+  }
+  function unrouteStream(el) {
+    if (!el.__tbStream) return;
+    try { el.__tbStream.src.disconnect(); el.__tbStream.g.disconnect(); } catch (e) { /* gone */ }
+    el.__tbStream = null;
+    el.__tbStreamOf = null;
+  }
   function routeElement(el) {
+    if (el.srcObject && el.srcObject.getAudioTracks) { routeStream(el); return; }
     if (el.__tbSrc !== undefined) return;
     el.__tbSrc = null;
     if (!canRoute(el)) return;
@@ -931,11 +961,17 @@
   }
   function applyLocalMute(el) {
     noteMedia(el);
-    if (cfg.localMute) routeElement(el);
+    if (wantsRoute()) routeElement(el); else if (el.__tbStream) unrouteStream(el);
+    if (el.__tbStream) {
+      // Its sound goes through our stage: the page's own mute only closes this element's gain, and the element itself stays silent.
+      el.__tbStream.g.gain.value = el.__tbWant ? 0 : 1;
+      mutedDesc.set.call(el, true);
+      return;
+    }
     // Routed by us, or by the page into a graph that ends at our master gain: the speaker is silent without muting the element,
     // which (in some browser versions) would also silence what the recorder hears.
     var silentByRoute = !!el.__tbSrc || !!el.__tbPageRouted;
-    mutedDesc.set.call(el, silentByRoute ? !!el.__tbWant : (cfg.localMute ? true : !!el.__tbWant));
+    mutedDesc.set.call(el, silentByRoute ? !!el.__tbWant : (quiet() ? true : !!el.__tbWant));
   }
   T.isSilenced = function (el) { return !!el.__tbSrc || !!el.__tbPageRouted || mutedDesc.get.call(el); }; // for the tests
   function localMuteSweep() {
@@ -978,12 +1014,12 @@
     });
     all.forEach(function (el) {
       noteMedia(el);
-      if (Math.abs(cfg.volume - 1) > 0.01) routeElement(el);
+      applyLocalMute(el);   // routes what has to be routed at this volume, silences what has to be silent
       applyElVolume(el);
     });
     masters.forEach(function (g) { g.gain.value = masterLevel(g); });
   };
-  setInterval(function () { if (Math.abs(cfg.volume - 1) > 0.01 || media.some(function (e) { return e.__tbVol !== undefined && elScale(e) !== 1; })) T.volumeSweep(); }, 1000);
+  setInterval(function () { if (wantsRoute() || media.some(function (e) { return e.__tbVol !== undefined && elScale(e) !== 1; })) T.volumeSweep(); }, 1000);
   var lmTimer = 0;
   function relayToFrames(msg) {
     for (var i = 0; i < window.frames.length; i++) { try { window.frames[i].postMessage(msg, '*'); } catch (e) { /* gone */ } }
@@ -993,7 +1029,7 @@
     var n = 0;
     Array.prototype.slice.call(document.querySelectorAll('audio,video')).concat(media || []).forEach(function (el) {
       el.__tbWant = false;
-      if (!cfg.localMute) mutedDesc.set.call(el, false);
+      if (!quiet() && !el.__tbStream) mutedDesc.set.call(el, false);
       if (el.volume === 0) el.volume = 1;
       n++;
     });
@@ -1003,7 +1039,7 @@
     cfg.localMute = !!on;
     localMuteSweep();
     clearInterval(lmTimer);
-    if (cfg.localMute) lmTimer = setInterval(localMuteSweep, 500);
+    if (quiet()) lmTimer = setInterval(localMuteSweep, 500);
     relayToFrames({ __tb: 'localMute', on: cfg.localMute });
   };
 
@@ -1293,7 +1329,7 @@
     else if (e.source === window.parent && d.__tb === 'cfg') T.configure(d.cfg);
     else if (e.source === window.parent && d.__tb === 'media') { if (d.op === 'toggle') T.mediaToggle(); else T.mediaSeek(+d.sec || 0); }
     else if (d.__tb === 'hello' && e.source) {
-      try { e.source.postMessage({ __tb: 'localMute', on: cfg.localMute }, '*'); e.source.postMessage({ __tb: 'cfg', cfg: { muted: cfg.muted, micAllowed: cfg.micAllowed, cameraAllowed: cfg.cameraAllowed } }, '*'); } catch (x) { /* gone */ }
+      try { e.source.postMessage({ __tb: 'localMute', on: cfg.localMute }, '*'); e.source.postMessage({ __tb: 'cfg', cfg: { muted: cfg.muted, micAllowed: cfg.micAllowed, cameraAllowed: cfg.cameraAllowed, volume: cfg.volume } }, '*'); } catch (x) { /* gone */ }
     }
   });
   if (window.parent !== window) { try { window.parent.postMessage({ __tb: 'hello' }, '*'); } catch (e) { /* no parent */ } }
