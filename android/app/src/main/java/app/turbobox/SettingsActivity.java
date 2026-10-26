@@ -112,6 +112,21 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
             if (fromUser) NativeVolume.set(this, value);
         }));
         sound.addView(Ui.hint(this, "Sets the media and the call volume together, so it works while a Bluetooth headset is in call mode and the volume buttons only move one of them."), Ui.lp(this, 4, 0));
+        Switch virt = Ui.toggle(this);
+        virt.setText("Virtual devices for pages (experimental)");
+        virt.setChecked(Prefs.virtualDevices(this));
+        virt.setOnCheckedChangeListener((b, on) -> Prefs.setVirtualDevices(this, on));
+        sound.addView(virt, Ui.lp(this, 12, 0));
+        sound.addView(Ui.hint(this, "On: pages see one fixed microphone and speaker. Off: pages see the browser's own device list. Turn it off if a site stops working. Applies when a page is opened."), Ui.lp(this, 0, 0));
+        Switch hb = Ui.toggle(this);
+        hb.setText("Hold the headphone play/pause button");
+        hb.setChecked(Prefs.headsetButton(this));
+        hb.setOnCheckedChangeListener((b, on) -> {
+            Prefs.setHeadsetButton(this, on);
+            SessionService.ensure(this);
+            SessionService.refresh();
+        });
+        sound.addView(hb, Ui.lp(this, 8, 0));
         java.util.List<Workflow> flows = WorkflowStore.load(this);
         String chosenFlow = Prefs.headphoneWorkflow(this);
         String chosenName = "Play and pause the page";

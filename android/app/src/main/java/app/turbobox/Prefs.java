@@ -32,6 +32,13 @@ final class Prefs {
     static String headphoneWorkflow(Context c) { return sp(c).getString("headphoneWorkflow", ""); }
     static void setHeadphoneWorkflow(Context c, String v) { sp(c).edit().putString("headphoneWorkflow", v).apply(); }
 
+    /** Pages see one fixed virtual microphone/speaker/camera set (on); off gives them the browser's real device list and own capture. Applies to pages opened afterwards. */
+    static boolean virtualDevices(Context c) { return sp(c).getBoolean("virtualDevices", true); }
+    static void setVirtualDevices(Context c, boolean v) { sp(c).edit().putBoolean("virtualDevices", v).apply(); }
+    /** TurboBox holds the headset's play/pause button while pages are open. */
+    static boolean headsetButton(Context c) { return sp(c).getBoolean("headsetButton", true); }
+    static void setHeadsetButton(Context c, boolean v) { sp(c).edit().putBoolean("headsetButton", v).apply(); }
+
     // ---- standby: keep the foreground service up so scheduled workflows can use the microphone ----
     static boolean standby(Context c) { return sp(c).getBoolean("standby", false); }
     static void setStandby(Context c, boolean v) { sp(c).edit().putBoolean("standby", v).apply(); }

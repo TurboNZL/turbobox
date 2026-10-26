@@ -1238,7 +1238,7 @@ final class Session {
     private String pageScript() {
         try {
             JSONObject settings = new JSONObject()
-                    .put("muted", silenced()).put("volume", volume).put("aec", aec).put("pageWidth", pageWidth).put("cursorMode", cursorMode).put("zoom", effectiveZoom())
+                    .put("muted", silenced()).put("volume", volume).put("aec", aec).put("virtualDevices", Prefs.virtualDevices(app)).put("pageWidth", pageWidth).put("cursorMode", cursorMode).put("zoom", effectiveZoom())
                     .put("micGain", micGain).put("micLabel", micLabel())
                     .put("tap", isRecording()).put("micAllowed", micAllowed).put("cameraAllowed", cameraAllowed).put("localMute", frozen)
                     .put("keepVisible", Prefs.keepPlaying(app)).put("desktop", !mobile);
