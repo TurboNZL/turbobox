@@ -602,6 +602,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     protected void onDestroy() {
         // The pages and the timers outlive this screen; only the view of them goes away.
         for (int i = 0; i < freezePopups.length; i++) dismissFreeze(i);
+        for (int i = 0; i < mirrors.length; i++) if (mirrors[i] != null) mirrors[i].release();
         dismissFloat();
         dismissLocks();
         for (Session s : Sessions.all()) {
@@ -1120,6 +1121,11 @@ public class SessionActivity extends Activity implements Session.Listener {
                 boxes[i].setRatio(editing ? 0f : Pin.ASPECTS[s.effectiveAspect()]);   // while arranging, the frame you drag is the page
             } else if (wv != null && wv.getParent() == boxes[i]) {
                 boxes[i].removeView(wv);
+            }
+            if (!s.isActive() && mirrors[i] != null) {
+                mirrors[i].release();
+                if (mirrors[i].getParent() instanceof ViewGroup) ((ViewGroup) mirrors[i].getParent()).removeView(mirrors[i]);
+                mirrors[i] = null;
             }
             if (panes[i].getParent() != null) ((ViewGroup) panes[i].getParent()).removeView(panes[i]);
         }
