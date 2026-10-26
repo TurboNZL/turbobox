@@ -111,6 +111,7 @@ final class Session {
     private float volume = 1f;        // 0..2, applied to the page's audio inside the page
     private String micKey = "";       // "" = the page's own capture; otherwise an input device, captured natively
     private boolean aec = true;
+    private boolean cursorMode;      // the page is driven with a pointer, trackpad style
     private int pageWidth = 1280;    // the virtual screen width the page believes it has
     private float zoom = 1f;          // 0.5..3: the page's layout width is 1280 / zoom
     private float micGain = 1f;       // 0..3: gain on what the other person hears
@@ -588,6 +589,20 @@ final class Session {
         js(String.format(Locale.US, "__turbobox.setVolume(%.3f)", volume));
     }
 
+    boolean cursorMode() {
+        return cursorMode;
+    }
+
+    /** Cursor mode: one finger moves a pointer, a tap clicks where it is, two fingers scroll. Kept with the pin. */
+    void setCursorMode(boolean on) {
+        cursorMode = on;
+        if (pin != null) {
+            pin.cursorMode = on;
+            PinStore.put(app, pin);
+        }
+        js("__turbobox.setCursorMode(" + on + ")");
+    }
+
     int pageWidth() {
         return pageWidth;
     }
@@ -787,6 +802,7 @@ final class Session {
         micGain = Prefs.micGain(app);
         zoom = page.zoom;
         pageWidth = page.pageWidth;
+        cursorMode = page.cursorMode;
         aspect = page.aspect;
         zoomMini = page.zoomMini;
         aspectMini = page.aspectMini;
@@ -935,10 +951,9 @@ final class Session {
         android.util.DisplayMetrics dm = app.getResources().getDisplayMetrics();
         int srcW = webView.getWidth() >= 16 ? webView.getWidth() : dm.widthPixels;
         int srcH = webView.getHeight() >= 16 ? webView.getHeight() : dm.heightPixels;
-        float k = Math.min(1f, 480f / srcW);
-        int dpi = Math.max(60, Math.round(dm.densityDpi * k));
-        OffscreenHost host = new OffscreenHost(app, "keep" + slot, webView, Math.max(16, Math.round(srcW * k)),
-                Math.max(16, Math.round(srcH * k)), dpi);
+        // The same pixels and density as on the phone's screen, so the page sees no resize or density change when the
+        // screen goes off (a change makes some sites relayout, or pause).
+        OffscreenHost host = new OffscreenHost(app, "keep" + slot, webView, Math.max(16, srcW), Math.max(16, srcH), dm.densityDpi);
         if (host.start()) {
             host.drain();
             keepHost = host;
@@ -1223,7 +1238,7 @@ final class Session {
     private String pageScript() {
         try {
             JSONObject settings = new JSONObject()
-                    .put("muted", silenced()).put("volume", volume).put("aec", aec).put("pageWidth", pageWidth).put("zoom", effectiveZoom())
+                    .put("muted", silenced()).put("volume", volume).put("aec", aec).put("pageWidth", pageWidth).put("cursorMode", cursorMode).put("zoom", effectiveZoom())
                     .put("micGain", micGain).put("micLabel", micLabel())
                     .put("tap", isRecording()).put("micAllowed", micAllowed).put("cameraAllowed", cameraAllowed).put("localMute", frozen)
                     .put("keepVisible", Prefs.keepPlaying(app)).put("desktop", !mobile);

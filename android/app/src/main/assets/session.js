@@ -1028,6 +1028,81 @@
       Object.defineProperty(window, 'ytInitialPlayerResponse', { configurable: true, get: function () { return initial; }, set: function (v) { initial = prune(v); } });
     } catch (e) { /* the page defined it first */ }
   }
+
+  // ---- cursor mode ------------------------------------------------------------------------------------------
+  // For sites built for a mouse: one finger moves a pointer like a trackpad, a short tap clicks where the pointer is, a
+  // press and drag holds the button down, and two fingers scroll. The page never sees the finger itself.
+  var cur = { on: false, x: 80, y: 80, el: null, t0: 0, moved: 0, lx: 0, ly: 0, drag: null, holdTimer: 0, two: false };
+  function curDot() {
+    if (!cur.el) {
+      var d = document.createElement('div');
+      d.setAttribute('data-turbobox', 'cursor');
+      d.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;width:0;height:0;left:0;top:0;';
+      d.innerHTML = '<svg width="26" height="26" viewBox="0 0 26 26" style="position:absolute;left:-2px;top:-2px;filter:drop-shadow(0 0 2px #000)"><path d="M3 2 L3 20 L8 15 L12 24 L15 22.5 L11 14 L18 14 Z" fill="#fff" stroke="#000" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+      (document.documentElement || document.body).appendChild(d);
+      cur.el = d;
+    }
+    cur.el.style.transform = 'translate(' + cur.x + 'px,' + cur.y + 'px)';
+    cur.el.style.display = cur.on ? 'block' : 'none';
+  }
+  function curFire(type, target, extra) {
+    var o = Object.assign({ bubbles: true, cancelable: true, composed: true, view: window, clientX: cur.x, clientY: cur.y, screenX: cur.x, screenY: cur.y, button: 0, buttons: 0, pointerType: 'mouse', pointerId: 1, isPrimary: true }, extra || {});
+    try {
+      target.dispatchEvent(type.indexOf('pointer') === 0 ? new PointerEvent(type, o) : new MouseEvent(type, o));
+    } catch (e) { /* the element went away */ }
+  }
+  function curTarget() { return document.elementFromPoint(cur.x, cur.y) || document.body; }
+  function curMove() {
+    var w = window.innerWidth, h = window.innerHeight;
+    cur.x = Math.max(0, Math.min(w - 2, cur.x));
+    cur.y = Math.max(0, Math.min(h - 2, cur.y));
+    curDot();
+    var t = curTarget();
+    curFire('pointermove', t, { buttons: cur.drag ? 1 : 0 });
+    curFire('mousemove', t, { buttons: cur.drag ? 1 : 0 });
+  }
+  function curTouch(e) {
+    if (!cur.on) return;
+    var t = e.touches[0] || e.changedTouches[0];
+    if (e.type === 'touchstart') {
+      cur.two = e.touches.length > 1;
+      cur.t0 = Date.now(); cur.moved = 0; cur.lx = t.clientX; cur.ly = t.clientY; cur.drag = null;
+      clearTimeout(cur.holdTimer);
+      cur.holdTimer = setTimeout(function () {   // a long press without moving holds the button down
+        if (cur.moved < 8 && !cur.two) { cur.drag = curTarget(); curFire('pointerdown', cur.drag, { buttons: 1 }); curFire('mousedown', cur.drag, { buttons: 1 }); }
+      }, 450);
+    } else if (e.type === 'touchmove') {
+      var dx = t.clientX - cur.lx, dy = t.clientY - cur.ly;
+      cur.lx = t.clientX; cur.ly = t.clientY; cur.moved += Math.abs(dx) + Math.abs(dy);
+      if (e.touches.length > 1) {
+        cur.two = true;
+        var sc = document.scrollingElement || document.documentElement;
+        sc.scrollBy ? sc.scrollBy(-dx, -dy) : window.scrollBy(-dx, -dy);
+      } else if (!cur.two) {
+        cur.x += dx * 1.6; cur.y += dy * 1.6; curMove();
+      }
+    } else if (e.type === 'touchend' || e.type === 'touchcancel') {
+      clearTimeout(cur.holdTimer);
+      if (cur.drag) {
+        curFire('pointerup', cur.drag); curFire('mouseup', cur.drag); curFire('click', cur.drag); cur.drag = null;
+      } else if (!cur.two && cur.moved < 10 && Date.now() - cur.t0 < 350 && e.type === 'touchend') {
+        var el = curTarget();
+        curFire('pointerdown', el, { buttons: 1 }); curFire('mousedown', el, { buttons: 1 });
+        try { if (el.focus) el.focus(); } catch (x) { /* not focusable */ }
+        curFire('pointerup', el); curFire('mouseup', el); curFire('click', el);
+      }
+      if (e.touches.length === 0) cur.two = false;
+    }
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }
+  ['touchstart', 'touchmove', 'touchend', 'touchcancel'].forEach(function (n) { window.addEventListener(n, curTouch, { capture: true, passive: false }); });
+  T.setCursorMode = function (on) {
+    cur.on = !!on;
+    if (cur.on) { cur.x = Math.min(cur.x, window.innerWidth / 2); cur.y = Math.min(cur.y, window.innerHeight / 2); }
+    curDot();
+    relayToFrames({ __tb: 'cfg', cfg: { cursorMode: cur.on } });
+  };
   // ---- keep the scroll position when the window changes size --------------------------------------------
   // Entering or resizing the Mini window re-lays the page out and a long feed (Twitter/X) jumps a few posts. The scroll
   // position from just before the resize is put back for a moment after it, unless the user touches the page meanwhile.
@@ -1144,6 +1219,7 @@
     if (!o) return;
     if ('aec' in o) cfg.aec = !!o.aec;
     if ('pageWidth' in o) T.setPageWidth(o.pageWidth);
+    if ('cursorMode' in o) T.setCursorMode(o.cursorMode);
     if ('zoom' in o) T.setZoom(o.zoom);
     if ('micGain' in o) { cfg.micGain = Math.max(0, Math.min(3, +o.micGain || 0)); if (vm.gain) vm.gain.gain.value = cfg.micGain; }
     if ('micLabel' in o) vm.label = String(o.micLabel || '');

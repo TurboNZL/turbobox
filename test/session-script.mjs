@@ -231,6 +231,25 @@ await page.evaluate(() => { document.body.insertAdjacentHTML('beforeend', '<div 
 const hid = await page.evaluate(() => ({ ad: getComputedStyle(document.getElementById('adx')).display, keep: getComputedStyle(document.getElementById('keepme')).display }));
 check('ad boxes are hidden and the page is left alone', hid.ad === 'none' && hid.keep !== 'none', hid);
 
+// cursor mode: a tap clicks where the pointer is, not where the finger touched
+{
+  const ctx = await b.newContext({ hasTouch: true, viewport: { width: 400, height: 600 } });
+  const tp = await ctx.newPage();
+  await tp.route('http://localhost/', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><body style="margin:0"><button id="a" style="position:absolute;left:60px;top:60px;width:100px;height:60px" onclick="window.hit=\'a\'">A</button><button id="b" style="position:absolute;left:250px;top:400px;width:100px;height:60px" onclick="window.hit=\'b\'">B</button></body>' }));
+  await tp.goto('http://localhost/');
+  await tp.addScriptTag({ content: 'window.TurboBoxBridge = { post: function () {} };' });
+  await tp.addScriptTag({ content: script });
+  await tp.evaluate(() => window.__turbobox.setCursorMode(true));
+  await tp.touchscreen.tap(300, 430);   // finger on B: the pointer is near the top left, over A
+  const hit1 = await tp.evaluate(() => window.hit || '');
+  check('in cursor mode a tap clicks under the pointer, not under the finger', hit1 === 'a', hit1);
+  await tp.evaluate(() => window.__turbobox.setCursorMode(false));
+  await tp.touchscreen.tap(300, 430);
+  const hit2 = await tp.evaluate(() => window.hit || '');
+  check('with it off the finger clicks as usual', hit2 === 'b', hit2);
+  await ctx.close();
+}
+
 // permission signalling follows the privacy switches
 await p2.evaluate(() => { window.__perm = []; });
 const st = await p2.evaluate(async () => {

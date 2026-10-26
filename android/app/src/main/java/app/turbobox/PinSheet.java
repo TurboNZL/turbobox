@@ -136,6 +136,16 @@ final class PinSheet {
         ads.setChecked(!pin.noAdblock);
         ads.setOnCheckedChangeListener((b, on) -> change(act, pin, p -> p.noAdblock = !on));
         col.addView(ads, Ui.lp(act, 4, 4));
+        Switch cursor = Ui.toggle(act);
+        cursor.setText("Cursor mode (trackpad style)");
+        cursor.setChecked(pin.cursorMode);
+        cursor.setOnCheckedChangeListener((b, on) -> {
+            change(act, pin, p -> p.cursorMode = on);
+            Session s = Sessions.forPin(pin.id);
+            if (s != null) s.setCursorMode(on);
+        });
+        col.addView(cursor, Ui.lp(act, 4, 0));
+        col.addView(Ui.hint(act, "One finger moves a pointer, a tap clicks where it is, hold then drag to drag, two fingers scroll. For sites made for a mouse."), Ui.lp(act, 0, 4));
         Switch drm = Ui.toggle(act);
         drm.setText("Allow protected video (Widevine)");
         drm.setChecked(pin.allowDrm);

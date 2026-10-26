@@ -16,6 +16,7 @@ final class Pin {
     float zoom = 1f;        // 0.5..3, the layout width is pageWidth / zoom
     int pageWidth = 1280;   // the virtual screen width the page believes it has, in CSS pixels (desktop sites)
     boolean allowDrm = true; // protected video (Widevine): the page may play it. Such video is black in a recording and may not play on the private display
+    boolean cursorMode;     // drive the page with a pointer (trackpad style) instead of touching it directly
     boolean noAdblock;      // this page is exempt from ad blocking
     boolean confirmClose;   // ask before closing this page (off by default)
     float volume = 1f;      // 0..2, gain on the page's audio
@@ -49,7 +50,7 @@ final class Pin {
         try {
             return new JSONObject().put("id", id).put("name", name).put("url", url)
                     .put("zoom", zoom).put("volume", volume).put("recordMode", recordMode)
-                    .put("allowMic", allowMic).put("allowCamera", allowCamera).put("aspect", aspect).put("zoomMini", zoomMini).put("aspectMini", aspectMini).put("mobile", mobile).put("pageWidth", pageWidth).put("confirmClose", confirmClose).put("noAdblock", noAdblock).put("allowDrm", allowDrm).put("profile", profileId);
+                    .put("allowMic", allowMic).put("allowCamera", allowCamera).put("aspect", aspect).put("zoomMini", zoomMini).put("aspectMini", aspectMini).put("mobile", mobile).put("pageWidth", pageWidth).put("confirmClose", confirmClose).put("noAdblock", noAdblock).put("cursorMode", cursorMode).put("allowDrm", allowDrm).put("profile", profileId);
         } catch (JSONException e) {
             throw new IllegalStateException(e);
         }
@@ -67,6 +68,7 @@ final class Pin {
         p.pageWidth = Math.max(480, Math.min(3840, o.optInt("pageWidth", 1280)));
         p.confirmClose = o.optBoolean("confirmClose", false);
         p.noAdblock = o.optBoolean("noAdblock", false);
+        p.cursorMode = o.optBoolean("cursorMode", false);
         p.allowDrm = o.optBoolean("allowDrm", true);
         p.profileId = o.optString("profile", Profiles.DEFAULT);
         if (p.profileId.isEmpty()) p.profileId = Profiles.DEFAULT;
