@@ -258,6 +258,14 @@ const typed = await page.evaluate(() => { const f = document.getElementById('fld
 check('the text from the app is put in and the page is told', typed.v === 'new text' && typed.ev === 1, typed);
 await page.evaluate(() => window.__turbobox.configure({ privateDisplay: false }));
 
+// the layout is fitted to the physical width of the view over the browser's own pixel ratio
+await page.evaluate(() => window.__turbobox.setViewPx(640));
+await page.waitForTimeout(50);
+const fitMeta = await page.evaluate(() => document.querySelector('meta[name=viewport]').content);
+const dprNow = await page.evaluate(() => window.devicePixelRatio);
+check('the viewport scale fits physical pixels / pixel ratio', fitMeta === 'width=1280, initial-scale=' + (640 / dprNow / 1280).toFixed(3), fitMeta);
+await page.evaluate(() => window.__turbobox.setViewPx(0));
+
 // permission signalling follows the privacy switches
 await p2.evaluate(() => { window.__perm = []; });
 const st = await p2.evaluate(async () => {
