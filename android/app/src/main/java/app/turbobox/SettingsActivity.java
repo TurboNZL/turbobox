@@ -204,6 +204,13 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         screen.addView(Ui.hint(this, "Every page is drawn on its own fixed-size display and the screen shows a live picture of it, so turning the "
                 + "screen off, pausing or switching tabs changes nothing for the page. Touches are passed in; typing opens a text box. Applies to pages "
                 + "opened afterwards. Turn it off if touching or typing misbehaves."), Ui.lp(this, 0, 8));
+        Switch follow = Ui.toggle(this);
+        follow.setText("Private display follows the window");
+        follow.setChecked(Prefs.displayFollows(this));
+        follow.setOnCheckedChangeListener((b, on) -> Prefs.setDisplayFollows(this, on));
+        screen.addView(follow, Ui.lp(this, 4, 2));
+        screen.addView(Ui.hint(this, "Off: the display keeps one fixed size and shape (most static; the picture is fitted into the window). "
+                + "On: it takes the size of the space the page is shown in, so hiding the bar, a split or rotating gives the page that size."), Ui.lp(this, 0, 8));
         String[] rotations = {"Follow the phone's rotation setting", "Always rotate with the phone", "Portrait only"};
         TextView rot = Ui.text(this, "Rotation: " + rotations[Prefs.rotation(this)] + "  \u203A", 15f, Ui.GREEN, "sans-serif-medium");
         rot.setPadding(0, Ui.dp(this, 10), 0, Ui.dp(this, 6));

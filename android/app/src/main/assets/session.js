@@ -1123,6 +1123,11 @@
     fieldEl = el;
     post('field', JSON.stringify({ value: el.isContentEditable ? el.textContent : el.value, multi: el.tagName === 'TEXTAREA' || el.isContentEditable }));
   }, true);
+  document.addEventListener('focusout', function (e) {
+    if (!cfg.privateDisplay || !fieldEl) return;
+    var el = e.composedPath ? e.composedPath()[0] : e.target;
+    if (el === fieldEl) setTimeout(function () { if (document.activeElement !== fieldEl) { fieldEl = null; post('fieldend', ''); } }, 80);
+  }, true);
   T.setField = function (value, submit) {
     var el = fieldEl;
     if (!el) return false;
@@ -1133,8 +1138,9 @@
       var set = Object.getOwnPropertyDescriptor(proto, 'value').set;
       set.call(el, value);
     }
+    if (!el.isContentEditable && el.setSelectionRange) { try { el.setSelectionRange(value.length, value.length); } catch (x) { /* not selectable */ } }
     el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
+    if (submit) el.dispatchEvent(new Event('change', { bubbles: true }));
     if (submit) {
       ['keydown', 'keypress', 'keyup'].forEach(function (n) { el.dispatchEvent(new KeyboardEvent(n, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true })); });
       if (el.form && el.form.requestSubmit && el.tagName === 'INPUT') { try { el.form.requestSubmit(); } catch (x) { /* no submit */ } }

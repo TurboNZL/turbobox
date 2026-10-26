@@ -112,6 +112,9 @@ public class SessionActivity extends Activity implements Session.Listener {
     private TextView editSnap;
     private IconButton layoutButton;
     private MiniLayoutEditor overlay;
+    private EditText typeBox;
+    private Session typeSession;
+    private boolean typeMulti, typeSilent;
     private final MirrorView[] mirrors = new MirrorView[Sessions.COUNT];
     private FractionLayout editStack;
     private float paneAspect;   // width / height of the pages' area on screen when not in the Mini window
@@ -1753,18 +1756,60 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     @Override
     public void onField(Session s, String value, boolean multiline) {
-        EditText input = new EditText(this);
-        input.setText(value);
-        input.setSelection(value.length());
-        input.setTextColor(Ui.TEXT);
-        if (multiline) input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-        else input.setSingleLine(true);
-        new AlertDialog.Builder(this).setTitle("Type into the page").setView(input)
-                .setPositiveButton(multiline ? "Done" : "Enter", (d, w) -> s.setField(input.getText().toString(), !multiline))
-                .setNeutralButton("Done", (d, w) -> s.setField(input.getText().toString(), false))
-                .setNegativeButton("Cancel", null).show();
+        // The phone's own keyboard types into a small invisible box here, and every change is sent to the page's field at once,
+        // so it behaves like typing into the page itself (suggestions, Enter and all).
+        if (typeBox == null) {
+            typeBox = new EditText(this);
+            typeBox.setAlpha(0.01f);
+            typeBox.setTextSize(1f);
+            typeBox.setBackground(null);
+            typeBox.setPadding(0, 0, 0, 0);
+            ((FrameLayout) root.getParent()).addView(typeBox, new FrameLayout.LayoutParams(Ui.dp(this, 2), Ui.dp(this, 2), Gravity.BOTTOM | Gravity.START));
+            typeBox.addTextChangedListener(new android.text.TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence c, int a, int b, int d) { }
+                @Override public void onTextChanged(CharSequence c, int a, int b, int d) { }
+
+                @Override
+                public void afterTextChanged(android.text.Editable e) {
+                    if (typeSession != null && !typeSilent) typeSession.setField(e.toString(), false);
+                }
+            });
+            typeBox.setOnEditorActionListener((v, action, ev) -> {
+                if (typeSession != null && !typeMulti) typeSession.setField(typeBox.getText().toString(), true);
+                hideTypeBox();
+                return true;
+            });
+        }
+        typeSession = s;
+        typeMulti = multiline;
+        typeSilent = true;
+        typeBox.setInputType(multiline ? android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                : android.text.InputType.TYPE_CLASS_TEXT);
+        typeBox.setImeOptions(multiline ? android.view.inputmethod.EditorInfo.IME_ACTION_NONE : android.view.inputmethod.EditorInfo.IME_ACTION_GO);
+        typeBox.setText(value);
+        typeBox.setSelection(value.length());
+        typeSilent = false;
+        typeBox.setVisibility(View.VISIBLE);
+        typeBox.requestFocus();
+        android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        typeBox.post(() -> imm.showSoftInput(typeBox, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT));
     }
 
+    @Override
+    public void onFieldEnd(Session s) {
+        if (s == typeSession) hideTypeBox();
+    }
+
+    private void hideTypeBox() {
+        if (typeBox == null) return;
+        android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        imm.hideSoftInputFromWindow(typeBox.getWindowToken(), 0);
+        typeBox.clearFocus();
+        typeBox.setVisibility(View.GONE);
+        typeSession = null;
+    }
+
+    @Override
     public void onFrozen(Session s, boolean frozen) {
         if (frozen) {
             freezeNow(s.slot);
