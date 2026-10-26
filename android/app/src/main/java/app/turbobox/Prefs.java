@@ -28,6 +28,10 @@ final class Prefs {
     static float brightness(Context c) { return ps(c).getFloat("brightness", 1f); }
     static void setBrightness(Context c, float v) { ps(c).edit().putFloat("brightness", v).apply(); }
 
+    /** The workflow the headset's play/pause button starts (its id), or "" for the button to play and pause the page. */
+    static String headphoneWorkflow(Context c) { return sp(c).getString("headphoneWorkflow", ""); }
+    static void setHeadphoneWorkflow(Context c, String v) { sp(c).edit().putString("headphoneWorkflow", v).apply(); }
+
     // ---- standby: keep the foreground service up so scheduled workflows can use the microphone ----
     static boolean standby(Context c) { return sp(c).getBoolean("standby", false); }
     static void setStandby(Context c, boolean v) { sp(c).edit().putBoolean("standby", v).apply(); }
@@ -56,8 +60,23 @@ final class Prefs {
     static int splitDefault(Context c) { return ps(c).getInt("splitDefault", 0); }
     static void setSplitDefault(Context c, int v) { ps(c).edit().putInt("splitDefault", v).apply(); }
     /** The arrangement last used with {@code pages} pages (MiniLayout.pack), for the full screen or the Mini window; "" = none yet. */
-    static String lastArrangement(Context c, boolean mini, int pages) { return ps(c).getString((mini ? "lastMini_" : "lastFull_") + pages, ""); }
-    static void setLastArrangement(Context c, boolean mini, int pages, String v) { ps(c).edit().putString((mini ? "lastMini_" : "lastFull_") + pages, v).apply(); }
+    /**
+     * The full-screen arrangement is remembered separately for portrait and landscape; if one orientation has none yet it
+     * simply starts as the default (stacked or grid). The Mini window's is the same whichever way the phone is held.
+     */
+    private static String arrKey(boolean mini, int pages, boolean landscape) { return (mini ? "lastMini_" : "lastFull_" + (landscape ? "L" : "P")) + pages; }
+    static String lastArrangement(Context c, boolean mini, int pages, boolean landscape) {
+        String v = ps(c).getString(arrKey(mini, pages, landscape), "");
+        if (v.isEmpty() && !mini && !landscape) v = ps(c).getString("lastFull_" + pages, "");   // saved before orientations were told apart
+        return v;
+    }
+    static void setLastArrangement(Context c, boolean mini, int pages, boolean landscape, String v) { ps(c).edit().putString(arrKey(mini, pages, landscape), v).apply(); }
+    /** Edges snap together when pages are moved in the layout editor (off by default). */
+    static boolean snapEdges(Context c) { return ps(c).getBoolean("snapEdges", false); }
+    static void setSnapEdges(Context c, boolean v) { ps(c).edit().putBoolean("snapEdges", v).apply(); }
+    /** Rotation of the page screen: 0 follow the phone's rotation lock, 1 rotate with the sensor whatever the lock says, 2 portrait only. */
+    static int rotation(Context c) { return ps(c).getInt("rotation", 0); }
+    static void setRotation(Context c, int v) { ps(c).edit().putInt("rotation", v).apply(); }
     static String splitLayout(Context c, String key) { return ps(c).getString("split_" + key, null); }
     static void setSplitLayout(Context c, String key, String v) { ps(c).edit().putString("split_" + key, v).apply(); }
     static void clearSplitLayouts(Context c) {

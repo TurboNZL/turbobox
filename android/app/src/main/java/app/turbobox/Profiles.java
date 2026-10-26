@@ -41,6 +41,7 @@ final class Profiles {
 
     /** All profiles, the default first. */
     static List<Profile> load(Context c) {
+        wipeOldPasswords(c);
         List<Profile> out = new ArrayList<>();
         Profile def = new Profile(DEFAULT, nameOfDefault(c));
         def.salt = Prefs.sp(c).getString("defaultProfileSalt", "");
@@ -62,6 +63,25 @@ final class Profiles {
             // A damaged list reads as just the default.
         }
         return out;
+    }
+
+    /** Profiles are locked by a number code now; a typed password from an earlier version cannot be entered on the pad, so it is dropped. */
+    private static boolean wiped;
+
+    private static void wipeOldPasswords(Context c) {
+        if (wiped) return;
+        wiped = true;
+        if (Prefs.sp(c).getBoolean("pinCodes", false)) return;
+        Prefs.sp(c).edit().putBoolean("pinCodes", true).remove("defaultProfileSalt").remove("defaultProfileHash").apply();
+        try {
+            JSONArray a = new JSONArray(Prefs.sp(c).getString(KEY, "[]"));
+            for (int i = 0; i < a.length(); i++) {
+                a.getJSONObject(i).put("salt", "").put("hash", "");
+            }
+            Prefs.sp(c).edit().putString(KEY, a.toString()).apply();
+        } catch (JSONException ignored) {
+            // Nothing readable to wipe.
+        }
     }
 
     private static String nameOfDefault(Context c) {
@@ -122,8 +142,8 @@ final class Profiles {
         if (id.equals(filter(c))) setFilter(c, DEFAULT);
     }
 
-    // ---- passwords ----------------------------------------------------------------------------------------------
-    // A profile with a password is locked until it is opened with it. Unlocked is remembered in memory only, so it is
+    // ---- codes (number pad) ----------------------------------------------------------------------------------------------
+    // A profile with a code is locked until it is opened with it. Unlocked is remembered in memory only, so it is
     // locked again when the app is restarted, by Lock now, and after the app has been left alone for a couple of minutes.
 
     private static final java.util.Set<String> UNLOCKED = new java.util.HashSet<>();

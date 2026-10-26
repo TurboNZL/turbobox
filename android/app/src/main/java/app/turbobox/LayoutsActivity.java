@@ -95,7 +95,7 @@ public class LayoutsActivity extends Activity {
                             render();
                         }).show()));
         card.addView(Ui.hint(this, "With Split on, the Mini window shows the pages you chose to split. Without Split it shows the page in front."), Ui.lp(this, 0, 4));
-        Switch reclaim = new Switch(this);
+        Switch reclaim = Ui.toggle(this);
         reclaim.setText("Let other pages use the empty space");
         reclaim.setTextColor(Ui.TEXT);
         reclaim.setChecked(Prefs.reclaimEmpty(this));

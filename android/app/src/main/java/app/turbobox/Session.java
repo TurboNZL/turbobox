@@ -111,6 +111,8 @@ final class Session {
     private float volume = 1f;        // 0..2, applied to the page's audio inside the page
     private String micKey = "";       // "" = the page's own capture; otherwise an input device, captured natively
     private boolean aec = true;
+    private boolean cursorMode;      // the page is driven with a pointer, trackpad style
+    private int pageWidth = 1280;    // the virtual screen width the page believes it has
     private float zoom = 1f;          // 0.5..3: the page's layout width is 1280 / zoom
     private float micGain = 1f;       // 0..3: gain on what the other person hears
     private final VirtualMic vmic = new VirtualMic();
@@ -587,6 +589,34 @@ final class Session {
         js(String.format(Locale.US, "__turbobox.setVolume(%.3f)", volume));
     }
 
+    boolean cursorMode() {
+        return cursorMode;
+    }
+
+    /** Cursor mode: one finger moves a pointer, a tap clicks where it is, two fingers scroll. Kept with the pin. */
+    void setCursorMode(boolean on) {
+        cursorMode = on;
+        if (pin != null) {
+            pin.cursorMode = on;
+            PinStore.put(app, pin);
+        }
+        js("__turbobox.setCursorMode(" + on + ")");
+    }
+
+    int pageWidth() {
+        return pageWidth;
+    }
+
+    /** The virtual screen width (CSS pixels) the page believes it has; separate from zoom, which works inside it. */
+    void setPageWidth(int px) {
+        pageWidth = Math.max(480, Math.min(3840, px));
+        if (pin != null) {
+            pin.pageWidth = pageWidth;
+            PinStore.put(app, pin);
+        }
+        js("__turbobox.setPageWidth(" + pageWidth + ")");
+    }
+
     /** Page zoom, 0.5..3: lays the page out again at 1280 / zoom CSS pixels wide (not a magnifier). */
     void setZoom(float value) {
         zoom = Math.max(0.5f, Math.min(3f, value));
@@ -600,10 +630,7 @@ final class Session {
     void setMicChoice(String key) {
         micKey = key == null ? "" : key;
         js("__turbobox.configure({micLabel:" + JSONObject.quote(micLabel()) + "})");
-        js("__turbobox.setVirtualMic(" + !micKey.isEmpty() + ")");
-        if (micKey.isEmpty()) {
-            stopCapture();
-        } else if (pageWantsMic) {
+        if (pageWantsMic) {
             stopCapture();
             startCapture();
         }
@@ -646,7 +673,7 @@ final class Session {
     }
 
     private void startCapture() {
-        if (micKey.isEmpty() || vmic.isRunning() || !active) return;
+        if (vmic.isRunning() || !active) return;
         AudioDeviceInfo device = Devices.find(app, micKey);
         if (device == null) notice("The chosen microphone is not available now; using the system default input.");
         if (!micAllowed) return;
@@ -774,6 +801,8 @@ final class Session {
         aec = Prefs.aec(app);
         micGain = Prefs.micGain(app);
         zoom = page.zoom;
+        pageWidth = page.pageWidth;
+        cursorMode = page.cursorMode;
         aspect = page.aspect;
         zoomMini = page.zoomMini;
         aspectMini = page.aspectMini;
@@ -922,10 +951,9 @@ final class Session {
         android.util.DisplayMetrics dm = app.getResources().getDisplayMetrics();
         int srcW = webView.getWidth() >= 16 ? webView.getWidth() : dm.widthPixels;
         int srcH = webView.getHeight() >= 16 ? webView.getHeight() : dm.heightPixels;
-        float k = Math.min(1f, 480f / srcW);
-        int dpi = Math.max(60, Math.round(dm.densityDpi * k));
-        OffscreenHost host = new OffscreenHost(app, "keep" + slot, webView, Math.max(16, Math.round(srcW * k)),
-                Math.max(16, Math.round(srcH * k)), dpi);
+        // The same pixels and density as on the phone's screen, so the page sees no resize or density change when the
+        // screen goes off (a change makes some sites relayout, or pause).
+        OffscreenHost host = new OffscreenHost(app, "keep" + slot, webView, Math.max(16, srcW), Math.max(16, srcH), dm.densityDpi);
         if (host.start()) {
             host.drain();
             keepHost = host;
@@ -1068,6 +1096,7 @@ final class Session {
         st.setDomStorageEnabled(true);
         st.setMediaPlaybackRequiresUserGesture(false);
         // Ask for the desktop layout of the site, and let it be pinch-zoomed on a phone.
+        AdBlock.ensure(app);
         mobileUa = st.getUserAgentString();
         mobile = pin != null && pin.mobile;
         applyMode(st);
@@ -1110,17 +1139,31 @@ final class Session {
                 }
                 if (!wipeProfile) SiteData.seen(app, profileName == null ? "" : profileName, url);
                 pageLoaded = false;
+                blockedCount = 0;
                 muteMisses = 0;
                 muteWarned = false;
                 pageWantsMic = false; // a new document starts without the virtual mic; it will ask again
                 stopCapture();
                 view.evaluateJavascript(pageScript(), null);
+                hideAds(view, url);
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
                 pageLoaded = !"about:blank".equals(url);
                 view.evaluateJavascript(pageScript(), null);
+                hideAds(view, url);
+            }
+
+            @Override
+            public android.webkit.WebResourceResponse shouldInterceptRequest(WebView view, android.webkit.WebResourceRequest request) {
+                if (adsBlocked() && AdBlock.shouldBlock(request.getUrl().toString(), view.getUrl(), request.isForMainFrame(),
+                        request.getRequestHeaders().get("Accept"))) {
+                    blockedCount++;
+                    return new android.webkit.WebResourceResponse("text/plain", "utf-8", 200, "Blocked", Collections.<String, String>emptyMap(),
+                            new java.io.ByteArrayInputStream(new byte[0]));
+                }
+                return null;
             }
 
             @Override
@@ -1136,6 +1179,8 @@ final class Session {
                 if (hostAllowed(request.getOrigin())) {
                     for (String r : request.getResources()) {
                         if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r) && micAllowed) allowed.add(r);
+                        // Widevine (Netflix-style protected video): the page asks for the DRM key system through this resource.
+                        if (PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID.equals(r) && pin != null && pin.allowDrm) allowed.add(r);
                         if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r) && cameraAllowed
                                 && app.checkSelfPermission(android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
                             allowed.add(r);
@@ -1193,8 +1238,8 @@ final class Session {
     private String pageScript() {
         try {
             JSONObject settings = new JSONObject()
-                    .put("muted", silenced()).put("volume", volume).put("aec", aec).put("zoom", effectiveZoom())
-                    .put("micGain", micGain).put("virtual", !micKey.isEmpty()).put("micLabel", micLabel())
+                    .put("muted", silenced()).put("volume", volume).put("aec", aec).put("pageWidth", pageWidth).put("cursorMode", cursorMode).put("zoom", effectiveZoom())
+                    .put("micGain", micGain).put("micLabel", micLabel())
                     .put("tap", isRecording()).put("micAllowed", micAllowed).put("cameraAllowed", cameraAllowed).put("localMute", frozen)
                     .put("keepVisible", Prefs.keepPlaying(app)).put("desktop", !mobile);
             if (viewCssWidth > 0) settings.put("viewWidth", viewCssWidth);
@@ -1233,6 +1278,7 @@ final class Session {
                 }
                 case "media":
                     mediaPlaying = "1".equals(data);
+                    main.post(SessionService::refresh);
                     for (Listener l : listeners) l.onMedia(this);
                     break;
                 case "fsratio": {
@@ -1253,12 +1299,13 @@ final class Session {
                             + "\nviewport: " + o.optString("viewport")
                             + "\nzoom " + o.optString("zoom") + ", asked layout area " + o.optInt("viewW") + " px wide, page height " + o.optInt("innerH")
                             + " px, page scale " + o.optString("vvScale")
-                            + "\nmicrophone: " + (micKey.isEmpty() ? "page default" : "native input, " + micKey)
+                            + "\nmicrophone: virtual, fed from " + (micKey.isEmpty() ? "the system default input" : micKey)
                             + "\nclient hint mobile: " + o.optString("uaMobile")
                             + "\npage: " + o.optString("host")
                             + "\nmic API: " + o.optString("mediaDevices")
                             + "\ncalls open: " + o.optInt("calls")
-                            + "\naudio: " + o.optString("audio");
+                            + "\naudio: " + o.optString("audio")
+                            + "\nads: " + (adsBlocked() ? blockedCount + " requests blocked on this page" : "blocking is off");
                     for (Listener l : listeners) l.onInfo(this, text);
                     break;
                 }
@@ -1288,14 +1335,7 @@ final class Session {
 
     /** "a.b.example.com" -> "example.com"; "a.example.co.nz" -> "example.co.nz". */
     static String rootDomain(String host) {
-        String[] parts = host.split("\\.");
-        if (parts.length <= 2) return host;
-        String last = parts[parts.length - 1], second = parts[parts.length - 2];
-        int keep = last.length() == 2 && second.matches("co|com|org|net|gov|ac|edu|ne|or|go") ? 3 : 2;
-        keep = Math.min(keep, parts.length);
-        StringBuilder sb = new StringBuilder();
-        for (int i = parts.length - keep; i < parts.length; i++) sb.append(sb.length() == 0 ? "" : ".").append(parts[i]);
-        return sb.toString();
+        return Hosts.rootDomain(host);
     }
 
     private static String desktopUserAgent(String mobile) {
@@ -1303,6 +1343,19 @@ final class Session {
         String major = m.find() ? m.group(1) : "120";
         return "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/"
                 + major + ".0.0.0 Safari/537.36";
+    }
+
+    private int blockedCount;     // requests answered with nothing on this page load, for Page info
+
+    /** Ad blocking applies to this page: the app switch is on and this page has not been exempted. */
+    private boolean adsBlocked() {
+        return app != null && AdBlock.enabled(app) && (pin == null || !pin.noAdblock);
+    }
+
+    private void hideAds(WebView view, String url) {
+        if (!adsBlocked()) return;
+        String script = AdBlock.hidingScript(url);
+        if (script != null) view.evaluateJavascript(script, null);
     }
 
     /** Client hints say "desktop Linux Chrome" too, since some sites read them instead of the UA string. */

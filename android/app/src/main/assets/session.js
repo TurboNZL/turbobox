@@ -18,8 +18,7 @@
 (function () {
   if (window.__turbobox) return;
   var T = window.__turbobox = {};
-  var WIDTH = 1280;
-  var cfg = { muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, cameraAllowed: false, localMute: false, keepVisible: true, desktop: !window.__tbMobile };
+  var cfg = { pageWidth: 1280, muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, cameraAllowed: false, localMute: false, keepVisible: true, desktop: !window.__tbMobile };
   var tracks = [], pcs = [];
 
   function post(type, data) {
@@ -102,14 +101,25 @@
       m.name = 'viewport';
       document.head.appendChild(m);
     }
-    var w = Math.round(WIDTH / cfg.zoom);
+    var w = Math.round(cfg.pageWidth / cfg.zoom);
     // The scale fits the layout width to the area the page really has (a small floating window, half of a split
     // screen), not to the whole screen, or a page in a small window would show only its top-left corner.
     var want = 'width=' + w + ', initial-scale=' + ((cfg.viewW || window.screen.width || w) / w).toFixed(3);
     if (m.content !== want) m.content = want;
   }
+  // The virtual screen the page believes it has (desktop mode): its width is the page size setting, its shape the phone's.
+  (function () {
+    if (!window.Screen) return;
+    var phys = { w: window.screen.width, h: window.screen.height };
+    function sw() { return cfg.desktop ? cfg.pageWidth : phys.w; }
+    function sh() { return cfg.desktop ? Math.round(cfg.pageWidth * phys.h / Math.max(1, phys.w)) : phys.h; }
+    [['width', sw], ['availWidth', sw], ['height', sh], ['availHeight', sh]].forEach(function (a) {
+      try { Object.defineProperty(Screen.prototype, a[0], { get: a[1], configurable: true, enumerable: true }); } catch (e) { /* kept */ }
+    });
+  })();
   viewport();
   window.addEventListener('orientationchange', function () { setTimeout(viewport, 300); });
+  T.setPageWidth = function (w) { cfg.pageWidth = Math.max(480, Math.min(3840, Math.round(+w) || 1280)); viewport(); };
   T.setZoom = function (z) { cfg.zoom = Math.max(0.5, Math.min(3, +z || 1)); viewport(); };
   T.setViewWidth = function (w) { if (T.resized && cfg.viewW && Math.max(0, +w || 0) !== cfg.viewW) T.resized(); cfg.viewW = Math.max(0, +w || 0); viewport(); setTimeout(viewport, 300); };
   new MutationObserver(viewport).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['content'] });
@@ -237,7 +247,7 @@
   // ---- virtual mic: audio captured natively from a chosen device, played into the page ----------------
   // The page cannot see the phone's individual inputs, so the app captures the chosen one itself and
   // pushes 16-bit PCM here; it is scheduled into a MediaStreamDestination that stands in for the mic.
-  var vm = { label: '', on: false, dest: null, gain: null, nextFrame: 0, live: false, tracks: [] };
+  var vm = { label: '', on: true, dest: null, gain: null, nextFrame: 0, live: false, tracks: [] };
   function vmStream() {
     var c = ensureCtx();
     if (!vm.dest) {
@@ -278,54 +288,58 @@
     vm.nextFrame += Math.round(n * sr / 48000);
   };
 
-  // Mic volume for the page's own capture: route it through a gain stage, but only when the gain is not
-  // 100% and only if the audio context is really running, so the call can never go silent because of it.
-  var pageGains = [];
-  function unity() { return Math.abs(cfg.micGain - 1) < 0.01; }
-  async function processed(raw) {
-    if (unity() || raw.getAudioTracks().length === 0) return raw;
-    var c = ensureCtx();
-    if (c.state !== 'running') { try { await c.resume(); } catch (e) { /* stays suspended */ } }
-    if (c.state !== 'running') return raw;
-    var src = c.createMediaStreamSource(raw), g = c.createGain(), dest = c.createMediaStreamDestination();
-    g.gain.value = cfg.micGain;
-    src.connect(g);
-    g.connect(dest);
-    pageGains.push(g);
-    var out = dest.stream, t = out.getAudioTracks()[0], stop = t.stop.bind(t);
-    t.stop = function () { stop(); raw.getTracks().forEach(function (r) { r.stop(); }); try { src.disconnect(); } catch (e) { /* gone */ } };
-    raw.getVideoTracks().forEach(function (v) { out.addTrack(v); });
-    return out;
-  }
-
-  // ---- device list: pages check it before asking for the mic ------------------------------------------
-  // A WebView may list no microphone (or only nameless, id-less entries) until the page has captured once, and
-  // web apps then say "no microphone found" without ever asking. The app picks the real input itself, so the
-  // page is always shown one usable, named microphone; its id is accepted (and ignored) when it asks for it.
-  var MIC_ID = 'default';
-  function fakeMic() {
-    var d = { deviceId: MIC_ID, kind: 'audioinput', label: vm.label || 'Default microphone', groupId: 'turbobox-mic' };
+  // ---- virtual devices: the page never sees the phone's real ones ---------------------------------------
+  // Whatever the phone has (telephony, a headset's call input, several cameras), a page is shown the same fixed
+  // set: one microphone, one speaker and a front and a back camera, with stable ids and names. The microphone is
+  // always the app's own (audio captured natively from the input chosen in the app and played into the page), and
+  // the speaker is always the system's media output. Device ids a page asks for are accepted and ignored, so a site
+  // that remembers "its" device keeps working, and nothing about the real hardware (or a headset in call mode) leaks.
+  var MIC_ID = 'turbobox-mic', SPK_ID = 'turbobox-speaker', CAM_FRONT = 'turbobox-cam-front', CAM_BACK = 'turbobox-cam-back';
+  function fakeDevice(kind, id, label, group) {
+    var d = { deviceId: id, kind: kind, label: label, groupId: group };
     d.toJSON = function () { return { deviceId: d.deviceId, kind: d.kind, label: d.label, groupId: d.groupId }; };
+    try { Object.setPrototypeOf(d, (window.MediaDeviceInfo || Object).prototype); } catch (e) { /* plain object */ }
     return d;
   }
-  if (md && md.enumerateDevices) {
-    var origEnum = md.enumerateDevices.bind(md);
-    md.enumerateDevices = async function () {
-      var list = [];
-      try { list = Array.prototype.slice.call(await origEnum()); } catch (e) { /* none listed */ }
-      var usable = list.some(function (d) { return d.kind === 'audioinput' && d.deviceId; });
-      if (usable && !vm.on) return list;
-      var out = list.filter(function (d) { return d.kind !== 'audioinput' || (d.deviceId && !vm.on); });
-      out.unshift(fakeMic());
-      return out;
-    };
+  function virtualList() {
+    var out = [
+      fakeDevice('audioinput', MIC_ID, 'Microphone', 'turbobox-audio'),
+      fakeDevice('audiooutput', SPK_ID, 'Speaker', 'turbobox-audio')
+    ];
+    if (cfg.cameraAllowed) {
+      out.push(fakeDevice('videoinput', CAM_FRONT, 'Front camera', 'turbobox-cam-front'));
+      out.push(fakeDevice('videoinput', CAM_BACK, 'Back camera', 'turbobox-cam-back'));
+    }
+    return out;
   }
-  // The page's device choice means nothing here (the app or the system decides), and an id it was handed from
-  // the list above must not make the capture fail, so device ids are dropped from the audio constraints.
+  if (md && md.enumerateDevices) {
+    md.enumerateDevices = async function () { return virtualList(); };
+  }
+  if (md) {
+    // Some sites ask the browser to let the user pick a speaker, or to move the page's sound to one.
+    md.selectAudioOutput = async function () { return virtualList()[1]; };
+  }
+  if (window.HTMLMediaElement) {
+    HTMLMediaElement.prototype.setSinkId = function () { return Promise.resolve(); };
+    Object.defineProperty(HTMLMediaElement.prototype, 'sinkId', { configurable: true, get: function () { return ''; } });
+  }
+  // The device a page asked for means nothing here, so ids are dropped; a camera id picks front or back.
   function plainAudio(a) {
     if (!a || a === true) return a;
     var o = Object.assign({}, a);
     delete o.deviceId;
+    return o;
+  }
+  function facing(id) {
+    var v = id && (id.exact || id.ideal || id);
+    if (Array.isArray(v)) v = v[0];
+    return v === CAM_BACK ? 'environment' : v === CAM_FRONT ? 'user' : null;
+  }
+  function plainVideo(v) {
+    if (!v || v === true) return v;
+    var o = Object.assign({}, v), f = facing(o.deviceId);
+    delete o.deviceId;
+    if (f && !o.facingMode) o.facingMode = f;
     return o;
   }
 
@@ -335,65 +349,29 @@
       // Microphone privacy switch: refuse the way a browser does when you press "Block".
       if (c && c.audio && !cfg.micAllowed) throw new DOMException('Permission denied by TurboBox (microphone blocked for this page)', 'NotAllowedError');
       if (c && c.video && !cfg.cameraAllowed) throw new DOMException('Permission denied by TurboBox (camera blocked for this page)', 'NotAllowedError');
-      if (c && c.audio && vm.on) {
+      if (c && c.video) c = Object.assign({}, c, { video: plainVideo(c.video) });
+      if (c && c.audio) {
+        // Always the app's own microphone; a camera, when asked for too, is captured by the browser and added.
         stream = vmStream();
         if (c.video) {
           try { (await orig({ video: c.video })).getVideoTracks().forEach(function (t) { stream.addTrack(t); }); } catch (e) { /* audio only */ }
         }
       } else {
-        if (c && c.audio) c = Object.assign({}, c, { audio: plainAudio(c.audio) });
-        if (c && c.audio && !cfg.aec) {
-          var audio = c.audio === true ? {} : Object.assign({}, c.audio);
-          audio.echoCancellation = false; audio.noiseSuppression = false; audio.autoGainControl = false;
-          c = Object.assign({}, c, { audio: audio });
-        }
-        try {
-          stream = await orig(c);
-        } catch (e) {
-          // An over-specific request (rate, channels, ...) the device cannot meet reads as "no microphone".
-          if (!(c && c.audio && e && (e.name === 'OverconstrainedError' || e.name === 'NotFoundError'))) throw e;
-          stream = await orig(Object.assign({}, c, { audio: true }));
-        }
-        if (c && c.audio) stream = await processed(stream);
+        stream = await orig(c);
       }
       adopt(stream);
       return stream;
     };
   }
 
-  // Swap the live outgoing track (a new mic, or echo cancellation toggled) without renegotiating.
-  async function recapture() {
-    var senders = outgoing();
-    if (!senders.length || !orig) return;
-    var fresh = (await md.getUserMedia({ audio: true })).getAudioTracks()[0];
-    for (var i = 0; i < senders.length; i++) {
-      var old = senders[i].track;
-      await senders[i].replaceTrack(fresh);
-      old.stop(); // stop() does not fire 'ended', so the page does not mistake it for a lost mic
-    }
-    applyMute();
-  }
-  // Use the natively captured device (true) or the page's own default capture (false); switches a live call.
-  T.setVirtualMic = async function (on) {
-    // Moving from one native input to another changes only what the app feeds in: the track the call is
-    // already sending stays, so nothing is renegotiated or replaced (which is what broke calls).
-    if (vm.on === !!on) { vm.nextFrame = 0; return; }
-    vm.on = !!on;
-    vmCheck();
-    await recapture();
-  };
-  T.setMicGain = async function (g) {
-    var wasUnity = unity();
+  // The microphone is always the virtual one, so these only keep the old calls working: the input is chosen and
+  // processed natively, and the track a call is sending is never replaced when that changes.
+  T.setVirtualMic = function () { vm.nextFrame = 0; };
+  T.setMicGain = function (g) {
     cfg.micGain = Math.max(0, Math.min(3, +g || 0));
-    pageGains.forEach(function (n) { n.gain.value = cfg.micGain; });
     if (vm.gain) vm.gain.gain.value = cfg.micGain;
-    // Moving to or from 100% switches the live page capture between the plain and the gain path.
-    if (!vm.on && wasUnity !== unity()) await recapture();
   };
-  T.setProcessing = async function (on) {
-    cfg.aec = !!on;
-    if (!vm.on) await recapture();   // with the virtual mic the app applies it natively
-  };
+  T.setProcessing = function (on) { cfg.aec = !!on; };
 
   // ---- volume: gain on the other person's voice ----------------------------------------------------
   var routed = [];
@@ -438,7 +416,12 @@
     sweep();
   }
   setInterval(applyVolume, 1000);
-  T.setVolume = function (v) { cfg.volume = Math.max(0, Math.min(2, +v || 0)); applyVolume(); };
+  T.setVolume = function (v) {
+    cfg.volume = Math.max(0, Math.min(2, +v || 0));
+    applyVolume();
+    if (T.volumeSweep) T.volumeSweep();
+    relayToFrames({ __tb: 'cfg', cfg: { volume: cfg.volume } });
+  };
 
   // ---- level meters -------------------------------------------------------------------------------
   function startMeter(kind, getTrack) {
@@ -862,6 +845,9 @@
     });
     hook(HTMLMediaElement.prototype, 'play', function () { noteMedia(this); if (cfg.localMute) applyLocalMute(this); });
   }
+  // The last stage between the page and the phone's speaker: Pause closes it, the page volume scales it. (Our own context
+  // carries a call's remote voices, which apply the volume themselves.) The page's own volume and mute buttons act before it.
+  function masterLevel(m) { return cfg.localMute ? 0 : (m && m.__own ? 1 : cfg.volume); }
   var masters = [], origConnect = AudioNode.prototype.connect, origDisconnect = AudioNode.prototype.disconnect;
   var LiveContext = window.AudioContext || window.webkitAudioContext;
   function isLiveDestination(d) { return window.AudioDestinationNode && d instanceof AudioDestinationNode && LiveContext && d.context instanceof LiveContext; }
@@ -870,7 +856,8 @@
   function preFor(ctx) {
     if (!ctx.__tbPre) {
       var m = ctx.createGain();
-      m.gain.value = cfg.localMute ? 0 : 1;
+      m.__own = !!ctx.__tbOwn;
+      m.gain.value = masterLevel(m);
       origConnect.call(m, ctx.destination);
       var pre = ctx.createGain();
       origConnect.call(pre, m);
@@ -935,8 +922,46 @@
       deepQuery(d, 'audio,video', []).forEach(function (el) { if (all.indexOf(el) < 0) all.push(el); });
     });
     all.forEach(applyLocalMute);
-    masters.forEach(function (g) { g.gain.value = cfg.localMute ? 0 : 1; });
+    masters.forEach(function (g) { g.gain.value = masterLevel(g); });
   }
+  // ---- page volume for media elements ---------------------------------------------------------------------
+  // The volume is a middleman between the page and the phone's speaker: the page keeps reading and writing its own
+  // `volume` (its slider, its mute) and nothing it does can undo ours. An element moved into Web Audio is scaled by the
+  // master gain (so above 100% works); one that cannot be moved (a live stream, cross-origin media without CORS) has its
+  // real volume set to what the page asked for times ours, up to 100%.
+  var volDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'volume');
+  function elScale(el) { return (el.__tbSrc || el.__tbPageRouted) ? 1 : Math.min(1, cfg.volume); }
+  function applyElVolume(el) {
+    if (el.__tbVol === undefined) el.__tbVol = volDesc.get.call(el);
+    var v = Math.max(0, Math.min(1, el.__tbVol * elScale(el)));
+    if (volDesc.get.call(el) !== v) volDesc.set.call(el, v);
+  }
+  if (volDesc && volDesc.set) {
+    Object.defineProperty(HTMLMediaElement.prototype, 'volume', {
+      configurable: true,
+      get: function () { return this.__tbVol === undefined ? volDesc.get.call(this) : this.__tbVol; },
+      set: function (v) {
+        v = +v;
+        if (!(v >= 0 && v <= 1)) { volDesc.set.call(this, v); return; } // the page gets the same error a browser gives
+        noteMedia(this);
+        this.__tbVol = v;
+        applyElVolume(this);
+      }
+    });
+  }
+  T.volumeSweep = function () {
+    var all = media.slice();
+    docsOf(document, []).forEach(function (d) {
+      deepQuery(d, 'audio,video', []).forEach(function (el) { if (all.indexOf(el) < 0) all.push(el); });
+    });
+    all.forEach(function (el) {
+      noteMedia(el);
+      if (Math.abs(cfg.volume - 1) > 0.01) routeElement(el);
+      applyElVolume(el);
+    });
+    masters.forEach(function (g) { g.gain.value = masterLevel(g); });
+  };
+  setInterval(function () { if (Math.abs(cfg.volume - 1) > 0.01 || media.some(function (e) { return e.__tbVol !== undefined && elScale(e) !== 1; })) T.volumeSweep(); }, 1000);
   var lmTimer = 0;
   function relayToFrames(msg) {
     for (var i = 0; i < window.frames.length; i++) { try { window.frames[i].postMessage(msg, '*'); } catch (e) { /* gone */ } }
@@ -958,6 +983,125 @@
     clearInterval(lmTimer);
     if (cfg.localMute) lmTimer = setInterval(localMuteSweep, 500);
     relayToFrames({ __tb: 'localMute', on: cfg.localMute });
+  };
+
+  // ---- ad blocking, the page's half ---------------------------------------------------------------------------
+  // The app blocks requests and sends the selectors to hide (from the filter lists); this hides them, in chunks so one
+  // selector this browser does not understand only loses its own chunk, and keeps hiding what the page adds later.
+  var hideSheet = null, hidden = [];
+  T.hide = function (selectors) {
+    if (!selectors || !selectors.length) return;
+    if (!hideSheet) {
+      var st = document.createElement('style');
+      st.setAttribute('data-turbobox', 'ads');
+      (document.head || document.documentElement).appendChild(st);
+      hideSheet = st;
+    }
+    var css = '';
+    for (var i = 0; i < selectors.length; i += 100) {
+      var chunk = selectors.slice(i, i + 100);
+      try { document.createDocumentFragment().querySelector(chunk.join(',')); css += chunk.join(',') + '{display:none!important}\n'; }
+      catch (e) {
+        chunk.forEach(function (s) {
+          try { document.createDocumentFragment().querySelector(s); css += s + '{display:none!important}\n'; } catch (x) { /* not understood here */ }
+        });
+      }
+    }
+    hideSheet.textContent = css;
+  };
+  // In-page ad data: YouTube ships its ads inside the player data it fetches, and the page plays whatever is listed.
+  // Removing those lists from the data (what uBlock's json-prune does) leaves the video alone.
+  var AD_KEYS = ['adPlacements', 'playerAds', 'adSlots', 'adBreakHeartbeatParams'];
+  function prune(o) {
+    if (!o || typeof o !== 'object') return o;
+    var pr = o.playerResponse && typeof o.playerResponse === 'object' ? o.playerResponse : o;
+    if (pr && (pr.streamingData || pr.playabilityStatus || pr.videoDetails)) AD_KEYS.forEach(function (k) { if (k in pr) { try { delete pr[k]; } catch (e) { pr[k] = undefined; } } });
+    return o;
+  }
+  if (/(^|\.)youtube\.com$/.test(location.hostname)) {
+    var parse = JSON.parse;
+    JSON.parse = function () { return prune(parse.apply(this, arguments)); };
+    var rjson = window.Response && Response.prototype.json;
+    if (rjson) Response.prototype.json = function () { return rjson.apply(this, arguments).then(prune); };
+    var initial;
+    try {
+      Object.defineProperty(window, 'ytInitialPlayerResponse', { configurable: true, get: function () { return initial; }, set: function (v) { initial = prune(v); } });
+    } catch (e) { /* the page defined it first */ }
+  }
+
+  // ---- cursor mode ------------------------------------------------------------------------------------------
+  // For sites built for a mouse: one finger moves a pointer like a trackpad, a short tap clicks where the pointer is, a
+  // press and drag holds the button down, and two fingers scroll. The page never sees the finger itself.
+  var cur = { on: false, x: 80, y: 80, el: null, t0: 0, moved: 0, lx: 0, ly: 0, drag: null, holdTimer: 0, two: false };
+  function curDot() {
+    if (!cur.el) {
+      var d = document.createElement('div');
+      d.setAttribute('data-turbobox', 'cursor');
+      d.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;width:0;height:0;left:0;top:0;';
+      d.innerHTML = '<svg width="26" height="26" viewBox="0 0 26 26" style="position:absolute;left:-2px;top:-2px;filter:drop-shadow(0 0 2px #000)"><path d="M3 2 L3 20 L8 15 L12 24 L15 22.5 L11 14 L18 14 Z" fill="#fff" stroke="#000" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+      (document.documentElement || document.body).appendChild(d);
+      cur.el = d;
+    }
+    cur.el.style.transform = 'translate(' + cur.x + 'px,' + cur.y + 'px)';
+    cur.el.style.display = cur.on ? 'block' : 'none';
+  }
+  function curFire(type, target, extra) {
+    var o = Object.assign({ bubbles: true, cancelable: true, composed: true, view: window, clientX: cur.x, clientY: cur.y, screenX: cur.x, screenY: cur.y, button: 0, buttons: 0, pointerType: 'mouse', pointerId: 1, isPrimary: true }, extra || {});
+    try {
+      target.dispatchEvent(type.indexOf('pointer') === 0 ? new PointerEvent(type, o) : new MouseEvent(type, o));
+    } catch (e) { /* the element went away */ }
+  }
+  function curTarget() { return document.elementFromPoint(cur.x, cur.y) || document.body; }
+  function curMove() {
+    var w = window.innerWidth, h = window.innerHeight;
+    cur.x = Math.max(0, Math.min(w - 2, cur.x));
+    cur.y = Math.max(0, Math.min(h - 2, cur.y));
+    curDot();
+    var t = curTarget();
+    curFire('pointermove', t, { buttons: cur.drag ? 1 : 0 });
+    curFire('mousemove', t, { buttons: cur.drag ? 1 : 0 });
+  }
+  function curTouch(e) {
+    if (!cur.on) return;
+    var t = e.touches[0] || e.changedTouches[0];
+    if (e.type === 'touchstart') {
+      cur.two = e.touches.length > 1;
+      cur.t0 = Date.now(); cur.moved = 0; cur.lx = t.clientX; cur.ly = t.clientY; cur.drag = null;
+      clearTimeout(cur.holdTimer);
+      cur.holdTimer = setTimeout(function () {   // a long press without moving holds the button down
+        if (cur.moved < 8 && !cur.two) { cur.drag = curTarget(); curFire('pointerdown', cur.drag, { buttons: 1 }); curFire('mousedown', cur.drag, { buttons: 1 }); }
+      }, 450);
+    } else if (e.type === 'touchmove') {
+      var dx = t.clientX - cur.lx, dy = t.clientY - cur.ly;
+      cur.lx = t.clientX; cur.ly = t.clientY; cur.moved += Math.abs(dx) + Math.abs(dy);
+      if (e.touches.length > 1) {
+        cur.two = true;
+        var sc = document.scrollingElement || document.documentElement;
+        sc.scrollBy ? sc.scrollBy(-dx, -dy) : window.scrollBy(-dx, -dy);
+      } else if (!cur.two) {
+        cur.x += dx * 1.6; cur.y += dy * 1.6; curMove();
+      }
+    } else if (e.type === 'touchend' || e.type === 'touchcancel') {
+      clearTimeout(cur.holdTimer);
+      if (cur.drag) {
+        curFire('pointerup', cur.drag); curFire('mouseup', cur.drag); curFire('click', cur.drag); cur.drag = null;
+      } else if (!cur.two && cur.moved < 10 && Date.now() - cur.t0 < 350 && e.type === 'touchend') {
+        var el = curTarget();
+        curFire('pointerdown', el, { buttons: 1 }); curFire('mousedown', el, { buttons: 1 });
+        try { if (el.focus) el.focus(); } catch (x) { /* not focusable */ }
+        curFire('pointerup', el); curFire('mouseup', el); curFire('click', el);
+      }
+      if (e.touches.length === 0) cur.two = false;
+    }
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }
+  ['touchstart', 'touchmove', 'touchend', 'touchcancel'].forEach(function (n) { window.addEventListener(n, curTouch, { capture: true, passive: false }); });
+  T.setCursorMode = function (on) {
+    cur.on = !!on;
+    if (cur.on) { cur.x = Math.min(cur.x, window.innerWidth / 2); cur.y = Math.min(cur.y, window.innerHeight / 2); }
+    curDot();
+    relayToFrames({ __tb: 'cfg', cfg: { cursorMode: cur.on } });
   };
   // ---- keep the scroll position when the window changes size --------------------------------------------
   // Entering or resizing the Mini window re-lays the page out and a long feed (Twitter/X) jumps a few posts. The scroll
@@ -1074,10 +1218,11 @@
   T.configure = function (o) {
     if (!o) return;
     if ('aec' in o) cfg.aec = !!o.aec;
+    if ('pageWidth' in o) T.setPageWidth(o.pageWidth);
+    if ('cursorMode' in o) T.setCursorMode(o.cursorMode);
     if ('zoom' in o) T.setZoom(o.zoom);
     if ('micGain' in o) { cfg.micGain = Math.max(0, Math.min(3, +o.micGain || 0)); if (vm.gain) vm.gain.gain.value = cfg.micGain; }
     if ('micLabel' in o) vm.label = String(o.micLabel || '');
-    if ('virtual' in o) { vm.on = !!o.virtual; vmCheck(); }
     if ('volume' in o) T.setVolume(o.volume);
     if ('muted' in o) T.setMute(o.muted);
     if ('micAllowed' in o) cfg.micAllowed = !!o.micAllowed;

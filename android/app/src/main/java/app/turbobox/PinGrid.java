@@ -99,40 +99,94 @@ final class PinGrid {
      * A sheet of the pinned pages, laid out like the home screen. Tapping a tile picks it; with {@code multi} several can be
      * picked (a workflow that runs on more than one page) and Done ends it, otherwise the first tap ends it.
      */
-    static Dialog pick(Activity act, String title, List<Pin> pins, Set<String> already, boolean multi, OnDone onDone) {
+    static Dialog pick(Activity act, String title, List<Pin> allPins, Set<String> already, boolean multi, OnDone onDone) {
         LinearLayout col = new LinearLayout(act);
         Dialog d = Ui.sheet(act, col);
         final Set<String> chosen = new LinkedHashSet<>(already);
+        // The same filter as the home screen: starts on the profile it is showing, and a locked profile's pages are not listed.
+        final String[] filter = {Profiles.filter(act)};
+        List<Profiles.Profile> profiles = Profiles.load(act);
 
         col.addView(Ui.text(act, title, 20f, Ui.TEXT, "semibold"));
         col.addView(Ui.hint(act, multi ? "Tap every page this should run on." : "Tap the page."), Ui.lp(act, 4, 12));
-        List<View> tiles = new java.util.ArrayList<>();
-        for (Pin pin : pins) {
-            LinearLayout t = tile(act, pin, pin.host(), Ui.DIM, chosen.contains(pin.id), null);
-            t.setClickable(true);
-            t.setOnClickListener(v -> {
-                if (!multi) {
-                    d.dismiss();
-                    Set<String> one = new LinkedHashSet<>();
-                    one.add(pin.id);
-                    onDone.done(one);
-                    return;
+        LinearLayout chips = new LinearLayout(act);
+        android.widget.HorizontalScrollView chipScroll = new android.widget.HorizontalScrollView(act);
+        chipScroll.setHorizontalScrollBarEnabled(false);
+        chipScroll.addView(chips);
+        if (profiles.size() > 1) col.addView(chipScroll, Ui.lp(act, 0, 12));
+        LinearLayout holder = new LinearLayout(act);
+        holder.setOrientation(LinearLayout.VERTICAL);
+        col.addView(holder);
+
+        Runnable[] render = new Runnable[1];
+        render[0] = () -> {
+            chips.removeAllViews();
+            chips.addView(chip(act, "All", filter[0].isEmpty(), () -> {
+                filter[0] = "";
+                render[0].run();
+            }));
+            for (Profiles.Profile p : profiles) {
+                boolean locked = Profiles.isLocked(act, p.id);
+                chips.addView(chip(act, (p.hasPassword() ? (locked ? "\uD83D\uDD12 " : "\uD83D\uDD13 ") : "") + p.name, p.id.equals(filter[0]), () -> {
+                    if (Profiles.isLocked(act, p.id)) {
+                        PinPad.ask(act, "Unlock " + p.name, code -> Profiles.unlock(act, p.id, code), () -> {
+                            filter[0] = p.id;
+                            render[0].run();
+                        });
+                        return;
+                    }
+                    filter[0] = p.id;
+                    render[0].run();
+                }));
+            }
+            holder.removeAllViews();
+            List<View> tiles = new java.util.ArrayList<>();
+            int hidden = 0;
+            for (Pin pin : allPins) {
+                if (!(filter[0].isEmpty() || pin.profileId.equals(filter[0]))) continue;
+                if (Profiles.isLocked(act, pin.profileId)) {
+                    hidden++;
+                    continue;
                 }
-                if (!chosen.remove(pin.id)) chosen.add(pin.id);
-                paintSelected(act, t, chosen.contains(pin.id));
-            });
-            tiles.add(t);
-        }
-        col.addView(grid(act, tiles));
+                LinearLayout t = tile(act, pin, pin.host(), Ui.DIM, chosen.contains(pin.id), null);
+                t.setClickable(true);
+                t.setOnClickListener(v -> {
+                    if (!multi) {
+                        d.dismiss();
+                        Set<String> one = new LinkedHashSet<>();
+                        one.add(pin.id);
+                        onDone.done(one);
+                        return;
+                    }
+                    if (!chosen.remove(pin.id)) chosen.add(pin.id);
+                    paintSelected(act, t, chosen.contains(pin.id));
+                });
+                tiles.add(t);
+            }
+            holder.addView(grid(act, tiles));
+            if (hidden > 0) holder.addView(Ui.hint(act, hidden + (hidden == 1 ? " page is" : " pages are") + " hidden in locked profiles."), Ui.lp(act, 0, 8));
+        };
+        render[0].run();
         if (multi) {
             TextView done = Ui.pill(act, "Done", Ui.GREEN);
             done.setOnClickListener(v -> {
                 d.dismiss();
+                // A locked profile's pages are not shown, so a choice made earlier for them is kept as it was.
                 onDone.done(chosen);
             });
             col.addView(done, Ui.lp(act, 6, 0));
         }
         d.show();
         return d;
+    }
+
+    private static TextView chip(Activity act, String label, boolean selected, Runnable onTap) {
+        TextView c = Ui.pill(act, label, selected ? Ui.GREEN : 0);
+        c.setPadding(Ui.dp(act, 14), Ui.dp(act, 7), Ui.dp(act, 14), Ui.dp(act, 7));
+        c.setOnClickListener(v -> onTap.run());
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        p.rightMargin = Ui.dp(act, 6);
+        c.setLayoutParams(p);
+        return c;
     }
 }

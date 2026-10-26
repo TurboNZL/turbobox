@@ -84,9 +84,86 @@ final class MiniLayout {
         return z;
     }
 
-    /** An arrangement as one string: rectangles, a bar, the order. */
+    /** An arrangement as one string: rectangles, a bar, the order, a bar, the floating pages (0/1 each; left out when none float). */
     static String pack(float[][] rects, int[] z) {
-        return encode(rects) + "|" + encodeOrder(z);
+        return pack(rects, z, null);
+    }
+
+    static String pack(float[][] rects, int[] z, boolean[] floats) {
+        String base = encode(rects) + "|" + encodeOrder(z);
+        return anyFloat(floats) ? base + "|" + encodeFloats(floats) : base;
+    }
+
+    static boolean anyFloat(boolean[] f) {
+        if (f != null) for (boolean b : f) if (b) return true;
+        return false;
+    }
+
+    static String encodeFloats(boolean[] f) {
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < f.length; i++) b.append(f[i] ? '1' : '0');
+        return b.toString();
+    }
+
+    /** Which pages float (can be moved but not touched or resized); all false when the text is missing or the wrong length. */
+    static boolean[] decodeFloats(String s, int n) {
+        boolean[] out = new boolean[n];
+        if (s == null || s.length() != n) return out;
+        for (int i = 0; i < n; i++) out[i] = s.charAt(i) == '1';
+        return out;
+    }
+
+    static boolean[] unpackFloats(String packed, int n) {
+        String[] parts = packed == null ? new String[0] : packed.split("\\|", -1);
+        return decodeFloats(parts.length > 2 ? parts[2] : "", n);
+    }
+
+    /**
+     * Snaps a rectangle that is being moved (or, with {@code resizing}, whose right and bottom edges are being dragged) to the
+     * edges of the window and of the other pages when they are within {@code threshold} (a fraction). Pages can still overlap:
+     * this only makes edges meet when you bring them close.
+     */
+    static float[] snap(float[] r, float[][] all, int self, boolean resizing, float threshold) {
+        float[] o = r.clone();
+        float[] xs = new float[all.length * 2 + 2];
+        float[] ys = new float[all.length * 2 + 2];
+        int k = 0;
+        xs[k] = 0f;
+        ys[k++] = 0f;
+        xs[k] = 1f;
+        ys[k++] = 1f;
+        for (int i = 0; i < all.length; i++) {
+            if (i == self) continue;
+            xs[k] = all[i][0];
+            ys[k++] = all[i][1];
+            xs[k] = all[i][0] + all[i][2];
+            ys[k++] = all[i][1] + all[i][3];
+        }
+        float bestX = threshold, bestY = threshold;
+        float shiftX = 0, shiftY = 0;
+        for (int i = 0; i < k; i++) {
+            if (!resizing) {
+                float dl = xs[i] - o[0], dr = xs[i] - (o[0] + o[2]);
+                if (Math.abs(dl) < bestX) { bestX = Math.abs(dl); shiftX = dl; }
+                if (Math.abs(dr) < bestX) { bestX = Math.abs(dr); shiftX = dr; }
+                float dt = ys[i] - o[1], db = ys[i] - (o[1] + o[3]);
+                if (Math.abs(dt) < bestY) { bestY = Math.abs(dt); shiftY = dt; }
+                if (Math.abs(db) < bestY) { bestY = Math.abs(db); shiftY = db; }
+            } else {
+                float dr = xs[i] - (o[0] + o[2]);
+                if (Math.abs(dr) < bestX) { bestX = Math.abs(dr); shiftX = dr; }
+                float db = ys[i] - (o[1] + o[3]);
+                if (Math.abs(db) < bestY) { bestY = Math.abs(db); shiftY = db; }
+            }
+        }
+        if (resizing) {
+            o[2] += shiftX;
+            o[3] += shiftY;
+        } else {
+            o[0] += shiftX;
+            o[1] += shiftY;
+        }
+        return clamp(o);
     }
 
     /** The rectangles of a packed arrangement for exactly {@code n} pages, or null when it holds another number. */

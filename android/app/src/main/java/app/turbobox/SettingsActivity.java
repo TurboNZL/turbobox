@@ -59,7 +59,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         body.removeAllViews();
         // Standby
         LinearLayout standby = Ui.card(this);
-        Switch sw = new Switch(this);
+        Switch sw = Ui.toggle(this);
         sw.setText("Standby");
         sw.setTextColor(Ui.TEXT);
         sw.setTextSize(17f);
@@ -97,10 +97,79 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         }
         body.addView(power, Ui.lp(this, 12, 0));
 
+        // Sound
+        LinearLayout sound = Ui.card(this);
+        sound.addView(Ui.text(this, "Sound", 17f, Ui.TEXT, "sans-serif-medium"));
+        sound.addView(Ui.hint(this, "Pages always see one microphone and one speaker. Here you choose the real ones behind them."), Ui.lp(this, 4, 8));
+        TextView micRow = Ui.text(this, "Microphone: " + MicPicker.summary(this), 15f, Ui.TEXT, "sans-serif");
+        micRow.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 8));
+        micRow.setOnClickListener(v -> MicPicker.show(this, this::render));
+        sound.addView(micRow);
+        TextView volLabel = Ui.text(this, "Phone volume " + Ui.pct(NativeVolume.get(this)), 15f, Ui.TEXT, "sans-serif");
+        sound.addView(volLabel, Ui.lp(this, 8, 0));
+        sound.addView(Ui.slider(this, 1f, NativeVolume.get(this), (value, fromUser) -> {
+            volLabel.setText("Phone volume " + Ui.pct(value));
+            if (fromUser) NativeVolume.set(this, value);
+        }));
+        sound.addView(Ui.hint(this, "Sets the media and the call volume together, so it works while a Bluetooth headset is in call mode and the volume buttons only move one of them."), Ui.lp(this, 4, 0));
+        java.util.List<Workflow> flows = WorkflowStore.load(this);
+        String chosenFlow = Prefs.headphoneWorkflow(this);
+        String chosenName = "Play and pause the page";
+        for (Workflow w : flows) if (w.id.equals(chosenFlow)) chosenName = "Run: " + w.name;
+        TextView headset = Ui.text(this, "Headphone play/pause: " + chosenName + "  \u203A", 15f, Ui.GREEN, "sans-serif-medium");
+        headset.setPadding(0, Ui.dp(this, 12), 0, Ui.dp(this, 4));
+        headset.setOnClickListener(v -> {
+            java.util.List<String> names = new java.util.ArrayList<>();
+            names.add("Play and pause the page");
+            for (Workflow w : flows) names.add("Run: " + w.name);
+            new AlertDialog.Builder(this).setTitle("When the headphone button is pressed")
+                    .setItems(names.toArray(new String[0]), (d, which) -> {
+                        Prefs.setHeadphoneWorkflow(this, which == 0 ? "" : flows.get(which - 1).id);
+                        SessionService.ensure(this);
+                        render();
+                    }).show();
+        });
+        sound.addView(headset);
+        sound.addView(Ui.hint(this, "TurboBox keeps hold of the button while a page is open (or Standby is on), so a music app left over from earlier "
+                + "does not get it instead."), Ui.lp(this, 0, 0));
+        body.addView(sound, Ui.lp(this, 12, 0));
+
+        // Ad blocking
+        LinearLayout ads = Ui.card(this);
+        Switch adSwitch = Ui.toggle(this);
+        adSwitch.setText("Block ads and trackers");
+        adSwitch.setTextSize(17f);
+        adSwitch.setChecked(AdBlock.enabled(this));
+        adSwitch.setOnCheckedChangeListener((b, on) -> {
+            AdBlock.setEnabled(this, on);
+            render();
+        });
+        ads.addView(adSwitch);
+        ads.addView(Ui.hint(this, "Uses the same filter lists as uBlock Origin. Requests from known ad and tracking servers get nothing back, and ad "
+                + "boxes are hidden. A page can be exempted in its own settings. Ads that a site stitches into the video itself cannot be blocked this way."), Ui.lp(this, 6, 4));
+        if (AdBlock.enabled(this)) {
+            for (AdBlock.ListInfo l : AdBlock.LISTS) {
+                Switch ls = Ui.toggle(this);
+                ls.setText(l.name);
+                ls.setChecked(AdBlock.listOn(this, l));
+                ls.setOnCheckedChangeListener((b, on) -> AdBlock.setListOn(this, l, on));
+                ads.addView(ls, Ui.lp(this, 4, 0));
+            }
+            TextView adStatus = Ui.hint(this, AdBlock.status().isEmpty() ? "Starting..." : AdBlock.status());
+            ads.addView(adStatus, Ui.lp(this, 8, 4));
+            TextView upd = Ui.pill(this, "Update the lists now", 0);
+            upd.setOnClickListener(v -> {
+                adStatus.setText("Downloading...");
+                AdBlock.update(this, text -> adStatus.setText(text + " " + AdBlock.status()));
+            });
+            ads.addView(upd, Ui.lp(this, 4, 0));
+        }
+        body.addView(ads, Ui.lp(this, 12, 0));
+
         // The session screen
         LinearLayout screen = Ui.card(this);
         screen.addView(Ui.text(this, "Pages on screen", 17f, Ui.TEXT, "sans-serif-medium"));
-        Switch keep = new Switch(this);
+        Switch keep = Ui.toggle(this);
         keep.setText("Keep video playing with the screen off");
         keep.setTextColor(Ui.TEXT);
         keep.setChecked(Prefs.keepPlaying(this));
@@ -112,6 +181,17 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
             }
         });
         screen.addView(keep, Ui.lp(this, 8, 2));
+        String[] rotations = {"Follow the phone's rotation setting", "Always rotate with the phone", "Portrait only"};
+        TextView rot = Ui.text(this, "Rotation: " + rotations[Prefs.rotation(this)] + "  \u203A", 15f, Ui.GREEN, "sans-serif-medium");
+        rot.setPadding(0, Ui.dp(this, 10), 0, Ui.dp(this, 6));
+        rot.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("Rotation of the page screen")
+                .setSingleChoiceItems(rotations, Prefs.rotation(this), (d, which) -> {
+                    Prefs.setRotation(this, which);
+                    d.dismiss();
+                    render();
+                }).show());
+        screen.addView(rot);
+        screen.addView(Ui.hint(this, "Each orientation remembers its own arrangement of the pages; until you arrange one, it starts stacked or as a grid."), Ui.lp(this, 0, 6));
         screen.addView(Ui.hint(this, "Sites like YouTube pause a video when the browser says nobody can see the page. With this on, the page "
                 + "is told it is visible and is kept on a private display of its own while the screen is off, so it carries on."), Ui.lp(this, 0, 8));
         body.addView(screen, Ui.lp(this, 12, 0));
@@ -121,7 +201,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         buffer.addView(Ui.text(this, "Recording buffer", 17f, Ui.TEXT, "sans-serif-medium"));
         buffer.addView(Ui.hint(this, "What a page shows and plays is kept in short pieces in this phone's cache so you can watch what "
                 + "you missed."), Ui.lp(this, 4, 8));
-        Switch auto = new Switch(this);
+        Switch auto = Ui.toggle(this);
         auto.setText("Record every page when it opens");
         auto.setTextColor(Ui.TEXT);
         auto.setChecked(Prefs.recordByDefault(this));
@@ -159,7 +239,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         tr.addView(Ui.hint(this, "Turns what the page says into text while it records, and saves it as a WebVTT subtitle file next to the "
                 + "recording (Recordings > Share captions). It uses Android's speech recognition and needs Android 13 or newer. "
                 + "Times are approximate, and a recognizer that beeps when it starts may beep."), Ui.lp(this, 4, 8));
-        Switch next = new Switch(this);
+        Switch next = Ui.toggle(this);
         next.setText("Transcribe the next recording");
         next.setTextColor(Ui.TEXT);
         next.setChecked(Prefs.transcribeNext(this));

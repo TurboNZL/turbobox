@@ -99,11 +99,16 @@ final class WorkflowRunner {
         List<String> ids = new ArrayList<>();
         for (String id : wf.pinIds) if (PinStore.find(app, id) != null) ids.add(id);
         if (ids.isEmpty()) {
-            Run dead = new Run(app, wf, steps, "", group);
-            group.runs = group.open = 1;
-            dead.log("No pinned page is chosen for this workflow");
-            dead.finish(false, "no pinned page is chosen for this workflow");
-            return false;
+            boolean needs = false;
+            for (WorkflowParser.Step st : steps) needs |= WorkflowParser.needsPage(st.kind);
+            if (needs) {
+                Run dead = new Run(app, wf, steps, "", group);
+                group.runs = group.open = 1;
+                dead.log("No pinned page is chosen for this workflow");
+                dead.finish(false, "no pinned page is chosen for this workflow");
+                return false;
+            }
+            ids.add("");   // a workflow with no page: one run that only does what needs none
         }
         group.runs = group.open = ids.size();
         for (String id : ids) RUNS.put(workflowId + ":" + id, new Run(app, wf, steps, id, group));
@@ -173,6 +178,10 @@ final class WorkflowRunner {
 
         void begin() {
             if (finished) return;
+            if (pinId.isEmpty()) {
+                next();   // no page: the steps that need none
+                return;
+            }
             Pin pin = PinStore.find(app, pinId);
             if (pin == null) {
                 finish(false, "the pinned page for this workflow no longer exists");
@@ -229,7 +238,11 @@ final class WorkflowRunner {
         void runStep() {
             if (finished) return;
             WorkflowParser.Step s = steps.get(index);
-            if (!session.isActive() && s.kind != WorkflowParser.Kind.OPEN) {
+            if (session == null && WorkflowParser.needsPage(s.kind)) {
+                finish(false, "step " + (index + 1) + " (" + s.raw + ") needs a page");
+                return;
+            }
+            if (session != null && !session.isActive() && s.kind != WorkflowParser.Kind.OPEN) {
                 finish(false, "the page was closed before step " + (index + 1));
                 return;
             }
@@ -301,6 +314,30 @@ final class WorkflowRunner {
                     break;
                 case CLOSE:
                     session.close("closed by workflow " + wf.name);
+                    next();
+                    break;
+                case PAUSE:
+                    session.setFrozen(true);
+                    next();
+                    break;
+                case RESUME:
+                    session.stepBack();
+                    next();
+                    break;
+                case CLOSE_OTHERS:
+                case CLOSE_ALL:
+                    for (Session other : Sessions.active()) {
+                        boolean mine = s.kind == WorkflowParser.Kind.CLOSE_OTHERS && wf.pinIds.contains(other.pin() == null ? "" : other.pin().id);
+                        if (!mine) other.close("closed by workflow " + wf.name);
+                    }
+                    next();
+                    break;
+                case MEDIA:
+                    MediaKeys.press(app, s.text);
+                    next();
+                    break;
+                case APP:
+                    log("  " + MediaKeys.openApp(app, s.text));
                     next();
                     break;
                 default:

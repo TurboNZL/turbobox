@@ -102,7 +102,7 @@ public class WorkflowsActivity extends Activity {
                 13f, Ui.DIM, "sans-serif"), Ui.lp(this, 3, 0));
         head.addView(names, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         if (w.timed) {
-            Switch on = new Switch(this);
+            Switch on = Ui.toggle(this);
             on.setChecked(w.enabled);
             on.setOnCheckedChangeListener((b, checked) -> {
                 w.enabled = checked;

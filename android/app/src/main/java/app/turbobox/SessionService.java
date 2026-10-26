@@ -11,6 +11,9 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.graphics.drawable.Icon;
+import android.media.session.MediaSession;
+import android.media.session.PlaybackState;
+import android.view.KeyEvent;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.IBinder;
@@ -39,6 +42,8 @@ public class SessionService extends Service {
 
     private PowerManager.WakeLock wakeLock;
     private WifiManager.WifiLock wifiLock;
+    private MediaSession mediaSession;
+    private long lastButtonAt;
 
     /** Does anything need the process kept alive? */
     static boolean needed(Context c) {
@@ -122,6 +127,7 @@ public class SessionService extends Service {
             stopSelf();
             return;
         }
+        syncMediaSession();
         boolean busy = Sessions.anyActive() || WorkflowRunner.anyRunning();
         if (busy) {
             if (!wakeLock.isHeld()) wakeLock.acquire();
@@ -129,6 +135,63 @@ public class SessionService extends Service {
         } else {
             if (wakeLock.isHeld()) wakeLock.release();
             if (wifiLock.isHeld()) wifiLock.release();
+        }
+    }
+
+    // ---- the headset's play/pause button -----------------------------------------------------------------------
+    // A media session that is active (and "playing" while a page plays) is the one Android hands the headset's button to,
+    // so the press reaches the app rather than a music player that was left over. It starts the workflow chosen in
+    // Settings, or else plays and pauses the page in front.
+
+    private void syncMediaSession() {
+        boolean want = Sessions.anyActive() || (Prefs.standby(this) && !Prefs.headphoneWorkflow(this).isEmpty());
+        if (!want) {
+            if (mediaSession != null) {
+                mediaSession.setActive(false);
+                mediaSession.release();
+                mediaSession = null;
+            }
+            return;
+        }
+        if (mediaSession == null) {
+            mediaSession = new MediaSession(this, "TurboBox");
+            mediaSession.setCallback(new MediaSession.Callback() {
+                @Override
+                public boolean onMediaButtonEvent(Intent intent) {
+                    KeyEvent e = intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
+                    if (e == null || e.getAction() != KeyEvent.ACTION_DOWN || e.getRepeatCount() > 0) return true;
+                    int k = e.getKeyCode();
+                    if (k == KeyEvent.KEYCODE_MEDIA_PLAY || k == KeyEvent.KEYCODE_MEDIA_PAUSE
+                            || k == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || k == KeyEvent.KEYCODE_HEADSETHOOK) {
+                        headsetPressed();
+                    }
+                    return true;
+                }
+            });
+        }
+        boolean playing = false;
+        for (Session s : Sessions.active()) playing |= s.isMediaPlaying();
+        mediaSession.setPlaybackState(new PlaybackState.Builder()
+                .setActions(PlaybackState.ACTION_PLAY | PlaybackState.ACTION_PAUSE | PlaybackState.ACTION_PLAY_PAUSE)
+                .setState(playing ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED, PlaybackState.PLAYBACK_POSITION_UNKNOWN, playing ? 1f : 0f)
+                .build());
+        if (!mediaSession.isActive()) mediaSession.setActive(true);
+    }
+
+    private void headsetPressed() {
+        long now = System.currentTimeMillis();
+        if (now - lastButtonAt < 800) return;   // one press can arrive as play and pause both
+        lastButtonAt = now;
+        String id = Prefs.headphoneWorkflow(this);
+        if (!id.isEmpty() && WorkflowStore.find(this, id) != null) {
+            WorkflowRunner.start(this, id, false);
+            return;
+        }
+        for (Session s : Sessions.active()) {
+            if (s.isMediaPlaying() || Sessions.active().size() == 1) {
+                s.mediaToggle();
+                return;
+            }
         }
     }
 
@@ -211,6 +274,10 @@ public class SessionService extends Service {
     @Override
     public void onDestroy() {
         if (instance == this) instance = null;
+        if (mediaSession != null) {
+            mediaSession.release();
+            mediaSession = null;
+        }
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         if (wifiLock != null && wifiLock.isHeld()) wifiLock.release();
         super.onDestroy();

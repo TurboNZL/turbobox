@@ -27,6 +27,10 @@ import java.util.regex.Pattern;
  * step away | step back      freeze and silence the page here while it records / let go (no replay)
  * transcribe on | off        live captions (speech to text) saved as WebVTT with the recording
  * mark Chapter 2 starts     a bookmark in the buffer
+ * pause | resume            freeze and silence the page on this phone / let go (nothing is recorded because of it)
+ * close others | close all   close every other running page / every running page, without asking
+ * media play|pause|toggle|next|previous   press that media key (the music app that last played gets it)
+ * app spotify                open another app (spotify, youtube music, or its package name)
  * js document.title          run a script on the page
  * hangup | close            close the page right now
  * </pre>
@@ -38,7 +42,7 @@ final class WorkflowParser {
     private WorkflowParser() {
     }
 
-    enum Kind { OPEN, WAIT, WAITFOR, CLICK, TYPE, KEY, SCROLL, MUTE, UNMUTE, VOLUME, HANGUP, RECORD_START, RECORD_STOP, TRANSCRIBE_ON, TRANSCRIBE_OFF, STEP_AWAY, STEP_BACK, MARK, JS, CLOSE }
+    enum Kind { OPEN, WAIT, WAITFOR, CLICK, TYPE, KEY, SCROLL, MUTE, UNMUTE, VOLUME, HANGUP, RECORD_START, RECORD_STOP, TRANSCRIBE_ON, TRANSCRIBE_OFF, STEP_AWAY, STEP_BACK, PAUSE, RESUME, MARK, JS, CLOSE, CLOSE_OTHERS, CLOSE_ALL, MEDIA, APP }
 
     static final class Step {
         Kind kind;
@@ -162,8 +166,36 @@ final class WorkflowParser {
                 }
                 if (s.number < 0 || s.number > 200) throw new ParseError(no, "volume is 0 to 200");
                 break;
+            case "pause":
+                s.kind = Kind.PAUSE;
+                break;
+            case "resume":
+                s.kind = Kind.RESUME;
+                break;
+            case "media": {
+                String key = rest.toLowerCase(Locale.ROOT);
+                if (!key.equals("play") && !key.equals("pause") && !key.equals("toggle") && !key.equals("next") && !key.equals("previous")) {
+                    throw new ParseError(no, "media needs play, pause, toggle, next or previous");
+                }
+                s.kind = Kind.MEDIA;
+                s.text = key;
+                break;
+            }
+            case "app":
+                if (rest.isEmpty()) throw new ParseError(no, "app needs a name, like spotify");
+                s.kind = Kind.APP;
+                s.text = rest;
+                break;
             case "hangup":
             case "close":
+                if (rest.equalsIgnoreCase("others")) {
+                    s.kind = Kind.CLOSE_OTHERS;
+                    break;
+                }
+                if (rest.equalsIgnoreCase("all")) {
+                    s.kind = Kind.CLOSE_ALL;
+                    break;
+                }
                 // Two names for one thing. With a time: close the page after that long (a timer, the page stays open until
                 // then). With nothing (or 0): close it right now. "off" takes a timer back.
                 if (rest.isEmpty()) {
@@ -206,6 +238,16 @@ final class WorkflowParser {
                 throw new ParseError(no, "I do not know the step \"" + verb + "\"");
         }
         return s;
+    }
+
+    /** Does a step of this kind need a page to act on? (The others work in a workflow that has none.) */
+    static boolean needsPage(Kind k) {
+        switch (k) {
+            case WAIT: case CLOSE_ALL: case CLOSE_OTHERS: case MEDIA: case APP:
+                return false;
+            default:
+                return true;
+        }
     }
 
     /** Takes a trailing "within 30s" off the text and records it; returns what is left. */

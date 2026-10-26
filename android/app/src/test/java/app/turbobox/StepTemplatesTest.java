@@ -81,4 +81,42 @@ public class StepTemplatesTest {
         StepTemplates.Insert e = StepTemplates.insertAfterCursor("a\n\nb", 2, "x");   // a blank line in the middle is filled
         assertEquals("a\nx\nb", e.text);
     }
+
+    @Test
+    public void everyStepFromAButtonCanBeReadBackIntoItsForm() {
+        for (StepTemplates.Template t : StepTemplates.all()) {
+            String line = t.line(t.defaults());
+            StepTemplates.Edit e = StepTemplates.toEdit(line);
+            assertNotNull(t.title + ": " + line, e);
+            assertEquals(t.title, e.template.title);
+            assertEquals(line, e.template.line(e.values));
+        }
+    }
+
+    @Test
+    public void optionalAndTimeLimitSurviveEditing() {
+        StepTemplates.Edit e = StepTemplates.toEdit("? click Join within 2m");
+        assertNotNull(e);
+        assertTrue(e.optional);
+        assertEquals(120, e.withinSeconds);
+        assertEquals("Join", e.values[0]);
+        assertEquals(0, StepTemplates.toEdit("click Join").withinSeconds);
+    }
+
+    @Test
+    public void stepsAreDescribedInWords() {
+        assertEquals("Click \"Join\"", StepTemplates.describe("click Join"));
+        assertEquals("Wait 1h30m", StepTemplates.describe("wait 1h30m"));
+        assertEquals("Close every page", StepTemplates.describe("close all"));
+        assertEquals("Media key: play", StepTemplates.describe("media play"));
+        assertEquals("Click \"Join\", for up to 2m (skip if it fails)".replace(" (skip if it fails)", "") + " (skip if it fails)", StepTemplates.describe("? click Join within 2m"));
+        assertEquals("not a step", StepTemplates.describe("not a step"));
+    }
+
+    @Test
+    public void workflowsWithoutAPageAreAllowedForPageLessSteps() throws Exception {
+        assertTrue(!WorkflowParser.needsPage(WorkflowParser.parse("media play").get(0).kind));
+        assertTrue(!WorkflowParser.needsPage(WorkflowParser.parse("close others").get(0).kind));
+        assertTrue(WorkflowParser.needsPage(WorkflowParser.parse("click Join").get(0).kind));
+    }
 }

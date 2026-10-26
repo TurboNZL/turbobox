@@ -180,6 +180,17 @@ await p2.evaluate(() => window.__turbobox.configure({ micAllowed: false }));
 const denied = await p2.evaluate(async () => { try { await navigator.mediaDevices.getUserMedia({ audio: true }); return 'allowed'; } catch (e) { return e.name; } });
 check('a blocked microphone is refused like a browser "Block"', denied === 'NotAllowedError', denied);
 await p2.evaluate(() => window.__turbobox.configure({ micAllowed: true }));
+// virtual devices: pages see one fixed set whatever the phone has
+const devs = await p2.evaluate(async () => (await navigator.mediaDevices.enumerateDevices()).map(d => d.kind + ':' + d.label));
+check('a page sees one microphone and one speaker, nothing else', JSON.stringify(devs) === JSON.stringify(['audioinput:Microphone', 'audiooutput:Speaker']), devs);
+await p2.evaluate(() => window.__turbobox.configure({ cameraAllowed: true }));
+const devs2 = await p2.evaluate(async () => (await navigator.mediaDevices.enumerateDevices()).map(d => d.kind + ':' + d.label));
+check('a front and a back camera are listed once the camera is allowed', devs2.length === 4 && devs2.includes('videoinput:Back camera'), devs2);
+await p2.evaluate(() => window.__turbobox.configure({ cameraAllowed: false }));
+const sink = await p2.evaluate(async () => { const a = new Audio(); await a.setSinkId('anything'); return a.sinkId + '|' + (await navigator.mediaDevices.selectAudioOutput()).label; });
+check('choosing an output device is accepted and changes nothing', sink === '|Speaker', sink);
+const micPick = await p2.evaluate(async () => { const s = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: 'some-real-headset' } } }); const l = s.getAudioTracks().length; s.getTracks().forEach(t => t.stop()); return l; });
+check('a page that asks for another microphone id still gets the virtual one', micPick === 1, micPick);
 const allowed = await p2.evaluate(async () => { try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach(t => t.stop()); return 'allowed'; } catch (e) { return e.name; } });
 check('an allowed microphone is handed over', allowed === 'allowed', allowed);
 
@@ -203,7 +214,41 @@ check('the page still reads back what it set', lm.seen.every(v => v === false), 
 await page.evaluate(() => window.__turbobox.setLocalMute(false));
 const lm2 = await page.evaluate(() => ({ master: window.__turbobox.state().masters, real: [document.getElementById('a'), window.__na].map(e => window.__turbobox.realMuted(e)) }));
 check('letting go restores the page\'s own settings', lm2.master.every(g => g === 1) && lm2.real.every(v => v === false), lm2);
+// page volume is a middleman: the page's own volume stays readable and is not the one that is scaled
+await page.evaluate(() => window.__turbobox.setVolume(0.5));
+await page.waitForTimeout(300);
+const pv = await page.evaluate(() => { const a = document.getElementById('a'); return { masters: window.__turbobox.state().masters, own: a.volume, real: (window.__turbobox.state().masters.length, a.volume) }; });
+check('page volume scales the master gain, not what the page reads from its element', pv.masters.some(g => Math.abs(g - 0.5) < 0.01) && pv.own === 1, pv);
+await page.evaluate(() => { window.__na.volume = 0.8; });
+const pv2 = await page.evaluate(() => window.__na.volume);
+check('what the page sets on its element reads back unchanged', pv2 === 0.8, pv2);
+await page.evaluate(() => window.__turbobox.setVolume(1));
+await page.waitForTimeout(200);
 await page.evaluate(() => { window.__osc.stop(); window.__na.pause(); });
+
+// ad hiding: valid selectors hide, one the browser does not understand costs only its own chunk
+await page.evaluate(() => { document.body.insertAdjacentHTML('beforeend', '<div class="adx" id="adx">ad</div><div class="keep" id="keepme">content</div>'); window.__turbobox.hide(['.adx', 'div:bogus-pseudo(x)', '.nothing']); });
+const hid = await page.evaluate(() => ({ ad: getComputedStyle(document.getElementById('adx')).display, keep: getComputedStyle(document.getElementById('keepme')).display }));
+check('ad boxes are hidden and the page is left alone', hid.ad === 'none' && hid.keep !== 'none', hid);
+
+// cursor mode: a tap clicks where the pointer is, not where the finger touched
+{
+  const ctx = await b.newContext({ hasTouch: true, viewport: { width: 400, height: 600 } });
+  const tp = await ctx.newPage();
+  await tp.route('http://localhost/', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><body style="margin:0"><button id="a" style="position:absolute;left:60px;top:60px;width:100px;height:60px" onclick="window.hit=\'a\'">A</button><button id="b" style="position:absolute;left:250px;top:400px;width:100px;height:60px" onclick="window.hit=\'b\'">B</button></body>' }));
+  await tp.goto('http://localhost/');
+  await tp.addScriptTag({ content: 'window.TurboBoxBridge = { post: function () {} };' });
+  await tp.addScriptTag({ content: script });
+  await tp.evaluate(() => window.__turbobox.setCursorMode(true));
+  await tp.touchscreen.tap(300, 430);   // finger on B: the pointer is near the top left, over A
+  const hit1 = await tp.evaluate(() => window.hit || '');
+  check('in cursor mode a tap clicks under the pointer, not under the finger', hit1 === 'a', hit1);
+  await tp.evaluate(() => window.__turbobox.setCursorMode(false));
+  await tp.touchscreen.tap(300, 430);
+  const hit2 = await tp.evaluate(() => window.hit || '');
+  check('with it off the finger clicks as usual', hit2 === 'b', hit2);
+  await ctx.close();
+}
 
 // permission signalling follows the privacy switches
 await p2.evaluate(() => { window.__perm = []; });

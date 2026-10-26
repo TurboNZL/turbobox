@@ -99,6 +99,17 @@ final class StepTemplates {
         ALL.add(new Template(page, "Run a script", "JavaScript on the page. For people who know what they want.", false, v -> "js " + v[0].trim(),
                 new Field(FieldType.TEXT, "Script", null, "document.title")));
 
+        String pageGroup = "The page and other pages";
+        ALL.add(new Template(pageGroup, "Pause the page", "Freeze and silence it on this phone. It keeps running.", false, v -> "pause"));
+        ALL.add(new Template(pageGroup, "Resume the page", "Show and hear it again.", false, v -> "resume"));
+        ALL.add(new Template(pageGroup, "Close the other pages", "Closes every running page except this workflow's own pages, without asking.", false,
+                v -> v[0].equals("every page") ? "close all" : "close others",
+                new Field(FieldType.CHOICE, "Which pages?", null, "all but this workflow's pages", "all but this workflow's pages", "every page")));
+        ALL.add(new Template(pageGroup, "Press a media key", "Play, pause or skip in whichever music app played last.", false, v -> "media " + v[0],
+                new Field(FieldType.CHOICE, "Which key?", null, "play", "play", "pause", "toggle", "next", "previous")));
+        ALL.add(new Template(pageGroup, "Open another app", "Spotify, YouTube Music, or any app by its package name.", false, v -> "app " + v[0].trim(),
+                new Field(FieldType.TEXT, "App", "spotify, youtube music, or a package name", "spotify")));
+
         String sound = "Sound";
         ALL.add(new Template(sound, "Mute", "Switch your microphone off for this page.", false, v -> "mute"));
         ALL.add(new Template(sound, "Unmute", "Switch your microphone on again.", false, v -> "unmute"));
@@ -125,6 +136,126 @@ final class StepTemplates {
 
     static List<Template> all() {
         return ALL;
+    }
+
+    /** What the editor shows for a step line: plain words instead of the syntax. Falls back to the line itself. */
+    static String describe(String line) {
+        WorkflowParser.Step s;
+        try {
+            List<WorkflowParser.Step> list = WorkflowParser.parse(line);
+            if (list.isEmpty()) return line;
+            s = list.get(0);
+        } catch (WorkflowParser.ParseError e) {
+            return line;
+        }
+        String within = s.withinMs > 0 && (s.kind == WorkflowParser.Kind.CLICK || s.kind == WorkflowParser.Kind.TYPE || s.kind == WorkflowParser.Kind.WAITFOR)
+                && s.withinMs != defaultWithin(s.kind) ? ", for up to " + duration(s.withinMs / 1000) : "";
+        String text;
+        switch (s.kind) {
+            case OPEN: text = "Load the page again"; break;
+            case WAIT: text = "Wait " + duration(s.seconds); break;
+            case WAITFOR: text = "Wait until " + quote(s.target) + " shows" + within; break;
+            case CLICK: text = "Click " + quote(s.target) + within; break;
+            case TYPE: text = "Type \"" + s.text + "\" into " + quote(s.target) + within; break;
+            case KEY: text = "Press " + s.text; break;
+            case SCROLL: text = s.text.equals("top") || s.text.equals("bottom") ? "Scroll to the " + s.text : "Scroll " + s.text + " " + s.number + " px"; break;
+            case MUTE: text = "Mute the microphone"; break;
+            case UNMUTE: text = "Unmute the microphone"; break;
+            case VOLUME: text = "Page volume " + s.number + "%"; break;
+            case HANGUP: text = s.seconds == 0 ? "Cancel the hang-up timer" : "Hang up in " + duration(s.seconds); break;
+            case CLOSE: text = "Close the page"; break;
+            case CLOSE_OTHERS: text = "Close the other pages"; break;
+            case CLOSE_ALL: text = "Close every page"; break;
+            case RECORD_START: text = "Start recording"; break;
+            case RECORD_STOP: text = "Stop recording"; break;
+            case STEP_AWAY: text = "Pause and record (step away)"; break;
+            case STEP_BACK: text = "Step back"; break;
+            case PAUSE: text = "Pause the page"; break;
+            case RESUME: text = "Resume the page"; break;
+            case TRANSCRIBE_ON: text = "Live captions on"; break;
+            case TRANSCRIBE_OFF: text = "Live captions off"; break;
+            case MARK: text = s.text.isEmpty() ? "Add a mark" : "Add a mark: " + s.text; break;
+            case JS: text = "Run a script: " + s.text; break;
+            case MEDIA: text = "Media key: " + s.text; break;
+            case APP: text = "Open app: " + s.text; break;
+            default: text = line;
+        }
+        return s.optional ? text + " (skip if it fails)" : text;
+    }
+
+    private static long defaultWithin(WorkflowParser.Kind k) {
+        return k == WorkflowParser.Kind.WAITFOR ? 60_000 : 20_000;
+    }
+
+    private static String quote(String target) {
+        if (target.startsWith("text:")) return "\"" + target.substring(5) + "\"";
+        return target;
+    }
+
+    /** A step read back into the form that made it, so it can be edited. */
+    static final class Edit {
+        Template template;
+        String[] values;
+        boolean optional;
+        long withinSeconds;   // 0 = the usual time
+    }
+
+    /** Null when the line is not one a template can rebuild (it is then edited as plain text). */
+    static Edit toEdit(String line) {
+        WorkflowParser.Step s;
+        try {
+            List<WorkflowParser.Step> list = WorkflowParser.parse(line);
+            if (list.isEmpty()) return null;
+            s = list.get(0);
+        } catch (WorkflowParser.ParseError e) {
+            return null;
+        }
+        String title;
+        String[] v;
+        String target = s.target.startsWith("text:") ? s.target.substring(5) : s.target;
+        switch (s.kind) {
+            case WAIT: title = "Wait"; v = new String[]{String.valueOf(s.seconds)}; break;
+            case WAITFOR: title = "Wait until something shows"; v = new String[]{target}; break;
+            case CLICK: title = "Click"; v = new String[]{target}; break;
+            case TYPE: title = "Type into a field"; v = new String[]{target, s.text}; break;
+            case KEY: title = "Press a key"; v = new String[]{s.text}; break;
+            case SCROLL: title = "Scroll"; v = new String[]{s.text, String.valueOf(s.number)}; break;
+            case OPEN: title = "Load the page again"; v = new String[0]; break;
+            case JS: title = "Run a script"; v = new String[]{s.text}; break;
+            case MUTE: title = "Mute"; v = new String[0]; break;
+            case UNMUTE: title = "Unmute"; v = new String[0]; break;
+            case VOLUME: title = "Page volume"; v = new String[]{String.valueOf(s.number)}; break;
+            case RECORD_START: title = "Start recording"; v = new String[0]; break;
+            case RECORD_STOP: title = "Stop recording"; v = new String[0]; break;
+            case MARK: title = "Add a mark"; v = new String[]{s.text}; break;
+            case STEP_AWAY: title = "Step away"; v = new String[0]; break;
+            case STEP_BACK: title = "Step back"; v = new String[0]; break;
+            case TRANSCRIBE_ON: title = "Live captions on"; v = new String[0]; break;
+            case TRANSCRIBE_OFF: title = "Live captions off"; v = new String[0]; break;
+            case HANGUP:
+                if (s.seconds == 0) { title = "Cancel the hang-up timer"; v = new String[0]; }
+                else { title = "Hang up (close the page)"; v = new String[]{String.valueOf(s.seconds)}; }
+                break;
+            case CLOSE: title = "Hang up (close the page)"; v = new String[]{"0"}; break;
+            case PAUSE: title = "Pause the page"; v = new String[0]; break;
+            case RESUME: title = "Resume the page"; v = new String[0]; break;
+            case CLOSE_OTHERS: title = "Close the other pages"; v = new String[]{"all but this workflow's pages"}; break;
+            case CLOSE_ALL: title = "Close the other pages"; v = new String[]{"every page"}; break;
+            case MEDIA: title = "Press a media key"; v = new String[]{s.text}; break;
+            case APP: title = "Open another app"; v = new String[]{s.text}; break;
+            default: return null;
+        }
+        for (Template t : ALL) {
+            if (!t.title.equals(title)) continue;
+            Edit e = new Edit();
+            e.template = t;
+            e.values = v;
+            e.optional = s.optional;
+            long def = defaultWithin(s.kind);
+            e.withinSeconds = t.pageStep && s.withinMs != def ? s.withinMs / 1000 : 0;
+            return e;
+        }
+        return null;
     }
 
     private static long secs(String v) {
