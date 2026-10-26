@@ -369,6 +369,16 @@ final class WorkflowRunner {
                     next();
                     break;
                 }
+                case CLOSE_KEEP: {
+                    java.util.Set<String> keep = new java.util.HashSet<>(java.util.Arrays.asList(s.text.split(",")));
+                    if (s.number == 1) keep.addAll(wf.pinIds);
+                    for (Session other : Sessions.active()) {
+                        String id = other.pin() == null ? "" : other.pin().id;
+                        if (!keep.contains(id)) other.close("closed by workflow " + wf.name);
+                    }
+                    next();
+                    break;
+                }
                 case MEDIA:
                     MediaKeys.press(app, s.text);
                     next();

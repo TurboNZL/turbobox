@@ -220,6 +220,16 @@ public class WorkflowEditActivity extends Activity {
         }
     }
 
+    /** The names behind a comma-separated list of pinned page ids, for the form. */
+    private String pagesText(String csv) {
+        List<String> names = new ArrayList<>();
+        for (String id : csv.split(",")) {
+            Pin p = id.trim().isEmpty() ? null : PinStore.find(this, id.trim());
+            if (p != null) names.add(p.name);
+        }
+        return names.isEmpty() ? "Choose pages" : String.join(", ", names);
+    }
+
     private String pageText() {
         List<String> names = new ArrayList<>();
         for (String id : wf.pinIds) {
@@ -344,6 +354,24 @@ public class WorkflowEditActivity extends Activity {
     /** One input for a field, added to {@code col}; returns what to read the answer with. */
     private Supplier fieldInput(LinearLayout col, StepTemplates.Field f) {
         switch (f.type) {
+            case PAGES: {
+                final String[] picked = {f.def == null ? "" : f.def};
+                TextView value = Ui.text(this, pagesText(picked[0]) + "  \u203A", 17f, Ui.GREEN, "sans-serif-medium");
+                value.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 8));
+                value.setOnClickListener(v -> {
+                    List<Pin> all = PinStore.load(this);
+                    java.util.Set<String> now = new LinkedHashSet<>();
+                    for (String id : picked[0].split(",")) if (!id.trim().isEmpty()) now.add(id.trim());
+                    PinGrid.pick(this, f.label, all, now, true, chosen -> {
+                        StringBuilder sb = new StringBuilder();
+                        for (Pin p : all) if (chosen.contains(p.id)) sb.append(sb.length() == 0 ? "" : ",").append(p.id);
+                        picked[0] = sb.toString();
+                        value.setText(pagesText(picked[0]) + "  \u203A");
+                    });
+                });
+                col.addView(value);
+                return () -> picked[0];
+            }
             case CLOCK: {
                 final String[] picked = {f.def == null || f.def.isEmpty() ? "22:00" : f.def};
                 TextView value = Ui.text(this, picked[0] + "  \u203A", 17f, Ui.GREEN, "sans-serif-medium");

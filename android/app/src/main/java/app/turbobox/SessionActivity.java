@@ -86,7 +86,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     private IconButton recButton;
     private IconButton ccButton;
     private IconButton awayButton;
-    private TextView countdown;
+    private IconButton timerButton;
     private final java.util.Map<String, IconButton> barItems = new java.util.HashMap<>();
     private LinearLayout barRow1, barRow2;
     private IconButton pauseButton;
@@ -117,6 +117,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     private TextView editShape;
     private TextView editFloat;
     private TextView editSnap;
+    private TextView editBarToggle;
     private IconButton layoutButton;
     private MiniLayoutEditor overlay;
     private EditText typeBox;
@@ -367,6 +368,7 @@ public class SessionActivity extends Activity implements Session.Listener {
             liveLandscape = isLandscape();
         }
         editing = true;
+        Toast.makeText(this, "Drag a page to move it, a corner to resize it, pinch to resize keeping its shape. Float makes a page a movable, untouchable picture-in-picture.", Toast.LENGTH_LONG).show();
         editMini = mini;
         editingLayoutId = layoutId;
         editSelected = -1;
@@ -433,8 +435,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         editBar.setBackgroundColor(Ui.BG);
         int side = Ui.dp(this, 12);
         editBar.setPadding(side, Ui.dp(this, 6), side, Ui.dp(this, 6));
-        editTitle = Ui.text(this, "", 13f, Ui.DIM, "sans-serif");
-        editBar.addView(editTitle);
+        editTitle = Ui.text(this, "", 13f, Ui.DIM, "sans-serif");   // kept for the code that sets it; the hint is shown once as a toast instead, so the bar stays small
         LinearLayout row1 = new LinearLayout(this);
         TextView forward = Ui.pill(this, "Bring forward", 0);
         forward.setOnClickListener(v -> moveSelected(1));
@@ -456,7 +457,16 @@ public class SessionActivity extends Activity implements Session.Listener {
         row1.addView(back, Ui.weight(this, 6));
         row1.addView(editFloat, Ui.weight(this, 6));
         row1.addView(editShape, Ui.weight(this, 6));
-        editBar.addView(row1, Ui.lp(this, 6, 0));
+        editBarToggle = Ui.pill(this, "Hide bar", 0);
+        editBarToggle.setOnClickListener(v -> {
+            // The top bar goes (or comes back) while arranging, so the pages can be arranged in the whole screen; the page area changes
+            // to match, and these buttons move to the bottom over the pages.
+            Prefs.setBarHidden(this, !Prefs.barHidden(this));
+            applyBarMode();
+            mainHandler.postDelayed(this::updateEditBar, 150);
+        });
+        row1.addView(editBarToggle, Ui.weight(this, 6));
+        editBar.addView(row1, Ui.match(Ui.dp(this, 46)));
         LinearLayout row2 = new LinearLayout(this);
         editSnap = Ui.pill(this, "Snap", 0);
         editSnap.setOnClickListener(v -> {
@@ -489,7 +499,12 @@ public class SessionActivity extends Activity implements Session.Listener {
         row2.addView(save, Ui.weight(this, 6));
         row2.addView(reset, Ui.weight(this, 6));
         row2.addView(done, Ui.weight(this, 6));
-        editBar.addView(row2, Ui.lp(this, 6, 0));
+        LinearLayout.LayoutParams r2 = Ui.match(Ui.dp(this, 46));
+        r2.topMargin = Ui.dp(this, 6);
+        editBar.addView(row2, r2);
+        for (LinearLayout row : new LinearLayout[]{row1, row2}) {
+            for (int i = 0; i < row.getChildCount(); i++) row.getChildAt(i).getLayoutParams().height = ViewGroup.LayoutParams.MATCH_PARENT;
+        }
         editBar.setVisibility(View.GONE);
     }
 
@@ -503,6 +518,18 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     private void updateEditBar() {
         editBar.setVisibility(editing && !inPip ? View.VISIBLE : View.GONE);
+        if (editBarToggle != null) editBarToggle.setText(Prefs.barHidden(this) ? "Show bar" : "Hide bar");
+        if (editing && !inPip) {
+            boolean chrome = chromeBox.getVisibility() == View.VISIBLE && chromeBox.getHeight() > 0;
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) editBar.getLayoutParams();
+            int want = chrome ? chromeBox.getHeight() : ViewGroup.LayoutParams.WRAP_CONTENT;
+            int grav = chrome ? Gravity.TOP : Gravity.BOTTOM;   // with the bar hidden it sits at the bottom over the pages
+            if (lp.height != want || lp.gravity != grav) {
+                lp.height = want;
+                lp.gravity = grav;
+                editBar.setLayoutParams(lp);
+            }
+        }
         if (!editing) return;
         Ui.tint(this, editSnap, Prefs.snapEdges(this) ? Ui.GREEN : 0);
         boolean sel = overlay != null && overlay.selected() >= 0;
@@ -1002,6 +1029,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         IconButton timer = new IconButton(this, IconButton.Icon.TIMER, "Timer: hang up after a while or at a time");
         timer.setOnClickListener(v -> showTimerDialog());
         barItems.put("timer", timer);
+        timerButton = timer;
         if (canPip()) {
             IconButton pip = new IconButton(this, IconButton.Icon.MINI, "Mini window");
             pip.setOnClickListener(v -> enterPip());
@@ -1045,10 +1073,6 @@ public class SessionActivity extends Activity implements Session.Listener {
         barRow2.setPadding(side2, Ui.dp(this, 6), side2, Ui.dp(this, 4));
         chromeBox.addView(barRow1, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
         chromeBox.addView(barRow2, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
-        countdown = Ui.text(this, "", 13f, Ui.DIM, "sans-serif-medium");
-        countdown.setGravity(Gravity.CENTER);
-        countdown.setVisibility(View.GONE);
-        chromeBox.addView(countdown, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
         arrangeBar();
 
         // Workflows marked as a hotkey: one tap runs them, no questions asked.
@@ -1078,7 +1102,6 @@ public class SessionActivity extends Activity implements Session.Listener {
             panes[i].addView(boxes[i], new FrameLayout.LayoutParams(-1, -1));
         }
         buildEditBar();
-        root.addView(editBar, new LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT));
         paneStage = new PipStage(this);
         paneStage.addView(paneHolder, new FrameLayout.LayoutParams(-1, -1));
         root.addView(paneStage, new LinearLayout.LayoutParams(-1, 0, 1f));
@@ -1086,6 +1109,8 @@ public class SessionActivity extends Activity implements Session.Listener {
         // Brightness veil over everything, the same trick as Tether's main screen.
         FrameLayout frame = new FrameLayout(this);
         frame.addView(root, new FrameLayout.LayoutParams(-1, -1));
+        // The arranging buttons sit over the top bar (not in their own row), so the page area is exactly the size it is normally.
+        frame.addView(editBar, new FrameLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP));
         dim = new View(this);
         dim.setBackgroundColor(Color.BLACK);
         dim.setClickable(false);
@@ -1152,13 +1177,15 @@ public class SessionActivity extends Activity implements Session.Listener {
     }
 
     private void applyBrightness() {
-        // The slider is the screen's brightness for this app: the window's own brightness follows it, and below 20% a black veil
-        // darkens further than the phone's lowest setting can.
+        // Only this app is dimmed (a black veil over the pages): the phone's own brightness is never touched.
         float b = Math.max(0f, Math.min(1f, Prefs.brightness(this)));
         android.view.WindowManager.LayoutParams lp = getWindow().getAttributes();
-        lp.screenBrightness = b >= 0.999f ? android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE : Math.max(0.01f, b);
-        getWindow().setAttributes(lp);
-        dim.setAlpha(b >= 0.2f ? 0f : (0.2f - b) / 0.2f * 0.9f);
+        if (lp.screenBrightness != android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE) {
+            lp.screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
+            getWindow().setAttributes(lp);
+        }
+        dim.setAlpha((1f - b) * 0.9f);
+        dim.bringToFront();
     }
 
     /** The page the bar acts on, or null when none is open. */
@@ -1950,16 +1977,16 @@ public class SessionActivity extends Activity implements Session.Listener {
     @Override
     public void onTimer(Session s, long remainingMs) {
         if (s.slot != focus) return;
+        if (timerButton == null) return;
+        // The time left floats on the timer button itself, so nothing in the bar changes size.
         if (remainingMs < 0) {
-            countdown.setText("");
-            countdown.setVisibility(View.GONE);
+            timerButton.setBadge("");
             return;
         }
         long sec = (remainingMs + 999) / 1000;
-        countdown.setVisibility(View.VISIBLE);
-        countdown.setText(sec >= 3600
-                ? String.format(Locale.US, "Closes in %d:%02d:%02d", sec / 3600, sec % 3600 / 60, sec % 60)
-                : String.format(Locale.US, "Closes in %d:%02d", sec / 60, sec % 60));
+        timerButton.setBadge(sec >= 3600
+                ? String.format(Locale.US, "%d:%02d:%02d", sec / 3600, sec % 3600 / 60, sec % 60)
+                : String.format(Locale.US, "%d:%02d", sec / 60, sec % 60));
     }
 
     @Override

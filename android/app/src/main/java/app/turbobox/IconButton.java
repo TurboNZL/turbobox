@@ -19,6 +19,8 @@ final class IconButton extends TextView {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
     private int iconColor = Ui.TEXT;
+    private String badge = "";
+    private final Paint badgePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     IconButton(Context c, Icon icon, String description) {
         super(c);
@@ -43,6 +45,14 @@ final class IconButton extends TextView {
     }
 
     /** The icon's colour (white by default; red/lime for a state). */
+    /** A few characters drawn over the lower part of the button (a countdown); empty removes it. Takes no room of its own. */
+    void setBadge(String text) {
+        String t = text == null ? "" : text;
+        if (t.equals(badge)) return;
+        badge = t;
+        invalidate();
+    }
+
     void setIconColor(int color) {
         iconColor = color;
         invalidate();
@@ -69,6 +79,18 @@ final class IconButton extends TextView {
         paint.setStrokeJoin(Paint.Join.ROUND);
         draw(c, icon);
         c.restore();
+        if (!badge.isEmpty()) {
+            badgePaint.setTextSize(Ui.dpf(getContext(), 10.5f));
+            badgePaint.setTypeface(Ui.font(600));
+            badgePaint.setTextAlign(Paint.Align.CENTER);
+            float tw = badgePaint.measureText(badge) + Ui.dpf(getContext(), 8);
+            float th = Ui.dpf(getContext(), 15);
+            float cx = getWidth() / 2f, bottom = getHeight() - Ui.dpf(getContext(), 3);
+            badgePaint.setColor(0xE60B0B0E);
+            c.drawRoundRect(new RectF(cx - tw / 2, bottom - th, cx + tw / 2, bottom), th / 2, th / 2, badgePaint);
+            badgePaint.setColor(Ui.GREEN);
+            c.drawText(badge, cx, bottom - th / 2 + badgePaint.getTextSize() * 0.35f, badgePaint);
+        }
     }
 
     private void bars(Canvas c, float x) {

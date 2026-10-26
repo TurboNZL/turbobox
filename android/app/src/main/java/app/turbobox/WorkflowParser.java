@@ -29,6 +29,7 @@ import java.util.regex.Pattern;
  * mark Chapter 2 starts     a bookmark in the buffer
  * pause | resume            freeze and silence the page on this phone / let go (nothing is recorded because of it)
  * close others | close all   close every other running page / every running page, without asking
+ * close keep ID,ID [and workflow]  close every running page except those pinned pages (and, with "and workflow", this workflow's own pages)
  * media play|pause|toggle|next|previous   press that media key (the music app that last played gets it)
  * app spotify                open another app (spotify, youtube music, or its package name)
  * wait until 22:30         wait for that time of day (today, or tomorrow if it has passed)
@@ -44,7 +45,7 @@ final class WorkflowParser {
     private WorkflowParser() {
     }
 
-    enum Kind { OPEN, WAIT, WAITFOR, CLICK, TYPE, KEY, SCROLL, MUTE, UNMUTE, VOLUME, HANGUP, RECORD_START, RECORD_STOP, TRANSCRIBE_ON, TRANSCRIBE_OFF, STEP_AWAY, STEP_BACK, PAUSE, RESUME, MARK, JS, CLOSE, CLOSE_OTHERS, CLOSE_ALL, MEDIA, APP, RUN, WAIT_UNTIL }
+    enum Kind { OPEN, WAIT, WAITFOR, CLICK, TYPE, KEY, SCROLL, MUTE, UNMUTE, VOLUME, HANGUP, RECORD_START, RECORD_STOP, TRANSCRIBE_ON, TRANSCRIBE_OFF, STEP_AWAY, STEP_BACK, PAUSE, RESUME, MARK, JS, CLOSE, CLOSE_OTHERS, CLOSE_ALL, MEDIA, APP, RUN, WAIT_UNTIL, CLOSE_KEEP }
 
     static final class Step {
         Kind kind;
@@ -202,6 +203,22 @@ final class WorkflowParser {
                 break;
             case "hangup":
             case "close":
+                if (rest.toLowerCase(Locale.ROOT).startsWith("keep")) {
+                    String list = rest.substring(4).trim();
+                    boolean withFlow = false;
+                    if (list.toLowerCase(Locale.ROOT).endsWith(" and workflow")) {
+                        withFlow = true;
+                        list = list.substring(0, list.length() - " and workflow".length()).trim();
+                    } else if (list.equalsIgnoreCase("and workflow")) {
+                        withFlow = true;
+                        list = "";
+                    }
+                    if (list.isEmpty() && !withFlow) throw new ParseError(no, "close keep needs the pages to keep, like close keep a1b2c3d4");
+                    s.kind = Kind.CLOSE_KEEP;
+                    s.text = list;
+                    s.number = withFlow ? 1 : 0;
+                    break;
+                }
                 if (rest.equalsIgnoreCase("others")) {
                     s.kind = Kind.CLOSE_OTHERS;
                     break;
@@ -257,7 +274,7 @@ final class WorkflowParser {
     /** Does a step of this kind need a page to act on? (The others work in a workflow that has none.) */
     static boolean needsPage(Kind k) {
         switch (k) {
-            case WAIT: case WAIT_UNTIL: case RUN: case CLOSE_ALL: case CLOSE_OTHERS: case MEDIA: case APP:
+            case WAIT: case WAIT_UNTIL: case RUN: case CLOSE_ALL: case CLOSE_KEEP: case CLOSE_OTHERS: case MEDIA: case APP:
                 return false;
             default:
                 return true;

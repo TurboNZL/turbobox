@@ -140,4 +140,22 @@ public class WorkflowParserTest {
             org.junit.Assert.assertTrue(e.getMessage().contains("time of day"));
         }
     }
+
+    @Test
+    public void closeKeepStep() throws Exception {
+        WorkflowParser.Step a = WorkflowParser.parse("close keep a1b2,c3d4").get(0);
+        assertEquals(WorkflowParser.Kind.CLOSE_KEEP, a.kind);
+        assertEquals("a1b2,c3d4", a.text);
+        assertEquals(0, a.number);
+        WorkflowParser.Step b = WorkflowParser.parse("close keep a1b2 and workflow").get(0);
+        assertEquals("a1b2", b.text);
+        assertEquals(1, b.number);
+        assertEquals(1, WorkflowParser.parse("close keep and workflow").get(0).number);
+        try {
+            WorkflowParser.parse("close keep");
+            fail("needs pages");
+        } catch (WorkflowParser.ParseError e) {
+            assertTrue(e.getMessage().contains("pages to keep"));
+        }
+    }
 }
