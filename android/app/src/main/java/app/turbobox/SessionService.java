@@ -144,7 +144,7 @@ public class SessionService extends Service {
     // Settings, or else plays and pauses the page in front.
 
     private void syncMediaSession() {
-        boolean want = Sessions.anyActive() || (Prefs.standby(this) && !Prefs.headphoneWorkflow(this).isEmpty());
+        boolean want = Prefs.headsetButton(this) && (Sessions.anyActive() || (Prefs.standby(this) && !Prefs.headphoneWorkflow(this).isEmpty()));
         if (!want) {
             if (mediaSession != null) {
                 mediaSession.setActive(false);

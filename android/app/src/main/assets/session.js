@@ -18,7 +18,7 @@
 (function () {
   if (window.__turbobox) return;
   var T = window.__turbobox = {};
-  var cfg = { pageWidth: 1280, muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, cameraAllowed: false, localMute: false, keepVisible: true, desktop: !window.__tbMobile };
+  var cfg = { virtualDevices: true, pageWidth: 1280, muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, cameraAllowed: false, localMute: false, keepVisible: true, desktop: !window.__tbMobile };
   var tracks = [], pcs = [];
 
   function post(type, data) {
@@ -313,7 +313,8 @@
     return out;
   }
   if (md && md.enumerateDevices) {
-    md.enumerateDevices = async function () { return virtualList(); };
+    var realEnum = md.enumerateDevices.bind(md);
+    md.enumerateDevices = async function () { return cfg.virtualDevices ? virtualList() : realEnum(); };
   }
   if (md) {
     // Some sites ask the browser to let the user pick a speaker, or to move the page's sound to one.
@@ -350,7 +351,7 @@
       if (c && c.audio && !cfg.micAllowed) throw new DOMException('Permission denied by TurboBox (microphone blocked for this page)', 'NotAllowedError');
       if (c && c.video && !cfg.cameraAllowed) throw new DOMException('Permission denied by TurboBox (camera blocked for this page)', 'NotAllowedError');
       if (c && c.video) c = Object.assign({}, c, { video: plainVideo(c.video) });
-      if (c && c.audio) {
+      if (c && c.audio && cfg.virtualDevices) {
         // Always the app's own microphone; a camera, when asked for too, is captured by the browser and added.
         stream = vmStream();
         if (c.video) {
@@ -1218,6 +1219,7 @@
   T.configure = function (o) {
     if (!o) return;
     if ('aec' in o) cfg.aec = !!o.aec;
+    if ('virtualDevices' in o) cfg.virtualDevices = !!o.virtualDevices;
     if ('pageWidth' in o) T.setPageWidth(o.pageWidth);
     if ('cursorMode' in o) T.setCursorMode(o.cursorMode);
     if ('zoom' in o) T.setZoom(o.zoom);
