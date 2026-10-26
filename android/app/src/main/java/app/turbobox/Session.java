@@ -1023,6 +1023,29 @@ final class Session {
         js("__turbobox.pick(true)");
     }
 
+    private boolean miniHosted;   // the private display was made for the Mini window and goes when it closes
+
+    /**
+     * For the Mini window: a page that is shown in the window is moved to a private display of the size it has, so the Mini window
+     * only ever shows a picture of it and the page itself is never resized or scaled (which clipped and blurred it).
+     */
+    void hostForMini(int w, int h) {
+        if (pdisplay != null || webView == null || app == null || w < 16 || h < 16) return;
+        leaveHost();
+        android.util.DisplayMetrics dm = app.getResources().getDisplayMetrics();
+        OffscreenHost host = new OffscreenHost(app, "mini" + slot, webView, w, h, dm.densityDpi);
+        if (host.start()) {
+            pdisplay = host;
+            miniHosted = true;
+        }
+    }
+
+    void leaveMiniHost() {
+        if (!miniHosted) return;
+        miniHosted = false;
+        leavePrivate();
+    }
+
     void leavePrivate() {
         OffscreenHost h = pdisplay;
         pdisplay = null;
