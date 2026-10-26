@@ -578,6 +578,9 @@ public class SessionActivity extends Activity implements Session.Listener {
     @Override
     protected void onStop() {
         super.onStop();
+        // Stopped while still a Mini window = the person dismissed it with its X. Finish the screen so no empty window is left;
+        // the pages themselves keep running (they belong to the service, not to this screen).
+        if (inPip && Build.VERSION.SDK_INT >= 24 && isInPictureInPictureMode() && !isChangingConfigurations()) finish();
         for (Session s : Sessions.all()) {
             s.setFrameWindow(null);
             s.setCallMeter(false); // the level strip is only useful while it can be seen
