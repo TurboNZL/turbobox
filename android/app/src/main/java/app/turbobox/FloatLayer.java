@@ -25,6 +25,7 @@ final class FloatLayer extends View {
     private boolean snap;
     private int dragging = -1;
     private float lastX, lastY;
+    private float[] raw;
 
     FloatLayer(Context c, OnMoved onMoved) {
         super(c);
@@ -68,6 +69,7 @@ final class FloatLayer extends View {
                 int i = topAt(e.getX(), e.getY());
                 if (i < 0 || !floats[i]) return false;   // not a floating page: the touch goes on to the page below
                 dragging = i;
+                raw = rects[i].clone();
                 lastX = e.getX();
                 lastY = e.getY();
                 getParent().requestDisallowInterceptTouchEvent(true);
@@ -78,9 +80,10 @@ final class FloatLayer extends View {
                 float dx = (e.getX() - lastX) / getWidth(), dy = (e.getY() - lastY) / getHeight();
                 lastX = e.getX();
                 lastY = e.getY();
-                float[] r = rects[dragging].clone();
+                float[] r = raw != null ? raw : rects[dragging].clone();
                 r[0] += dx;
                 r[1] += dy;
+                raw = r;
                 float[] fixed = MiniLayout.clamp(r);
                 rects[dragging] = snap ? MiniLayout.snap(fixed, rects, dragging, false, 0.03f) : fixed;
                 onMoved.moved(rects);

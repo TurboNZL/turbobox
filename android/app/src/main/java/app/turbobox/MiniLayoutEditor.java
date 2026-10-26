@@ -33,6 +33,7 @@ final class MiniLayoutEditor extends View {
     private boolean resizing;
     private boolean dragging;
     private float lastX, lastY;
+    private float[] raw;   // where the page would be without snapping: snapping is shown, never accumulated
 
     MiniLayoutEditor(Context c, OnChange onChange) {
         super(c);
@@ -135,6 +136,7 @@ final class MiniLayoutEditor extends View {
                     RectF r = px(i);
                     if (!r.contains(x, y) && !(Math.abs(x - r.right) < handle && Math.abs(y - r.bottom) < handle)) continue;
                     selected = i;
+                    raw = rects[i].clone();
                     resizing = !floats[i] && x > r.right - handle && y > r.bottom - handle;
                     dragging = true;
                     break;
@@ -149,7 +151,7 @@ final class MiniLayoutEditor extends View {
                 float dx = (x - lastX) / getWidth(), dy = (y - lastY) / getHeight();
                 lastX = x;
                 lastY = y;
-                float[] r = rects[selected].clone();
+                float[] r = raw != null ? raw : rects[selected].clone();
                 if (resizing) {
                     r[2] += dx;
                     r[3] += dy;
@@ -157,6 +159,7 @@ final class MiniLayoutEditor extends View {
                     r[0] += dx;
                     r[1] += dy;
                 }
+                raw = r;
                 float[] fixed = MiniLayout.clamp(r);
                 rects[selected] = snap ? MiniLayout.snap(fixed, rects, selected, resizing, 0.03f) : fixed;
                 invalidate();

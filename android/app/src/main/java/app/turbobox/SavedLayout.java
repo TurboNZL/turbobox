@@ -10,7 +10,7 @@ import java.util.UUID;
  * page: applying it puts whichever pages are in the split into its places, page 1 first. No Android classes besides org.json.
  */
 final class SavedLayout {
-    static final int MIN_PAGES = 2;
+    static final int MIN_PAGES = 1;
     static final int MAX_PAGES = MiniLayout.PAGES;
 
     String id;
@@ -54,6 +54,7 @@ final class SavedLayout {
     /** A sensible start for each number of pages. */
     static float[][] presets(int pages) {
         switch (Math.max(MIN_PAGES, Math.min(MAX_PAGES, pages))) {
+            case 1: return new float[][]{{0f, 0f, 1f, 1f}};
             case 2: return new float[][]{{0f, 0f, 1f, 0.5f}, {0f, 0.5f, 1f, 0.5f}};
             case 3: return new float[][]{{0f, 0f, 1f, 0.5f}, {0f, 0.5f, 0.5f, 0.5f}, {0.5f, 0.5f, 0.5f, 0.5f}};
             default: return MiniLayout.splitDefaults();

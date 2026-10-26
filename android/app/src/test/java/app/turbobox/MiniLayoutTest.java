@@ -56,4 +56,16 @@ public class MiniLayoutTest {
         float[] grown = MiniLayout.snap(new float[]{0.52f, 0.1f, 0.47f, 0.3f}, all, 1, true, 0.03f);
         assertEquals(1f, grown[0] + grown[2], 0.0001f);  // the right edge met the window's edge
     }
+
+    @Test
+    public void snapDoesNotStickWhenDraggedSlowlyAwayFromAnEdge() {
+        float[][] all = {{0f, 0f, 0.5f, 0.5f}, {0.52f, 0.1f, 0.3f, 0.3f}};
+        float[] raw = all[1].clone();
+        float shown = 0;
+        for (int i = 0; i < 40; i++) {                  // 40 small steps to the right, 0.002 each
+            raw[0] += 0.002f;
+            shown = MiniLayout.snap(MiniLayout.clamp(raw), all, 1, false, 0.03f)[0];
+        }
+        assertTrue(shown > 0.55f);                       // it let go of the edge once the drag moved past the threshold
+    }
 }

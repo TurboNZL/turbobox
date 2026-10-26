@@ -126,6 +126,13 @@ final class PinSheet {
 
         TextView done = Ui.pill(act, "Done", Ui.GREEN);
         done.setOnClickListener(v -> d.dismiss());
+        addPageToggles(act, col, pin);
+        col.addView(done, Ui.lp(act, 14, 0));
+        d.show();
+    }
+
+    /** The per-page switches that are the same on the home screen and on the page screen: close confirmation, ad blocking, cursor mode, protected video. */
+    static void addPageToggles(Activity act, LinearLayout col, Pin pin) {
         Switch confirm = Ui.toggle(act);
         confirm.setText("Ask before closing this page");
         confirm.setChecked(pin.confirmClose);
@@ -153,8 +160,6 @@ final class PinSheet {
         col.addView(drm, Ui.lp(act, 4, 0));
         col.addView(Ui.hint(act, "Needed by streaming sites that protect their video. Tradeoff: protected video cannot be recorded (it comes out black) and may "
                 + "not play while the screen is off. Takes effect when the page is opened again."), Ui.lp(act, 0, 4));
-        col.addView(done, Ui.lp(act, 14, 0));
-        d.show();
     }
 
     /** The page size: the width of the virtual screen the page believes it has. Separate from zoom, which works inside it. */

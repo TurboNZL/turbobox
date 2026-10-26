@@ -18,7 +18,7 @@
 (function () {
   if (window.__turbobox) return;
   var T = window.__turbobox = {};
-  var cfg = { virtualDevices: true, pageWidth: 1280, muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, cameraAllowed: false, localMute: false, keepVisible: true, desktop: !window.__tbMobile };
+  var cfg = { shape: 0, virtualDevices: true, pageWidth: 1280, muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, cameraAllowed: false, localMute: false, keepVisible: true, desktop: !window.__tbMobile };
   var tracks = [], pcs = [];
 
   function post(type, data) {
@@ -112,7 +112,7 @@
     if (!window.Screen) return;
     var phys = { w: window.screen.width, h: window.screen.height };
     function sw() { return cfg.desktop ? cfg.pageWidth : phys.w; }
-    function sh() { return cfg.desktop ? Math.round(cfg.pageWidth * phys.h / Math.max(1, phys.w)) : phys.h; }
+    function sh() { return cfg.desktop ? Math.round(cfg.shape > 0 ? cfg.pageWidth / cfg.shape : cfg.pageWidth * phys.h / Math.max(1, phys.w)) : phys.h; }
     [['width', sw], ['availWidth', sw], ['height', sh], ['availHeight', sh]].forEach(function (a) {
       try { Object.defineProperty(Screen.prototype, a[0], { get: a[1], configurable: true, enumerable: true }); } catch (e) { /* kept */ }
     });
@@ -120,6 +120,15 @@
   viewport();
   window.addEventListener('orientationchange', function () { setTimeout(viewport, 300); });
   T.setPageWidth = function (w) { cfg.pageWidth = Math.max(480, Math.min(3840, Math.round(+w) || 1280)); viewport(); };
+  // The page's virtual screen takes the forced shape (wider for 16:9 or 21:9), and a size change re-fits the layout cleanly: the scale
+  // is applied again from scratch so a stale pinch/fit state (after hiding the bar, a split, the Mini window) cannot stay.
+  T.setShape = function (r) { cfg.shape = Math.max(0, +r || 0); viewport(); };
+  T.refit = function () {
+    var m = document.querySelector('meta[name=viewport]');
+    if (m) m.content = 'width=device-width, initial-scale=1';
+    setTimeout(viewport, 60);
+    setTimeout(viewport, 400);
+  };
   T.setZoom = function (z) { cfg.zoom = Math.max(0.5, Math.min(3, +z || 1)); viewport(); };
   T.setViewWidth = function (w) { if (T.resized && cfg.viewW && Math.max(0, +w || 0) !== cfg.viewW) T.resized(); cfg.viewW = Math.max(0, +w || 0); viewport(); setTimeout(viewport, 300); };
   new MutationObserver(viewport).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['content'] });
@@ -1264,6 +1273,7 @@
     if ('aec' in o) cfg.aec = !!o.aec;
     if ('privateDisplay' in o) cfg.privateDisplay = !!o.privateDisplay;
     if ('virtualDevices' in o) cfg.virtualDevices = !!o.virtualDevices;
+    if ('shape' in o) cfg.shape = Math.max(0, +o.shape || 0);
     if ('pageWidth' in o) T.setPageWidth(o.pageWidth);
     if ('cursorMode' in o) T.setCursorMode(o.cursorMode);
     if ('zoom' in o) T.setZoom(o.zoom);

@@ -247,6 +247,7 @@ final class SessionSheet implements Session.Listener {
         col.addView(Ui.hint(act, "Makes the whole page bigger or smaller by changing the width it is laid out at, like "
                 + "browser zoom. Pinch still magnifies. Kept with the pinned page."), Ui.lp(act, 0, 14));
 
+        if (pin != null) PinSheet.addPageToggles(act, col, pin);
         PinSheet.addSizeControl(act, col, session.pageWidth(), px -> {
             if (zoomApply != null) ui.removeCallbacks(zoomApply);
             zoomApply = () -> session.setPageWidth(px);
