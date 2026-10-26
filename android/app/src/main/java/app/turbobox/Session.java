@@ -78,6 +78,9 @@ final class Session {
         /** The page was frozen or let go (Step away / Back). */
         default void onFrozen(Session s, boolean frozen) {}
 
+        /** The page put the cursor in a text field (private display mode: the app asks for the text). */
+        default void onField(Session s, String value, boolean multiline) {}
+
         /** The recording buffer started or stopped. */
         default void onRecording(Session s, boolean on, String note) {}
 
@@ -142,6 +145,7 @@ final class Session {
     private float fullscreenRatio;    // shape of the full-screen video, 0 = not known
     private View customView;          // the page's full-screen view while it is full screen
     private WebChromeClient.CustomViewCallback customCallback;
+    private OffscreenHost pdisplay;   // private display mode: the page lives here for good, whatever the screen does
     private OffscreenHost keepHost;   // the page on a private display while no screen shows it and it is not recording
     private boolean keepHostFailed;
     private static int seqCounter;
@@ -719,12 +723,12 @@ final class Session {
 
     /** Point the WebView's dialogs and permission prompts at the visible activity. */
     void attach(Context activity) {
-        if (webView != null) ((MutableContextWrapper) webView.getContext()).setBaseContext(activity);
+        if (webView != null && pdisplay == null) ((MutableContextWrapper) webView.getContext()).setBaseContext(activity);
     }
 
     /** Release the activity so a stopped or destroyed screen is not leaked. */
     void detach() {
-        if (keepHost == null && webView != null && app != null) ((MutableContextWrapper) webView.getContext()).setBaseContext(app);
+        if (keepHost == null && pdisplay == null && webView != null && app != null) ((MutableContextWrapper) webView.getContext()).setBaseContext(app);
     }
 
     /** A page that stays running when no screen is showing it. */
@@ -768,6 +772,7 @@ final class Session {
     private void discardWebView() {
         if (webView == null) return;
         leaveHost();
+        leavePrivate();
         WebView old = webView;
         webView = null;
         startScript = null;
@@ -820,7 +825,8 @@ final class Session {
         frozen = false;
         catchingUp = false;
         WebView wv = webView(context);
-        if (wv.getWidth() == 0) {
+        syncPrivateDisplay();
+        if (wv.getWidth() == 0 && pdisplay == null) {
             // Started by a workflow with no screen showing it: give the page a screen-sized area to lay out in, or
             // every element would measure zero and nothing could be found or clicked. A real layout replaces it.
             android.util.DisplayMetrics dm = app.getResources().getDisplayMetrics();
@@ -871,6 +877,7 @@ final class Session {
         frozen = false;
         exitFullscreen();
         leaveHost();
+        leavePrivate();
         stopRecording();
         stopCapture();
         InputRoute.clear(app);
@@ -934,7 +941,7 @@ final class Session {
     }
 
     boolean isHosted() {
-        return keepHost != null;
+        return keepHost != null || pdisplay != null;
     }
 
     // ---- staying visible with no screen ----------------------------------------------------------
@@ -946,7 +953,7 @@ final class Session {
      * physical screen does; nothing is drawn on the phone and nobody reads the pictures.
      */
     void hostWithoutScreen() {
-        if (!active || keepHost != null || keepHostFailed || webView == null || app == null || isRecording()) return;
+        if (!active || pdisplay != null || keepHost != null || keepHostFailed || webView == null || app == null || isRecording()) return;
         if (!Prefs.keepPlaying(app)) return;
         android.util.DisplayMetrics dm = app.getResources().getDisplayMetrics();
         int srcW = webView.getWidth() >= 16 ? webView.getWidth() : dm.widthPixels;
@@ -967,6 +974,43 @@ final class Session {
     void refreshVisibility() {
         js("__turbobox.configure({keepVisible:" + Prefs.keepPlaying(app) + "})");
         if (frameWindow == null) hostWithoutScreen();
+    }
+
+    /** The page's permanent private display (private display mode), or null. */
+    OffscreenHost privateDisplay() {
+        return pdisplay;
+    }
+
+    /** Creates (or removes, when the setting is off) the private display the page lives on. Screen-sized pixels in portrait, kept for good. */
+    private void syncPrivateDisplay() {
+        if (webView == null || app == null) return;
+        if (!Prefs.privateDisplay(app)) {
+            leavePrivate();
+            return;
+        }
+        if (pdisplay != null) return;
+        leaveHost();
+        android.util.DisplayMetrics dm = app.getResources().getDisplayMetrics();
+        int w = Math.min(dm.widthPixels, dm.heightPixels), h = Math.max(dm.widthPixels, dm.heightPixels);
+        OffscreenHost host = new OffscreenHost(app, "page" + slot, webView, w, h, dm.densityDpi);
+        if (host.start()) {
+            pdisplay = host;
+            viewCssWidth = Math.round(w / dm.density);
+            js("__turbobox.configure({privateDisplay:true})");
+        } else {
+            notice("The private display could not be made (" + host.error() + "); this page is shown the normal way.");
+        }
+    }
+
+    void leavePrivate() {
+        OffscreenHost h = pdisplay;
+        pdisplay = null;
+        if (h != null) h.stop();
+    }
+
+    /** The text the person typed for the field the page asked about. */
+    void setField(String value, boolean submit) {
+        js("__turbobox.setField(" + JSONObject.quote(value == null ? "" : value) + "," + submit + ")");
     }
 
     /** A screen shows the page again (or it closed): take it off the private display. */
@@ -1003,6 +1047,7 @@ final class Session {
         }
         recorder = r;
         recorder.setSource(frameWindow, webView);
+        recorder.setPrivate(pdisplay);
         js("__turbobox.setTap(true)");
         if (transcribePending || Prefs.transcribeNext(app)) {
             transcribePending = false;
@@ -1238,7 +1283,7 @@ final class Session {
     private String pageScript() {
         try {
             JSONObject settings = new JSONObject()
-                    .put("muted", silenced()).put("volume", volume).put("aec", aec).put("virtualDevices", Prefs.virtualDevices(app)).put("pageWidth", pageWidth).put("cursorMode", cursorMode).put("zoom", effectiveZoom())
+                    .put("muted", silenced()).put("volume", volume).put("aec", aec).put("virtualDevices", Prefs.virtualDevices(app)).put("privateDisplay", pdisplay != null).put("pageWidth", pageWidth).put("cursorMode", cursorMode).put("zoom", effectiveZoom())
                     .put("micGain", micGain).put("micLabel", micLabel())
                     .put("tap", isRecording()).put("micAllowed", micAllowed).put("cameraAllowed", cameraAllowed).put("localMute", frozen)
                     .put("keepVisible", Prefs.keepPlaying(app)).put("desktop", !mobile);
@@ -1281,6 +1326,13 @@ final class Session {
                     main.post(SessionService::refresh);
                     for (Listener l : listeners) l.onMedia(this);
                     break;
+                case "field": {
+                    JSONObject o = new JSONObject(data);
+                    main.post(() -> {
+                        for (Listener l : listeners) l.onField(this, o.optString("value"), o.optBoolean("multi"));
+                    });
+                    break;
+                }
                 case "fsratio": {
                     float r = Float.parseFloat(data);
                     fullscreenRatio = customView != null && r > 0.2f && r < 6f ? r : 0f;

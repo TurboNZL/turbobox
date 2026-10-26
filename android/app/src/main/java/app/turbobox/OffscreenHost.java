@@ -40,6 +40,8 @@ final class OffscreenHost {
     private FrameLayout root;
     private Bitmap frame;
     private String error = "";
+    private android.view.TextureView mirror;   // the on-screen picture of this display (null = nobody is looking, frames go to the reader)
+    private android.view.Surface mirrorSurface;
 
     OffscreenHost(Context app, String name, View view, int width, int height, int densityDpi) {
         this.app = app;
@@ -48,6 +50,47 @@ final class OffscreenHost {
         this.width = width;
         this.height = height;
         this.densityDpi = densityDpi;
+    }
+
+    int width() {
+        return width;
+    }
+
+    int height() {
+        return height;
+    }
+
+    /** The view that shows this display on screen right now, or null. */
+    android.view.TextureView mirror() {
+        return mirror;
+    }
+
+    /**
+     * Shows the display live in a texture view (null puts it back on the reader, so it keeps rendering with nothing on
+     * screen). The display itself, and the page in it, never change size or state whichever way this goes.
+     */
+    void output(android.view.TextureView tv, android.graphics.SurfaceTexture st) {
+        try {
+            if (display == null) return;
+            if (mirrorSurface != null) mirrorSurface.release();
+            mirrorSurface = null;
+            mirror = tv;
+            if (tv != null && st != null) {
+                st.setDefaultBufferSize(width, height);
+                mirrorSurface = new android.view.Surface(st);
+                display.setSurface(mirrorSurface);
+            } else {
+                mirror = null;
+                display.setSurface(reader.getSurface());
+            }
+        } catch (RuntimeException ignored) {
+            // The display is going away.
+        }
+    }
+
+    /** Hands a touch (already in this display's pixels) to the page. */
+    boolean touch(android.view.MotionEvent e) {
+        return view.dispatchTouchEvent(e);
     }
 
     String error() {
@@ -137,6 +180,9 @@ final class OffscreenHost {
         } catch (RuntimeException ignored) {
             // Already gone.
         }
+        if (mirrorSurface != null) mirrorSurface.release();
+        mirrorSurface = null;
+        mirror = null;
         if (display != null) display.release();
         if (reader != null) reader.close();
         presentation = null;

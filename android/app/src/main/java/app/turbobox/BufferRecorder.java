@@ -103,6 +103,7 @@ final class BufferRecorder {
     private volatile boolean limitReached;
     private volatile String lastError = "";
     private Transcriber transcriber;
+    private volatile OffscreenHost priv;   // private display mode: the page's own display
     private OffscreenHost offscreen;       // the page rendering on a virtual display while no window shows it
     private boolean offscreenFailed;
     private Thread worker;
@@ -175,6 +176,35 @@ final class BufferRecorder {
     void setSource(Window w, View v) {
         window = w;
         view = v;
+    }
+
+    void setPrivate(OffscreenHost h) {
+        priv = h;
+    }
+
+    /** Private display mode: the picture comes from the display, whether or not a screen shows it. Main thread. */
+    private void grabPrivate(OffscreenHost h) {
+        android.view.TextureView tv = h.mirror();
+        if (tv != null && tv.isAvailable()) {
+            Bitmap target = bitmapFor(h.width(), h.height());
+            try {
+                tv.getBitmap(target);
+                final Bitmap done = target;
+                nextBitmap ^= 1;
+                frameHandler.post(() -> {
+                    lastGood = done;
+                    draw(done);
+                });
+                return;
+            } catch (RuntimeException ignored) {
+                // Fall through to the reader.
+            }
+        }
+        final Bitmap f = h.latest();
+        frameHandler.post(() -> {
+            if (f != null) lastGood = f;
+            draw(lastGood);
+        });
     }
 
     /** Starts recording. False (see {@link #lastError}) when the phone could not open its encoders. */
@@ -282,6 +312,11 @@ final class BufferRecorder {
 
     private void grab() {
         if (copying) return;
+        OffscreenHost ph = priv;
+        if (ph != null) {
+            grabPrivate(ph);
+            return;
+        }
         Window w = window;
         View v = view;
         boolean sized = v != null && v.getWidth() >= 8 && v.getHeight() >= 8;

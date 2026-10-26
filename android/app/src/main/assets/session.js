@@ -1104,6 +1104,43 @@
     curDot();
     relayToFrames({ __tb: 'cfg', cfg: { cursorMode: cur.on } });
   };
+
+  // ---- text fields on a private display ------------------------------------------------------------------------
+  // The phone's keyboard cannot type into a window on a private display, so the app asks for the text in its own box.
+  function editable(el) {
+    if (!el || el.nodeType !== 1) return null;
+    if (el.isContentEditable) return el;
+    var t = el.tagName;
+    if (t === 'TEXTAREA') return el;
+    if (t === 'INPUT' && !/^(button|checkbox|radio|submit|reset|file|image|range|color)$/i.test(el.type)) return el;
+    return null;
+  }
+  var fieldEl = null;
+  document.addEventListener('focusin', function (e) {
+    if (!cfg.privateDisplay) return;
+    var el = editable(e.composedPath ? e.composedPath()[0] : e.target);
+    if (!el) return;
+    fieldEl = el;
+    post('field', JSON.stringify({ value: el.isContentEditable ? el.textContent : el.value, multi: el.tagName === 'TEXTAREA' || el.isContentEditable }));
+  }, true);
+  T.setField = function (value, submit) {
+    var el = fieldEl;
+    if (!el) return false;
+    el.focus();
+    if (el.isContentEditable) el.textContent = value;
+    else {
+      var proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      var set = Object.getOwnPropertyDescriptor(proto, 'value').set;
+      set.call(el, value);
+    }
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    if (submit) {
+      ['keydown', 'keypress', 'keyup'].forEach(function (n) { el.dispatchEvent(new KeyboardEvent(n, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true })); });
+      if (el.form && el.form.requestSubmit && el.tagName === 'INPUT') { try { el.form.requestSubmit(); } catch (x) { /* no submit */ } }
+    }
+    return true;
+  };
   // ---- keep the scroll position when the window changes size --------------------------------------------
   // Entering or resizing the Mini window re-lays the page out and a long feed (Twitter/X) jumps a few posts. The scroll
   // position from just before the resize is put back for a moment after it, unless the user touches the page meanwhile.
@@ -1219,6 +1256,7 @@
   T.configure = function (o) {
     if (!o) return;
     if ('aec' in o) cfg.aec = !!o.aec;
+    if ('privateDisplay' in o) cfg.privateDisplay = !!o.privateDisplay;
     if ('virtualDevices' in o) cfg.virtualDevices = !!o.virtualDevices;
     if ('pageWidth' in o) T.setPageWidth(o.pageWidth);
     if ('cursorMode' in o) T.setCursorMode(o.cursorMode);
