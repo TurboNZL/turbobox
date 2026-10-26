@@ -114,6 +114,38 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         sound.addView(Ui.hint(this, "Sets the media and the call volume together, so it works while a Bluetooth headset is in call mode and the volume buttons only move one of them."), Ui.lp(this, 4, 0));
         body.addView(sound, Ui.lp(this, 12, 0));
 
+        // Ad blocking
+        LinearLayout ads = Ui.card(this);
+        Switch adSwitch = Ui.toggle(this);
+        adSwitch.setText("Block ads and trackers");
+        adSwitch.setTextSize(17f);
+        adSwitch.setChecked(AdBlock.enabled(this));
+        adSwitch.setOnCheckedChangeListener((b, on) -> {
+            AdBlock.setEnabled(this, on);
+            render();
+        });
+        ads.addView(adSwitch);
+        ads.addView(Ui.hint(this, "Uses the same filter lists as uBlock Origin. Requests from known ad and tracking servers get nothing back, and ad "
+                + "boxes are hidden. A page can be exempted in its own settings. Ads that a site stitches into the video itself cannot be blocked this way."), Ui.lp(this, 6, 4));
+        if (AdBlock.enabled(this)) {
+            for (AdBlock.ListInfo l : AdBlock.LISTS) {
+                Switch ls = Ui.toggle(this);
+                ls.setText(l.name);
+                ls.setChecked(AdBlock.listOn(this, l));
+                ls.setOnCheckedChangeListener((b, on) -> AdBlock.setListOn(this, l, on));
+                ads.addView(ls, Ui.lp(this, 4, 0));
+            }
+            TextView adStatus = Ui.hint(this, AdBlock.status().isEmpty() ? "Starting..." : AdBlock.status());
+            ads.addView(adStatus, Ui.lp(this, 8, 4));
+            TextView upd = Ui.pill(this, "Update the lists now", 0);
+            upd.setOnClickListener(v -> {
+                adStatus.setText("Downloading...");
+                AdBlock.update(this, text -> adStatus.setText(text + " " + AdBlock.status()));
+            });
+            ads.addView(upd, Ui.lp(this, 4, 0));
+        }
+        body.addView(ads, Ui.lp(this, 12, 0));
+
         // The session screen
         LinearLayout screen = Ui.card(this);
         screen.addView(Ui.text(this, "Pages on screen", 17f, Ui.TEXT, "sans-serif-medium"));

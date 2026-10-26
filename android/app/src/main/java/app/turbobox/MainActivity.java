@@ -47,6 +47,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        AdBlock.ensure(this);
         Profiles.returning();
         String filter = Profiles.filter(this);
         if (!filter.isEmpty() && Profiles.find(this, filter).id.equals(Profiles.DEFAULT) && !filter.equals(Profiles.DEFAULT)) filter = Profiles.DEFAULT;   // its profile was removed

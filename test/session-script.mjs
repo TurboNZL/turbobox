@@ -226,6 +226,11 @@ await page.evaluate(() => window.__turbobox.setVolume(1));
 await page.waitForTimeout(200);
 await page.evaluate(() => { window.__osc.stop(); window.__na.pause(); });
 
+// ad hiding: valid selectors hide, one the browser does not understand costs only its own chunk
+await page.evaluate(() => { document.body.insertAdjacentHTML('beforeend', '<div class="adx" id="adx">ad</div><div class="keep" id="keepme">content</div>'); window.__turbobox.hide(['.adx', 'div:bogus-pseudo(x)', '.nothing']); });
+const hid = await page.evaluate(() => ({ ad: getComputedStyle(document.getElementById('adx')).display, keep: getComputedStyle(document.getElementById('keepme')).display }));
+check('ad boxes are hidden and the page is left alone', hid.ad === 'none' && hid.keep !== 'none', hid);
+
 // permission signalling follows the privacy switches
 await p2.evaluate(() => { window.__perm = []; });
 const st = await p2.evaluate(async () => {

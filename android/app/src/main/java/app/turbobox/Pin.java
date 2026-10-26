@@ -15,6 +15,7 @@ final class Pin {
     String url;
     float zoom = 1f;        // 0.5..3, the layout width is pageWidth / zoom
     int pageWidth = 1280;   // the virtual screen width the page believes it has, in CSS pixels (desktop sites)
+    boolean noAdblock;      // this page is exempt from ad blocking
     boolean confirmClose;   // ask before closing this page (off by default)
     float volume = 1f;      // 0..2, gain on the page's audio
     int recordMode;         // recording when the page opens: 0 = follow the default in Settings, 1 = always, 2 = never
@@ -47,7 +48,7 @@ final class Pin {
         try {
             return new JSONObject().put("id", id).put("name", name).put("url", url)
                     .put("zoom", zoom).put("volume", volume).put("recordMode", recordMode)
-                    .put("allowMic", allowMic).put("allowCamera", allowCamera).put("aspect", aspect).put("zoomMini", zoomMini).put("aspectMini", aspectMini).put("mobile", mobile).put("pageWidth", pageWidth).put("confirmClose", confirmClose).put("profile", profileId);
+                    .put("allowMic", allowMic).put("allowCamera", allowCamera).put("aspect", aspect).put("zoomMini", zoomMini).put("aspectMini", aspectMini).put("mobile", mobile).put("pageWidth", pageWidth).put("confirmClose", confirmClose).put("noAdblock", noAdblock).put("profile", profileId);
         } catch (JSONException e) {
             throw new IllegalStateException(e);
         }
@@ -64,6 +65,7 @@ final class Pin {
         p.mobile = o.optBoolean("mobile", false);
         p.pageWidth = Math.max(480, Math.min(3840, o.optInt("pageWidth", 1280)));
         p.confirmClose = o.optBoolean("confirmClose", false);
+        p.noAdblock = o.optBoolean("noAdblock", false);
         p.profileId = o.optString("profile", Profiles.DEFAULT);
         if (p.profileId.isEmpty()) p.profileId = Profiles.DEFAULT;
         p.aspect = Math.max(0, Math.min(ASPECTS.length - 1, o.optInt("aspect", 0)));

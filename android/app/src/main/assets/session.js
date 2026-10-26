@@ -984,6 +984,50 @@
     if (cfg.localMute) lmTimer = setInterval(localMuteSweep, 500);
     relayToFrames({ __tb: 'localMute', on: cfg.localMute });
   };
+
+  // ---- ad blocking, the page's half ---------------------------------------------------------------------------
+  // The app blocks requests and sends the selectors to hide (from the filter lists); this hides them, in chunks so one
+  // selector this browser does not understand only loses its own chunk, and keeps hiding what the page adds later.
+  var hideSheet = null, hidden = [];
+  T.hide = function (selectors) {
+    if (!selectors || !selectors.length) return;
+    if (!hideSheet) {
+      var st = document.createElement('style');
+      st.setAttribute('data-turbobox', 'ads');
+      (document.head || document.documentElement).appendChild(st);
+      hideSheet = st;
+    }
+    var css = '';
+    for (var i = 0; i < selectors.length; i += 100) {
+      var chunk = selectors.slice(i, i + 100);
+      try { document.createDocumentFragment().querySelector(chunk.join(',')); css += chunk.join(',') + '{display:none!important}\n'; }
+      catch (e) {
+        chunk.forEach(function (s) {
+          try { document.createDocumentFragment().querySelector(s); css += s + '{display:none!important}\n'; } catch (x) { /* not understood here */ }
+        });
+      }
+    }
+    hideSheet.textContent = css;
+  };
+  // In-page ad data: YouTube ships its ads inside the player data it fetches, and the page plays whatever is listed.
+  // Removing those lists from the data (what uBlock's json-prune does) leaves the video alone.
+  var AD_KEYS = ['adPlacements', 'playerAds', 'adSlots', 'adBreakHeartbeatParams'];
+  function prune(o) {
+    if (!o || typeof o !== 'object') return o;
+    var pr = o.playerResponse && typeof o.playerResponse === 'object' ? o.playerResponse : o;
+    if (pr && (pr.streamingData || pr.playabilityStatus || pr.videoDetails)) AD_KEYS.forEach(function (k) { if (k in pr) { try { delete pr[k]; } catch (e) { pr[k] = undefined; } } });
+    return o;
+  }
+  if (/(^|\.)youtube\.com$/.test(location.hostname)) {
+    var parse = JSON.parse;
+    JSON.parse = function () { return prune(parse.apply(this, arguments)); };
+    var rjson = window.Response && Response.prototype.json;
+    if (rjson) Response.prototype.json = function () { return rjson.apply(this, arguments).then(prune); };
+    var initial;
+    try {
+      Object.defineProperty(window, 'ytInitialPlayerResponse', { configurable: true, get: function () { return initial; }, set: function (v) { initial = prune(v); } });
+    } catch (e) { /* the page defined it first */ }
+  }
   // ---- keep the scroll position when the window changes size --------------------------------------------
   // Entering or resizing the Mini window re-lays the page out and a long feed (Twitter/X) jumps a few posts. The scroll
   // position from just before the resize is put back for a moment after it, unless the user touches the page meanwhile.

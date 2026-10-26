@@ -1081,6 +1081,7 @@ final class Session {
         st.setDomStorageEnabled(true);
         st.setMediaPlaybackRequiresUserGesture(false);
         // Ask for the desktop layout of the site, and let it be pinch-zoomed on a phone.
+        AdBlock.ensure(app);
         mobileUa = st.getUserAgentString();
         mobile = pin != null && pin.mobile;
         applyMode(st);
@@ -1123,17 +1124,31 @@ final class Session {
                 }
                 if (!wipeProfile) SiteData.seen(app, profileName == null ? "" : profileName, url);
                 pageLoaded = false;
+                blockedCount = 0;
                 muteMisses = 0;
                 muteWarned = false;
                 pageWantsMic = false; // a new document starts without the virtual mic; it will ask again
                 stopCapture();
                 view.evaluateJavascript(pageScript(), null);
+                hideAds(view, url);
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
                 pageLoaded = !"about:blank".equals(url);
                 view.evaluateJavascript(pageScript(), null);
+                hideAds(view, url);
+            }
+
+            @Override
+            public android.webkit.WebResourceResponse shouldInterceptRequest(WebView view, android.webkit.WebResourceRequest request) {
+                if (adsBlocked() && AdBlock.shouldBlock(request.getUrl().toString(), view.getUrl(), request.isForMainFrame(),
+                        request.getRequestHeaders().get("Accept"))) {
+                    blockedCount++;
+                    return new android.webkit.WebResourceResponse("text/plain", "utf-8", 200, "Blocked", Collections.<String, String>emptyMap(),
+                            new java.io.ByteArrayInputStream(new byte[0]));
+                }
+                return null;
             }
 
             @Override
@@ -1271,7 +1286,8 @@ final class Session {
                             + "\npage: " + o.optString("host")
                             + "\nmic API: " + o.optString("mediaDevices")
                             + "\ncalls open: " + o.optInt("calls")
-                            + "\naudio: " + o.optString("audio");
+                            + "\naudio: " + o.optString("audio")
+                            + "\nads: " + (adsBlocked() ? blockedCount + " requests blocked on this page" : "blocking is off");
                     for (Listener l : listeners) l.onInfo(this, text);
                     break;
                 }
@@ -1301,14 +1317,7 @@ final class Session {
 
     /** "a.b.example.com" -> "example.com"; "a.example.co.nz" -> "example.co.nz". */
     static String rootDomain(String host) {
-        String[] parts = host.split("\\.");
-        if (parts.length <= 2) return host;
-        String last = parts[parts.length - 1], second = parts[parts.length - 2];
-        int keep = last.length() == 2 && second.matches("co|com|org|net|gov|ac|edu|ne|or|go") ? 3 : 2;
-        keep = Math.min(keep, parts.length);
-        StringBuilder sb = new StringBuilder();
-        for (int i = parts.length - keep; i < parts.length; i++) sb.append(sb.length() == 0 ? "" : ".").append(parts[i]);
-        return sb.toString();
+        return Hosts.rootDomain(host);
     }
 
     private static String desktopUserAgent(String mobile) {
@@ -1316,6 +1325,19 @@ final class Session {
         String major = m.find() ? m.group(1) : "120";
         return "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/"
                 + major + ".0.0.0 Safari/537.36";
+    }
+
+    private int blockedCount;     // requests answered with nothing on this page load, for Page info
+
+    /** Ad blocking applies to this page: the app switch is on and this page has not been exempted. */
+    private boolean adsBlocked() {
+        return app != null && AdBlock.enabled(app) && (pin == null || !pin.noAdblock);
+    }
+
+    private void hideAds(WebView view, String url) {
+        if (!adsBlocked()) return;
+        String script = AdBlock.hidingScript(url);
+        if (script != null) view.evaluateJavascript(script, null);
     }
 
     /** Client hints say "desktop Linux Chrome" too, since some sites read them instead of the UA string. */

@@ -131,6 +131,11 @@ final class PinSheet {
         confirm.setChecked(pin.confirmClose);
         confirm.setOnCheckedChangeListener((b, on) -> change(act, pin, p -> p.confirmClose = on));
         col.addView(confirm, Ui.lp(act, 12, 4));
+        Switch ads = Ui.toggle(act);
+        ads.setText("Block ads and trackers on this page");
+        ads.setChecked(!pin.noAdblock);
+        ads.setOnCheckedChangeListener((b, on) -> change(act, pin, p -> p.noAdblock = !on));
+        col.addView(ads, Ui.lp(act, 4, 4));
         col.addView(done, Ui.lp(act, 14, 0));
         d.show();
     }
