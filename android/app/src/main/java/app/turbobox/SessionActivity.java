@@ -1047,8 +1047,9 @@ public class SessionActivity extends Activity implements Session.Listener {
         chromeBox.addView(barRow2, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
         countdown = Ui.text(this, "", 13f, Ui.DIM, "sans-serif-medium");
         countdown.setGravity(Gravity.CENTER);
-        countdown.setVisibility(View.GONE);
-        chromeBox.addView(countdown, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
+        countdown.setVisibility(View.INVISIBLE);   // its room is always kept, so the bar never changes height when a timer starts or ends
+        countdown.setTextSize(12f);
+        chromeBox.addView(countdown, Ui.match(Ui.dp(this, 18)));
         arrangeBar();
 
         // Workflows marked as a hotkey: one tap runs them, no questions asked.
@@ -1952,7 +1953,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (s.slot != focus) return;
         if (remainingMs < 0) {
             countdown.setText("");
-            countdown.setVisibility(View.GONE);
+            countdown.setVisibility(View.INVISIBLE);
             return;
         }
         long sec = (remainingMs + 999) / 1000;
