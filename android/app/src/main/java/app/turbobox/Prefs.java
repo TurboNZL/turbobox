@@ -28,6 +28,10 @@ final class Prefs {
     static float brightness(Context c) { return ps(c).getFloat("brightness", 1f); }
     static void setBrightness(Context c, float v) { ps(c).edit().putFloat("brightness", v).apply(); }
 
+    /** The workflow the headset's play/pause button starts (its id), or "" for the button to play and pause the page. */
+    static String headphoneWorkflow(Context c) { return sp(c).getString("headphoneWorkflow", ""); }
+    static void setHeadphoneWorkflow(Context c, String v) { sp(c).edit().putString("headphoneWorkflow", v).apply(); }
+
     // ---- standby: keep the foreground service up so scheduled workflows can use the microphone ----
     static boolean standby(Context c) { return sp(c).getBoolean("standby", false); }
     static void setStandby(Context c, boolean v) { sp(c).edit().putBoolean("standby", v).apply(); }

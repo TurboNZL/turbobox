@@ -1261,6 +1261,7 @@ final class Session {
                 }
                 case "media":
                     mediaPlaying = "1".equals(data);
+                    main.post(SessionService::refresh);
                     for (Listener l : listeners) l.onMedia(this);
                     break;
                 case "fsratio": {
@@ -1281,7 +1282,7 @@ final class Session {
                             + "\nviewport: " + o.optString("viewport")
                             + "\nzoom " + o.optString("zoom") + ", asked layout area " + o.optInt("viewW") + " px wide, page height " + o.optInt("innerH")
                             + " px, page scale " + o.optString("vvScale")
-                            + "\nmicrophone: " + (micKey.isEmpty() ? "page default" : "native input, " + micKey)
+                            + "\nmicrophone: virtual, fed from " + (micKey.isEmpty() ? "the system default input" : micKey)
                             + "\nclient hint mobile: " + o.optString("uaMobile")
                             + "\npage: " + o.optString("host")
                             + "\nmic API: " + o.optString("mediaDevices")

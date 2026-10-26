@@ -112,6 +112,26 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
             if (fromUser) NativeVolume.set(this, value);
         }));
         sound.addView(Ui.hint(this, "Sets the media and the call volume together, so it works while a Bluetooth headset is in call mode and the volume buttons only move one of them."), Ui.lp(this, 4, 0));
+        java.util.List<Workflow> flows = WorkflowStore.load(this);
+        String chosenFlow = Prefs.headphoneWorkflow(this);
+        String chosenName = "Play and pause the page";
+        for (Workflow w : flows) if (w.id.equals(chosenFlow)) chosenName = "Run: " + w.name;
+        TextView headset = Ui.text(this, "Headphone play/pause: " + chosenName + "  \u203A", 15f, Ui.GREEN, "sans-serif-medium");
+        headset.setPadding(0, Ui.dp(this, 12), 0, Ui.dp(this, 4));
+        headset.setOnClickListener(v -> {
+            java.util.List<String> names = new java.util.ArrayList<>();
+            names.add("Play and pause the page");
+            for (Workflow w : flows) names.add("Run: " + w.name);
+            new AlertDialog.Builder(this).setTitle("When the headphone button is pressed")
+                    .setItems(names.toArray(new String[0]), (d, which) -> {
+                        Prefs.setHeadphoneWorkflow(this, which == 0 ? "" : flows.get(which - 1).id);
+                        SessionService.ensure(this);
+                        render();
+                    }).show();
+        });
+        sound.addView(headset);
+        sound.addView(Ui.hint(this, "TurboBox keeps hold of the button while a page is open (or Standby is on), so a music app left over from earlier "
+                + "does not get it instead."), Ui.lp(this, 0, 0));
         body.addView(sound, Ui.lp(this, 12, 0));
 
         // Ad blocking

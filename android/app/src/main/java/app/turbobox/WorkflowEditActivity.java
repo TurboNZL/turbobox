@@ -24,20 +24,15 @@ import java.util.List;
 public class WorkflowEditActivity extends Activity {
     static final String EXTRA_ID = "id";
 
-    private static final String EXAMPLE = "# One step per line. Words after click / waitfor are matched against what you see.\n"
-            + "# open loads the page again; wait 30s, 5m, 1h; a leading ? means \"fine if it is not there\".\n"
-            + "wait 5s\n"
-            + "? click Accept\n"
-            + "click Join within 1m\n"
-            + "unmute\n"
-            + "record start\n"
-            + "hangup 2h\n";
+    /** A new workflow starts with a few ordinary steps to change, not an empty list. */
+    private static final String EXAMPLE = "wait 5s\n? click Accept\nclick Join within 1m\nunmute\nrecord start\nhangup 2h\n";
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private Workflow wf;
     private boolean isNew;
     private EditText name;
-    private EditText steps;
+    private final List<String> lines = new ArrayList<>();   // the steps, one line each (what the parser reads)
+    private LinearLayout stepsBox;
     private TextView pageValue;
     private TextView timeValue;
     private TextView logView;
@@ -142,24 +137,21 @@ public class WorkflowEditActivity extends Activity {
         paintDays();
 
         body.addView(Ui.label(this, "Steps"), Ui.lp(this, 16, 4));
-        steps = new EditText(this);
-        steps.setText(wf.steps);
-        steps.setTypeface(android.graphics.Typeface.MONOSPACE);
-        steps.setTextSize(13f);
-        steps.setTextColor(Ui.TEXT);
-        steps.setMinLines(9);
-        steps.setGravity(Gravity.TOP | Gravity.START);
-        steps.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        steps.setHorizontallyScrolling(true);
-        steps.setBackground(Ui.rounded(this, Ui.CARD, Ui.STROKE, 12));
-        steps.setPadding(Ui.dp(this, 10), Ui.dp(this, 10), Ui.dp(this, 10), Ui.dp(this, 10));
-        body.addView(steps, Ui.lp(this, 0, 6));
+        for (String l : wf.steps.split("\\r?\\n")) {
+            String t = l.trim();
+            if (!t.isEmpty() && !t.startsWith("#")) lines.add(t);
+        }
+        stepsBox = new LinearLayout(this);
+        stepsBox.setOrientation(LinearLayout.VERTICAL);
+        body.addView(stepsBox, Ui.lp(this, 0, 6));
+        renderSteps();
         TextView add = Ui.pill(this, "+ Add a step", Ui.GREEN);
         add.setOnClickListener(v -> addStepMenu());
         body.addView(add, Ui.lp(this, 0, 4));
-        body.addView(Ui.hint(this, "Pick a step and answer what it asks; the line is written into the box above, after the line your "
-                + "cursor is on. You can also type the lines yourself: click, waitfor and type look for the words on the page (or "
-                + "css:SELECTOR) and retry for up to 20 s (waitfor: 60 s); add \"within 2m\" to change that. Guides > Workflows lists every step."), Ui.lp(this, 4, 12));
+        body.addView(Ui.hint(this, "Steps run from the top, one after another. Click, type and wait steps keep looking for what they need and "
+                + "give up after their time (20 seconds, 60 to wait for something to show). Arrows move a step, the pencil changes it."), Ui.lp(this, 4, 12));
+
+        timedHotkey(body);
 
         LinearLayout actions = new LinearLayout(this);
         TextView save = Ui.pill(this, "Save", Ui.GREEN);
@@ -251,8 +243,15 @@ public class WorkflowEditActivity extends Activity {
 
     /** The questions a step needs (how long, which words...), then the line goes into the steps box. */
     private void askStep(StepTemplates.Template t) {
+        askStep(t, null, line -> {
+            lines.add(line);
+            renderSteps();
+        });
+    }
+
+    private void askStep(StepTemplates.Template t, StepTemplates.Edit edit, java.util.function.Consumer<String> onLine) {
         if (t.fields.length == 0 && !t.pageStep) {
-            insertLine(t.line(t.defaults()));
+            onLine.accept(t.line(t.defaults()));
             return;
         }
         LinearLayout col = new LinearLayout(this);
@@ -263,7 +262,7 @@ public class WorkflowEditActivity extends Activity {
         for (int i = 0; i < t.fields.length; i++) {
             StepTemplates.Field f = t.fields[i];
             col.addView(Ui.label(this, f.label), Ui.lp(this, 12, 4));
-            answers[i] = fieldInput(col, f);
+            answers[i] = fieldInput(col, edit == null || i >= edit.values.length ? f : withDefault(f, edit.values[i]));
             if (f.hint != null) col.addView(Ui.hint(this, f.hint), Ui.lp(this, 2, 0));
         }
         Switch optional = null;
@@ -272,14 +271,15 @@ public class WorkflowEditActivity extends Activity {
             optional = Ui.toggle(this);
             optional.setText("Fine to skip if it is not there");
             optional.setTextColor(Ui.TEXT);
+            optional.setChecked(edit != null && edit.optional);
             col.addView(optional, Ui.lp(this, 14, 0));
             col.addView(Ui.label(this, "Give up after"), Ui.lp(this, 12, 4));
-            within = timeInput(col, 0);
+            within = timeInput(col, edit == null ? 0 : edit.withinSeconds);
             col.addView(Ui.hint(this, "0 uses the usual time: 20 seconds, 60 for waiting for something to show."), Ui.lp(this, 2, 0));
         }
         final Switch optionalFinal = optional;
         final Supplier withinFinal = within;
-        TextView add = Ui.pill(this, "Add step", Ui.GREEN);
+        TextView add = Ui.pill(this, edit == null ? "Add step" : "Save step", Ui.GREEN);
         add.setOnClickListener(v -> {
             String[] values = new String[answers.length];
             for (int i = 0; i < values.length; i++) values[i] = answers[i].get();
@@ -292,10 +292,14 @@ public class WorkflowEditActivity extends Activity {
                 line = StepTemplates.decorate(line, optionalFinal.isChecked(), Long.parseLong(withinFinal.get()));
             }
             d.dismiss();
-            insertLine(line);
+            onLine.accept(line);
         });
         col.addView(add, Ui.lp(this, 18, 0));
         d.show();
+    }
+
+    private static StepTemplates.Field withDefault(StepTemplates.Field f, String value) {
+        return new StepTemplates.Field(f.type, f.label, f.hint, value, f.options);
     }
 
     private interface Supplier {
@@ -362,35 +366,108 @@ public class WorkflowEditActivity extends Activity {
                 boxes[2].getText().toString()));
     }
 
-    private void insertLine(String line) {
-        StepTemplates.Insert r = StepTemplates.insertAfterCursor(steps.getText().toString(), steps.getSelectionEnd(), line);
-        steps.setText(r.text);
-        steps.setSelection(r.cursor);
-        steps.requestFocus();
+    private void renderSteps() {
+        stepsBox.removeAllViews();
+        if (lines.isEmpty()) {
+            stepsBox.addView(Ui.hint(this, "No steps yet."), Ui.lp(this, 0, 6));
+            return;
+        }
+        for (int i = 0; i < lines.size(); i++) {
+            final int at = i;
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setBackground(Ui.rounded(this, Ui.CARD, Ui.STROKE, 12));
+            row.setPadding(Ui.dp(this, 12), Ui.dp(this, 4), Ui.dp(this, 4), Ui.dp(this, 4));
+            TextView number = Ui.text(this, String.valueOf(i + 1), 13f, Ui.FAINT, "sans-serif-medium");
+            number.setMinWidth(Ui.dp(this, 20));
+            row.addView(number);
+            TextView text = Ui.text(this, StepTemplates.describe(lines.get(i)), 15f, Ui.TEXT, "sans-serif");
+            text.setPadding(Ui.dp(this, 6), Ui.dp(this, 8), Ui.dp(this, 6), Ui.dp(this, 8));
+            text.setOnClickListener(v -> editStep(at));
+            row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            int w = Ui.dp(this, 40);
+            addRowButton(row, IconButton.Icon.UP, "Move up", w, i > 0, () -> moveStep(at, -1));
+            addRowButton(row, IconButton.Icon.DOWN, "Move down", w, i < lines.size() - 1, () -> moveStep(at, 1));
+            addRowButton(row, IconButton.Icon.EDIT, "Change this step", w, true, () -> editStep(at));
+            addRowButton(row, IconButton.Icon.TRASH, "Remove this step", w, true, () -> {
+                lines.remove(at);
+                renderSteps();
+            });
+            stepsBox.addView(row, Ui.lp(this, 0, 6));
+        }
+    }
+
+    private void addRowButton(LinearLayout row, IconButton.Icon icon, String what, int width, boolean enabled, Runnable action) {
+        IconButton b = new IconButton(this, icon, what);
+        b.setBackground(null);
+        b.setEnabled(enabled);
+        b.setOnClickListener(v -> action.run());
+        row.addView(b, new LinearLayout.LayoutParams(width, Ui.dp(this, 40)));
+    }
+
+    private void moveStep(int at, int by) {
+        int to = at + by;
+        if (to < 0 || to >= lines.size()) return;
+        String l = lines.remove(at);
+        lines.add(to, l);
+        renderSteps();
+    }
+
+    /** Opens the form the step was made with, filled in; a line no form can rebuild is edited as plain text. */
+    private void editStep(int at) {
+        StepTemplates.Edit e = StepTemplates.toEdit(lines.get(at));
+        if (e == null) {
+            EditText raw = new EditText(this);
+            raw.setText(lines.get(at));
+            raw.setTextColor(Ui.TEXT);
+            new AlertDialog.Builder(this).setTitle("Change this step").setView(raw)
+                    .setPositiveButton("Save", (d, w) -> {
+                        String t = raw.getText().toString().trim();
+                        if (!t.isEmpty()) lines.set(at, t);
+                        renderSteps();
+                    }).setNegativeButton("Cancel", null).show();
+            return;
+        }
+        askStep(e.template, e, line -> {
+            lines.set(at, line);
+            renderSteps();
+        });
+    }
+
+    private void timedHotkey(LinearLayout body) {
+        Switch hot = Ui.toggle(this);
+        hot.setText("Show a button for it on the page screen");
+        hot.setChecked(wf.hotkey);
+        hot.setOnCheckedChangeListener((b, on) -> wf.hotkey = on);
+        body.addView(hot, Ui.lp(this, 4, 0));
+        body.addView(Ui.hint(this, "A one-tap button above the pages that runs this without asking. A timer is just a workflow like this "
+                + "with a Hang up step."), Ui.lp(this, 2, 8));
     }
 
     /** Checks the steps and saves. Shows the first problem, with its line, and returns false. */
     private boolean save() {
         wf.name = name.getText().toString().trim();
-        wf.steps = steps.getText().toString();
+        wf.steps = String.join("\n", lines);
         if (wf.name.isEmpty()) {
             name.setError("Give it a name");
             return false;
         }
         boolean anyPage = false;
         for (String id : wf.pinIds) anyPage |= PinStore.find(this, id) != null;
-        if (!anyPage) {
-            Toast.makeText(this, "Choose the page this workflow opens.", Toast.LENGTH_LONG).show();
-            return false;
-        }
         try {
-            if (WorkflowParser.parse(wf.steps).isEmpty()) {
-                steps.setError("Add at least one step");
+            List<WorkflowParser.Step> parsed = WorkflowParser.parse(wf.steps);
+            if (parsed.isEmpty()) {
+                Toast.makeText(this, "Add at least one step.", Toast.LENGTH_LONG).show();
+                return false;
+            }
+            boolean needsPage = false;
+            for (WorkflowParser.Step st : parsed) needsPage |= WorkflowParser.needsPage(st.kind);
+            if (needsPage && !anyPage) {
+                Toast.makeText(this, "Choose the page this workflow works on (some steps need one).", Toast.LENGTH_LONG).show();
                 return false;
             }
         } catch (WorkflowParser.ParseError e) {
-            steps.setError(e.getMessage());
-            steps.requestFocus();
+            Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show();
             return false;
         }
         WorkflowStore.put(this, wf);

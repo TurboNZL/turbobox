@@ -13,7 +13,7 @@ import android.widget.TextView;
  * description; the text itself is never drawn. Icons are drawn with paths on a 24 x 24 grid.
  */
 final class IconButton extends TextView {
-    enum Icon { PAUSE, PLAY, RECORD, BOTH, MIC, MIC_OFF, TIMER, GEAR, CLOSE, LAYOUT, MINI, LOCK, SPLIT, CAPTIONS, HIDE, STOP }
+    enum Icon { PAUSE, PLAY, RECORD, BOTH, MIC, MIC_OFF, TIMER, GEAR, CLOSE, LAYOUT, MINI, LOCK, SPLIT, CAPTIONS, HIDE, STOP, UP, DOWN, EDIT, TRASH }
 
     private Icon icon;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -189,6 +189,37 @@ final class IconButton extends TextView {
                 c.drawLine(7, 11, 11, 11, paint);
                 c.drawLine(13, 11, 17, 11, paint);
                 c.drawLine(7, 15, 14, 15, paint);
+                paint.setStyle(Paint.Style.FILL);
+                break;
+            case UP:
+            case DOWN: {
+                float a = i == Icon.UP ? 15 : 9, b = i == Icon.UP ? 9 : 15;
+                path.moveTo(5, a);
+                path.lineTo(12, b);
+                path.lineTo(19, a);
+                paint.setStyle(Paint.Style.STROKE);
+                c.drawPath(path, paint);
+                paint.setStyle(Paint.Style.FILL);
+                break;
+            }
+            case EDIT:
+                path.moveTo(4, 20);
+                path.lineTo(5, 15);
+                path.lineTo(16, 4);
+                path.lineTo(20, 8);
+                path.lineTo(9, 19);
+                path.close();
+                paint.setStyle(Paint.Style.STROKE);
+                c.drawPath(path, paint);
+                paint.setStyle(Paint.Style.FILL);
+                break;
+            case TRASH:
+                paint.setStyle(Paint.Style.STROKE);
+                c.drawLine(4, 7, 20, 7, paint);
+                c.drawRoundRect(new RectF(6.5f, 7, 17.5f, 20.5f), 2f, 2f, paint);
+                c.drawLine(9.5f, 4, 14.5f, 4, paint);
+                c.drawLine(10, 11, 10, 16, paint);
+                c.drawLine(14, 11, 14, 16, paint);
                 paint.setStyle(Paint.Style.FILL);
                 break;
             case HIDE:

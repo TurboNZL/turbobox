@@ -20,6 +20,7 @@ final class Workflow {
     final List<String> pinIds = new ArrayList<>();   // the pinned pages it runs on; every one gets its own run of the steps
     String steps = "";
     boolean timed;                       // run by itself at hour:minute on the chosen days
+    boolean hotkey;                      // shown as a one-tap button on the page screen
     boolean enabled = true;              // only matters when timed
     int hour = 8;
     int minute = 0;
@@ -45,7 +46,7 @@ final class Workflow {
         try {
             return new JSONObject().put("id", id).put("name", name).put("pinId", firstPinId())
                     .put("pinIds", new JSONArray(pinIds)).put("steps", steps)
-                    .put("timed", timed).put("enabled", enabled).put("hour", hour).put("minute", minute)
+                    .put("timed", timed).put("enabled", enabled).put("hotkey", hotkey).put("hour", hour).put("minute", minute)
                     .put("days", days).put("lastRunAt", lastRunAt).put("lastOk", lastOk)
                     .put("lastMessage", lastMessage);
         } catch (JSONException e) {
@@ -68,6 +69,7 @@ final class Workflow {
         w.steps = o.optString("steps");
         w.timed = o.optBoolean("timed");
         w.enabled = o.optBoolean("enabled", true);
+        w.hotkey = o.optBoolean("hotkey", false);
         w.hour = o.optInt("hour", 8);
         w.minute = o.optInt("minute", 0);
         w.days = o.optInt("days", ALL_DAYS);
