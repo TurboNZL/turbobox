@@ -120,4 +120,24 @@ public class WorkflowParserTest {
         assertEquals("css:#a", s.toJson().getString("target"));
         assertEquals("hi", s.toJson().getString("text"));
     }
+
+    @Test
+    public void waitUntilAndRunSteps() throws Exception {
+        WorkflowParser.Step a = WorkflowParser.parse("wait until 22:30").get(0);
+        assertEquals(WorkflowParser.Kind.WAIT_UNTIL, a.kind);
+        assertEquals(22 * 60 + 30, a.number);
+        assertEquals(6 * 60 + 15, WorkflowParser.clockMinutes("6:15 am"));
+        assertEquals(19 * 60, WorkflowParser.clockMinutes("7pm"));
+        assertEquals(0, WorkflowParser.clockMinutes("12am"));
+        assertEquals(-1, WorkflowParser.clockMinutes("25:00"));
+        WorkflowParser.Step r = WorkflowParser.parse("run Morning check-in").get(0);
+        assertEquals(WorkflowParser.Kind.RUN, r.kind);
+        assertEquals("Morning check-in", r.text);
+        try {
+            WorkflowParser.parse("wait until soon");
+            org.junit.Assert.fail("should not parse");
+        } catch (WorkflowParser.ParseError e) {
+            org.junit.Assert.assertTrue(e.getMessage().contains("time of day"));
+        }
+    }
 }

@@ -33,6 +33,7 @@ public class WorkflowEditActivity extends Activity {
     private EditText name;
     private final List<String> lines = new ArrayList<>();   // the steps, one line each (what the parser reads)
     private LinearLayout stepsBox;
+    private LinearLayout delayBox;
     private TextView pageValue;
     private TextView timeValue;
     private TextView logView;
@@ -96,6 +97,10 @@ public class WorkflowEditActivity extends Activity {
         pageValue.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 8));
         pageValue.setOnClickListener(v -> choosePage());
         body.addView(pageValue, Ui.lp(this, 0, 8));
+        delayBox = new LinearLayout(this);
+        delayBox.setOrientation(LinearLayout.VERTICAL);
+        body.addView(delayBox, Ui.lp(this, 0, 8));
+        renderDelays();
 
         timed = Ui.toggle(this);
         timed.setText("Start by itself at a set time");
@@ -186,6 +191,35 @@ public class WorkflowEditActivity extends Activity {
         body.addView(logView);
     }
 
+    /** With more than one page: when each one starts, counted from the start of the workflow (its own time for each page). */
+    private void renderDelays() {
+        delayBox.removeAllViews();
+        if (wf.pinIds.size() < 2) return;
+        delayBox.addView(Ui.hint(this, "Each page can start at its own time. Tap one to change when it starts."), Ui.lp(this, 0, 4));
+        for (String id : wf.pinIds) {
+            Pin p = PinStore.find(this, id);
+            if (p == null || Profiles.isLocked(this, p.profileId)) continue;
+            long d = wf.delayFor(id);
+            TextView row = Ui.text(this, p.name + ":  " + (d == 0 ? "at the start" : StepTemplates.duration(d) + " after the start") + "  \u203A", 15f, Ui.GREEN, "sans-serif-medium");
+            row.setPadding(0, Ui.dp(this, 6), 0, Ui.dp(this, 6));
+            row.setOnClickListener(v -> {
+                LinearLayout col = new LinearLayout(this);
+                Dialog dlg = Ui.sheet(this, col);
+                col.addView(Ui.text(this, p.name + " starts after", 20f, Ui.TEXT, "semibold"), Ui.lp(this, 0, 8));
+                Supplier answer = timeInput(col, wf.delayFor(id));
+                TextView ok = Ui.pill(this, "Set", Ui.GREEN);
+                ok.setOnClickListener(x -> {
+                    wf.pinDelays.put(id, Long.parseLong(answer.get()));
+                    dlg.dismiss();
+                    renderDelays();
+                });
+                col.addView(ok, Ui.lp(this, 16, 0));
+                dlg.show();
+            });
+            delayBox.addView(row);
+        }
+    }
+
     private String pageText() {
         List<String> names = new ArrayList<>();
         for (String id : wf.pinIds) {
@@ -213,6 +247,7 @@ public class WorkflowEditActivity extends Activity {
             wf.pinIds.clear();
             for (Pin p : pins) if (chosen.contains(p.id)) wf.pinIds.add(p.id);   // the home screen's order
             pageValue.setText(pageText());
+            renderDelays();
         });
     }
 
@@ -309,6 +344,35 @@ public class WorkflowEditActivity extends Activity {
     /** One input for a field, added to {@code col}; returns what to read the answer with. */
     private Supplier fieldInput(LinearLayout col, StepTemplates.Field f) {
         switch (f.type) {
+            case CLOCK: {
+                final String[] picked = {f.def == null || f.def.isEmpty() ? "22:00" : f.def};
+                TextView value = Ui.text(this, picked[0] + "  \u203A", 17f, Ui.GREEN, "sans-serif-medium");
+                value.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 8));
+                value.setOnClickListener(v -> {
+                    int m = Math.max(0, WorkflowParser.clockMinutes(picked[0]));
+                    new TimePickerDialog(this, (view, h, mi) -> {
+                        picked[0] = String.format(java.util.Locale.US, "%02d:%02d", h, mi);
+                        value.setText(picked[0] + "  \u203A");
+                    }, m / 60, m % 60, android.text.format.DateFormat.is24HourFormat(this)).show();
+                });
+                col.addView(value);
+                return () -> picked[0];
+            }
+            case WORKFLOW: {
+                List<String> names = new ArrayList<>();
+                for (Workflow w : WorkflowStore.load(this)) if (!w.id.equals(wf.id) && !w.name.isEmpty()) names.add(w.name);
+                if (names.isEmpty()) names.add(f.def == null ? "" : f.def);
+                final String[] picked = {names.contains(f.def) ? f.def : names.get(0)};
+                TextView value = Ui.text(this, picked[0] + "  \u203A", 17f, Ui.GREEN, "sans-serif-medium");
+                value.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 8));
+                value.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle(f.label)
+                        .setItems(names.toArray(new String[0]), (dd, which) -> {
+                            picked[0] = names.get(which);
+                            value.setText(picked[0] + "  \u203A");
+                        }).show());
+                col.addView(value);
+                return () -> picked[0];
+            }
             case TIME:
                 return timeInput(col, Long.parseLong(f.def == null || f.def.isEmpty() ? "0" : f.def));
             case CHOICE: {

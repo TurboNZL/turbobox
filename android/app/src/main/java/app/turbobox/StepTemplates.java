@@ -13,7 +13,7 @@ final class StepTemplates {
     private StepTemplates() {
     }
 
-    enum FieldType { TIME, TEXT, TARGET, NUMBER, CHOICE }
+    enum FieldType { TIME, TEXT, TARGET, NUMBER, CHOICE, CLOCK, WORKFLOW }
 
     static final class Field {
         final FieldType type;
@@ -80,6 +80,11 @@ final class StepTemplates {
         ALL.add(new Template(wait, "Wait until something shows", "Carries on once the words appear on the page.", true,
                 v -> "waitfor " + v[0].trim(),
                 new Field(FieldType.TARGET, "What should show up?", TARGET_HINT, "Leave")));
+
+        ALL.add(new Template(wait, "Wait until a time", "Waits for that time of day (today, or tomorrow if it has passed).", false, v -> "wait until " + v[0].trim(),
+                new Field(FieldType.CLOCK, "At what time?", null, "22:00")));
+        ALL.add(new Template(wait, "Run another workflow", "Starts it and carries on; it runs by itself from there.", false, v -> "run " + v[0].trim(),
+                new Field(FieldType.WORKFLOW, "Which workflow?", null, "Other workflow")));
 
         String page = "On the page";
         ALL.add(new Template(page, "Click", "Click a button or link.", true, v -> "click " + v[0].trim(),
@@ -154,6 +159,8 @@ final class StepTemplates {
         switch (s.kind) {
             case OPEN: text = "Load the page again"; break;
             case WAIT: text = "Wait " + duration(s.seconds); break;
+            case WAIT_UNTIL: text = String.format(java.util.Locale.US, "Wait until %02d:%02d", s.number / 60, s.number % 60); break;
+            case RUN: text = "Run the workflow \"" + s.text + "\""; break;
             case WAITFOR: text = "Wait until " + quote(s.target) + " shows" + within; break;
             case CLICK: text = "Click " + quote(s.target) + within; break;
             case TYPE: text = "Type \"" + s.text + "\" into " + quote(s.target) + within; break;
@@ -215,6 +222,8 @@ final class StepTemplates {
         String target = s.target.startsWith("text:") ? s.target.substring(5) : s.target;
         switch (s.kind) {
             case WAIT: title = "Wait"; v = new String[]{String.valueOf(s.seconds)}; break;
+            case WAIT_UNTIL: title = "Wait until a time"; v = new String[]{String.format(java.util.Locale.US, "%02d:%02d", s.number / 60, s.number % 60)}; break;
+            case RUN: title = "Run another workflow"; v = new String[]{s.text}; break;
             case WAITFOR: title = "Wait until something shows"; v = new String[]{target}; break;
             case CLICK: title = "Click"; v = new String[]{target}; break;
             case TYPE: title = "Type into a field"; v = new String[]{target, s.text}; break;

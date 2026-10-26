@@ -150,6 +150,7 @@ final class WorkflowRunner {
         Session session;
         boolean ownsTemporary;   // this run borrowed an extra slot for its page
         boolean finished;
+        boolean started;   // the page's start delay has been waited out
         long waitUntil;
         int attemptToken;
 
@@ -178,6 +179,14 @@ final class WorkflowRunner {
 
         void begin() {
             if (finished) return;
+            long wait = wf.delayFor(pinId) * 1000;
+            if (wait > 0 && !started) {
+                started = true;
+                log("This page starts " + StepTemplates.duration(wait / 1000) + " after the workflow");
+                MAIN.postDelayed(this::begin, wait);
+                return;
+            }
+            started = true;
             if (pinId.isEmpty()) {
                 next();   // no page: the steps that need none
                 return;
@@ -332,6 +341,34 @@ final class WorkflowRunner {
                     }
                     next();
                     break;
+                case WAIT_UNTIL: {
+                    java.util.Calendar t = java.util.Calendar.getInstance();
+                    t.set(java.util.Calendar.HOUR_OF_DAY, s.number / 60);
+                    t.set(java.util.Calendar.MINUTE, s.number % 60);
+                    t.set(java.util.Calendar.SECOND, 0);
+                    t.set(java.util.Calendar.MILLISECOND, 0);
+                    if (t.getTimeInMillis() <= System.currentTimeMillis()) t.add(java.util.Calendar.DAY_OF_YEAR, 1);
+                    long ms = t.getTimeInMillis() - System.currentTimeMillis();
+                    log("  waiting " + StepTemplates.duration(ms / 1000) + " until " + String.format(Locale.US, "%02d:%02d", s.number / 60, s.number % 60));
+                    MAIN.postDelayed(this::next, ms);
+                    break;
+                }
+                case RUN: {
+                    Workflow other = null;
+                    for (Workflow w : WorkflowStore.load(app)) if (w.name.equalsIgnoreCase(s.text)) other = w;
+                    if (other == null) {
+                        finish(false, "step " + (index + 1) + ": there is no workflow named \"" + s.text + "\"");
+                        return;
+                    }
+                    if (other.id.equals(wf.id) || isRunning(other.id)) {
+                        log("  " + other.name + " is already running; not started again");
+                    } else {
+                        start(app, other.id, false);
+                        log("  started " + other.name);
+                    }
+                    next();
+                    break;
+                }
                 case MEDIA:
                     MediaKeys.press(app, s.text);
                     next();

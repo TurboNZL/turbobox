@@ -83,6 +83,8 @@ public class SessionActivity extends Activity implements Session.Listener {
     private IconButton ccButton;
     private IconButton awayButton;
     private TextView countdown;
+    private final java.util.Map<String, IconButton> barItems = new java.util.HashMap<>();
+    private LinearLayout barRow1, barRow2;
     private IconButton pauseButton;
     private android.widget.HorizontalScrollView hotkeyScroll;
     private LinearLayout hotkeyRow;
@@ -552,6 +554,7 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     @Override
     protected void onResume() {
+        if (barRow1 != null) arrangeBar();
         if (!isInPictureInPictureMode()) lockBoxes(false);   // the Home gesture locked the sizes in case the Mini window opened; it did not
         applyRotation();
         super.onResume();
@@ -833,52 +836,37 @@ public class SessionActivity extends Activity implements Session.Listener {
         tabRow.addView(splitButton, new LinearLayout.LayoutParams(Ui.dp(this, 48), ViewGroup.LayoutParams.WRAP_CONTENT));
         chromeBox.addView(tabRow, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // Row 1: the three things you do to a page while it runs: pause it, record it, or both at once (the old Step away);
-        // then captions and the microphone mute.
-        LinearLayout row1 = new LinearLayout(this);
-        row1.setGravity(Gravity.CENTER_VERTICAL);
-        row1.setPadding(side, Ui.dp(this, 6), side, 0);
+        // The bar's buttons. Which ones show, and in what order, is set in Settings > Top bar (BarItems).
+        int side2 = side;
         pauseButton = new IconButton(this, IconButton.Icon.PAUSE, "Pause: freeze the page and silence it on this phone");
         pauseButton.setOnClickListener(v -> pauseOrResume());
-        row1.addView(pauseButton, Ui.weight(this, 0));
+        barItems.put("pause", pauseButton);
         awayButton = new IconButton(this, IconButton.Icon.BOTH, "Pause and record: catch up on what you missed when you come back");
         awayButton.setOnClickListener(v -> stepAwayOrBack());
-        row1.addView(awayButton, Ui.weight(this, gap));
+        barItems.put("both", awayButton);
         recButton = new IconButton(this, IconButton.Icon.RECORD, "Record (hold for marks, playback and captions)");
         recButton.setOnClickListener(v -> toggleRecording());
         recButton.setOnLongClickListener(v -> {
             recordingMenu();
             return true;
         });
-        row1.addView(recButton, Ui.weight(this, gap));
+        barItems.put("record", recButton);
         ccButton = new IconButton(this, IconButton.Icon.CAPTIONS, "Live captions");
         ccButton.setOnClickListener(v -> toggleCaptions());
-        row1.addView(ccButton, Ui.weight(this, gap));
+        barItems.put("captions", ccButton);
         muteButton = new IconButton(this, IconButton.Icon.MIC, "Mute or unmute your microphone");
         muteButton.setOnClickListener(v -> {
             Session s = front();
             if (s != null) s.setMuted(!s.isMuted());
         });
-        row1.addView(muteButton, Ui.weight(this, gap));
-        chromeBox.addView(row1, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        // Row 2: the timer and its countdown, then layout, Mini window, lock, hide the bar, settings and close.
-        LinearLayout row3 = new LinearLayout(this);
-        row3.setGravity(Gravity.CENTER_VERTICAL);
-        row3.setPadding(side, Ui.dp(this, 6), side, Ui.dp(this, 4));
+        barItems.put("mute", muteButton);
         IconButton timer = new IconButton(this, IconButton.Icon.TIMER, "Timer: hang up after a while or at a time");
         timer.setOnClickListener(v -> showTimerDialog());
-        row3.addView(timer, new LinearLayout.LayoutParams(Ui.dp(this, 48), ViewGroup.LayoutParams.WRAP_CONTENT));
-        countdown = Ui.text(this, "", 13f, Ui.DIM, "sans-serif-medium");
-        countdown.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        cp.leftMargin = Ui.dp(this, 8);
-        row3.addView(countdown, cp);
-        int iw = Ui.dp(this, 46);
+        barItems.put("timer", timer);
         if (canPip()) {
             IconButton pip = new IconButton(this, IconButton.Icon.MINI, "Mini window");
             pip.setOnClickListener(v -> enterPip());
-            row3.addView(pip, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
+            barItems.put("mini", pip);
         }
         layoutButton = new IconButton(this, IconButton.Icon.LAYOUT, "Arrange the pages (hold for more)");
         layoutButton.setOnClickListener(v -> {
@@ -888,26 +876,41 @@ public class SessionActivity extends Activity implements Session.Listener {
             layoutMenu();
             return true;
         });
-        row3.addView(layoutButton, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
+        barItems.put("layout", layoutButton);
         IconButton lock = new IconButton(this, IconButton.Icon.LOCK, "Lock this page against touches");
         lock.setOnClickListener(v -> startPocketLock());
-        row3.addView(lock, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
+        barItems.put("lock", lock);
+        IconButton rotate = new IconButton(this, IconButton.Icon.ROTATE, "Force rotation: other way, then held, then normal");
+        rotate.setOnClickListener(v -> forceRotation());
+        barItems.put("rotate", rotate);
         IconButton vol = new IconButton(this, IconButton.Icon.SPEAKER, "Volumes");
         vol.setOnClickListener(v -> VolumeSheet.show(this));
-        row3.addView(vol, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
+        barItems.put("volume", vol);
         IconButton hide = new IconButton(this, IconButton.Icon.HIDE, "Hide this bar");
         hide.setOnClickListener(v -> {
             Prefs.setBarHidden(this, true);
             applyBarMode();
         });
-        row3.addView(hide, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
+        barItems.put("hide", hide);
         IconButton settings = new IconButton(this, IconButton.Icon.GEAR, "This page's settings");
         settings.setOnClickListener(v -> showSettings());
-        row3.addView(settings, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
+        barItems.put("settings", settings);
         IconButton close = new IconButton(this, IconButton.Icon.CLOSE, "Close this page");
         close.setOnClickListener(v -> confirmClose());
-        row3.addView(close, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
-        chromeBox.addView(row3, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
+        barItems.put("close", close);
+        barRow1 = new LinearLayout(this);
+        barRow1.setGravity(Gravity.CENTER_VERTICAL);
+        barRow1.setPadding(side2, Ui.dp(this, 6), side2, 0);
+        barRow2 = new LinearLayout(this);
+        barRow2.setGravity(Gravity.CENTER_VERTICAL);
+        barRow2.setPadding(side2, Ui.dp(this, 6), side2, Ui.dp(this, 4));
+        chromeBox.addView(barRow1, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
+        chromeBox.addView(barRow2, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
+        countdown = Ui.text(this, "", 13f, Ui.DIM, "sans-serif-medium");
+        countdown.setGravity(Gravity.CENTER);
+        countdown.setVisibility(View.GONE);
+        chromeBox.addView(countdown, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
+        arrangeBar();
 
         // Workflows marked as a hotkey: one tap runs them, no questions asked.
         hotkeyScroll = new android.widget.HorizontalScrollView(this);
@@ -955,10 +958,25 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     /** Rotation of this screen: with the phone's setting, always with the sensor, or portrait only (Settings). */
     private void applyRotation() {
+        int force = Prefs.forceRotate(this);
+        if (force != 0) {
+            boolean basePortrait = Prefs.forceBase(this) == 1;
+            boolean portrait = force == 1 ? !basePortrait : basePortrait;   // 1: the other way, 2: held as it was
+            setRequestedOrientation(portrait ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                    : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+            return;
+        }
         int mode = Prefs.rotation(this);
         setRequestedOrientation(mode == 1 ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
                 : mode == 2 ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
                 : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+    }
+
+    /** The bar's rotate button: current -> other -> current but forced -> current. */
+    private void forceRotation() {
+        int state = Prefs.cycleForce(this, isLandscape());
+        applyRotation();
+        Toast.makeText(this, state == 1 ? "Turned the other way" : state == 2 ? "Held as it was" : "Back to normal rotation", Toast.LENGTH_SHORT).show();
     }
 
     /**
@@ -1234,6 +1252,23 @@ public class SessionActivity extends Activity implements Session.Listener {
         float[] r = new float[gridPages.size()];
         for (int i = 0; i < r.length; i++) r[i] = shapeOf(gridPages.get(i));
         grid.setRatios(r, Prefs.reclaimEmpty(this));
+    }
+
+    /** Puts the bar's buttons in the order set in Settings > Top bar, hiding the ones switched off; seven to a row. */
+    private void arrangeBar() {
+        barRow1.removeAllViews();
+        barRow2.removeAllViews();
+        int n = 0;
+        for (String id : BarItems.visibleOrder(this)) {
+            IconButton b = barItems.get(id);
+            if (b == null) continue;
+            if (b.getParent() instanceof ViewGroup) ((ViewGroup) b.getParent()).removeView(b);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            p.leftMargin = Ui.dp(this, n % 7 == 0 ? 0 : 5);
+            (n < 7 ? barRow1 : barRow2).addView(b, p);
+            n++;
+        }
+        barRow2.setVisibility(n > 7 ? View.VISIBLE : View.GONE);
     }
 
     private void updateHotkeys() {
@@ -1734,9 +1769,11 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (s.slot != focus) return;
         if (remainingMs < 0) {
             countdown.setText("");
+            countdown.setVisibility(View.GONE);
             return;
         }
         long sec = (remainingMs + 999) / 1000;
+        countdown.setVisibility(View.VISIBLE);
         countdown.setText(sec >= 3600
                 ? String.format(Locale.US, "Closes in %d:%02d:%02d", sec / 3600, sec % 3600 / 60, sec % 60)
                 : String.format(Locale.US, "Closes in %d:%02d", sec / 60, sec % 60));

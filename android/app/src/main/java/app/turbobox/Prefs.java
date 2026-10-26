@@ -92,6 +92,17 @@ final class Prefs {
     /** Rotation of the page screen: 0 follow the phone's rotation lock, 1 rotate with the sensor whatever the lock says, 2 portrait only. */
     static int rotation(Context c) { return ps(c).getInt("rotation", 0); }
     static void setRotation(Context c, int v) { ps(c).edit().putInt("rotation", v).apply(); }
+    /** A forced turn of the page screen: 0 none, 1 the other way from when it was pressed, 2 held the way it was. {@link #forceBase}: 1 portrait, 2 landscape. */
+    static int forceRotate(Context c) { return ps(c).getInt("forceRotate", 0); }
+    static int forceBase(Context c) { return ps(c).getInt("forceBase", 1); }
+    /** current -> other -> current but forced -> current. Returns the new state. */
+    static int cycleForce(Context c, boolean landscapeNow) {
+        int next = (forceRotate(c) + 1) % 3;
+        SharedPreferences.Editor e = ps(c).edit().putInt("forceRotate", next);
+        if (next == 1) e.putInt("forceBase", landscapeNow ? 2 : 1);   // remembered so "the other way" and "held" mean what they said when pressed
+        e.apply();
+        return next;
+    }
     static String splitLayout(Context c, String key) { return ps(c).getString("split_" + key, null); }
     static void setSplitLayout(Context c, String key, String v) { ps(c).edit().putString("split_" + key, v).apply(); }
     static void clearSplitLayouts(Context c) {
