@@ -90,6 +90,7 @@ final class OffscreenHost {
                 view.getLayoutParams().height = h;
                 view.requestLayout();
             }
+            fillDisplay();
             if (old != null) old.close();
         } catch (RuntimeException ignored) {
             // The display is going away.
@@ -132,6 +133,26 @@ final class OffscreenHost {
         }
     }
 
+    /**
+     * A Presentation is a dialog, and a dialog's window is sized in dp by its theme: on a display with a low density that is far
+     * fewer pixels than the display has, so the page used to be drawn into a corner of it (small and low resolution). The window is
+     * made exactly as big as the display, in pixels, with no frame or margin.
+     */
+    private void fillDisplay() {
+        android.view.Window w = presentation == null ? null : presentation.getWindow();
+        if (w == null) return;
+        w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK));
+        w.setLayout(width, height);
+        w.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
+        w.addFlags(android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN);
+        android.view.WindowManager.LayoutParams lp = w.getAttributes();
+        lp.x = 0;
+        lp.y = 0;
+        lp.width = width;
+        lp.height = height;
+        w.setAttributes(lp);
+    }
+
     /** Hands a touch (already in this display's pixels) to the page. */
     boolean touch(android.view.MotionEvent e) {
         return view.dispatchTouchEvent(e);
@@ -157,7 +178,9 @@ final class OffscreenHost {
             }
             root.addView(view, new FrameLayout.LayoutParams(width, height));
             presentation.setContentView(root);
+            fillDisplay();
             presentation.show();
+            fillDisplay();
             return true;
         } catch (RuntimeException e) {
             error = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();

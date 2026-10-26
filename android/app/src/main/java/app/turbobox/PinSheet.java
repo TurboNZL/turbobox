@@ -57,6 +57,15 @@ final class PinSheet {
             Session s = Sessions.forPin(pin.id);
             if (s != null) s.setPageWidth(px);
         }, v -> Math.max(480, Math.round(v * 100f) * 10) + " px"), Ui.lp(act, 0, 0));
+        android.widget.TextView reset = Ui.pill(act, "Reset page size (1280 px)", 0);
+        reset.setOnClickListener(v -> {
+            change(act, pin, p -> p.pageWidth = 1280);
+            Session s = Sessions.forPin(pin.id);
+            if (s != null) s.setPageWidth(1280);
+            close.run();
+            Toast.makeText(act, "Page size reset to 1280 px.", Toast.LENGTH_SHORT).show();
+        });
+        look.addView(reset, Ui.lp(act, 6, 0));
         look.addView(Ui.hint(act, "How wide the page lays itself out, like a screen of that many pixels: smaller is bigger text, larger fits more. "
                 + "Nothing extra is drawn."), Ui.lp(act, 0, 8));
         String[] shortAspects = {"Fill", "16:9", "4:3", "21:9", "1:1", "9:16", "3:2"};
