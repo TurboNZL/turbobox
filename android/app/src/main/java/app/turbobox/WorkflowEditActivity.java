@@ -102,7 +102,7 @@ public class WorkflowEditActivity extends Activity {
         pageValue.setOnClickListener(v -> choosePage());
         body.addView(pageValue, Ui.lp(this, 0, 8));
 
-        timed = new Switch(this);
+        timed = Ui.toggle(this);
         timed.setText("Start by itself at a set time");
         timed.setTextColor(Ui.TEXT);
         timed.setChecked(wf.timed);
@@ -269,7 +269,7 @@ public class WorkflowEditActivity extends Activity {
         Switch optional = null;
         Supplier within = null;
         if (t.pageStep) {
-            optional = new Switch(this);
+            optional = Ui.toggle(this);
             optional.setText("Fine to skip if it is not there");
             optional.setTextColor(Ui.TEXT);
             col.addView(optional, Ui.lp(this, 14, 0));

@@ -388,14 +388,14 @@ public class MainActivity extends Activity {
         url.setHint("Address (example.com/page)");
         url.setSingleLine(true);
         url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-        android.widget.Switch incognito = new android.widget.Switch(this);
+        android.widget.Switch incognito = Ui.toggle(this);
         incognito.setText("Incognito (own cookies, apart from your pinned pages)");
         incognito.setChecked(true);
-        android.widget.Switch wipe = new android.widget.Switch(this);
+        android.widget.Switch wipe = Ui.toggle(this);
         wipe.setText("Delete them when the page closes");
         wipe.setChecked(true);
         incognito.setOnCheckedChangeListener((b, on) -> wipe.setEnabled(on));
-        android.widget.Switch mobile = new android.widget.Switch(this);
+        android.widget.Switch mobile = Ui.toggle(this);
         mobile.setText("Mobile site");
         form.addView(url);
         form.addView(incognito, Ui.lp(this, 12, 0));

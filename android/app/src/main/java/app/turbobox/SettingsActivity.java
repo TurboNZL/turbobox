@@ -59,7 +59,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         body.removeAllViews();
         // Standby
         LinearLayout standby = Ui.card(this);
-        Switch sw = new Switch(this);
+        Switch sw = Ui.toggle(this);
         sw.setText("Standby");
         sw.setTextColor(Ui.TEXT);
         sw.setTextSize(17f);
@@ -117,7 +117,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         // The session screen
         LinearLayout screen = Ui.card(this);
         screen.addView(Ui.text(this, "Pages on screen", 17f, Ui.TEXT, "sans-serif-medium"));
-        Switch keep = new Switch(this);
+        Switch keep = Ui.toggle(this);
         keep.setText("Keep video playing with the screen off");
         keep.setTextColor(Ui.TEXT);
         keep.setChecked(Prefs.keepPlaying(this));
@@ -138,7 +138,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         buffer.addView(Ui.text(this, "Recording buffer", 17f, Ui.TEXT, "sans-serif-medium"));
         buffer.addView(Ui.hint(this, "What a page shows and plays is kept in short pieces in this phone's cache so you can watch what "
                 + "you missed."), Ui.lp(this, 4, 8));
-        Switch auto = new Switch(this);
+        Switch auto = Ui.toggle(this);
         auto.setText("Record every page when it opens");
         auto.setTextColor(Ui.TEXT);
         auto.setChecked(Prefs.recordByDefault(this));
@@ -176,7 +176,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         tr.addView(Ui.hint(this, "Turns what the page says into text while it records, and saves it as a WebVTT subtitle file next to the "
                 + "recording (Recordings > Share captions). It uses Android's speech recognition and needs Android 13 or newer. "
                 + "Times are approximate, and a recognizer that beeps when it starts may beep."), Ui.lp(this, 4, 8));
-        Switch next = new Switch(this);
+        Switch next = Ui.toggle(this);
         next.setText("Transcribe the next recording");
         next.setTextColor(Ui.TEXT);
         next.setChecked(Prefs.transcribeNext(this));

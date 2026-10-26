@@ -27,7 +27,7 @@ final class PinSheet {
         Session running = Sessions.forPin(pin.id);
         col.addView(Ui.hint(act, running == null ? "Used the next time this page opens." : "This page is running: changes apply now."), Ui.lp(act, 0, 10));
 
-        Switch mic = new Switch(act);
+        Switch mic = Ui.toggle(act);
         mic.setText("Page may use the microphone");
         mic.setTextColor(Ui.TEXT);
         mic.setChecked(pin.allowMic);
@@ -37,7 +37,7 @@ final class PinSheet {
             if (s != null) s.setMicAllowed(on);
         });
         col.addView(mic, Ui.lp(act, 4, 4));
-        Switch cam = new Switch(act);
+        Switch cam = Ui.toggle(act);
         cam.setText("Page may use the camera");
         cam.setTextColor(Ui.TEXT);
         cam.setChecked(pin.allowCamera);
@@ -47,7 +47,7 @@ final class PinSheet {
             if (s != null) s.setCameraAllowed(on);
         });
         col.addView(cam, Ui.lp(act, 4, 4));
-        Switch mobile = new Switch(act);
+        Switch mobile = Ui.toggle(act);
         mobile.setText("Mobile site (instead of desktop)");
         mobile.setTextColor(Ui.TEXT);
         mobile.setChecked(pin.mobile);
@@ -81,6 +81,12 @@ final class PinSheet {
             Session s = Sessions.forPin(pin.id);
             if (s != null) s.setZoom(z);
         }), new LinearLayout.LayoutParams(-1, -2));
+
+        addSizeControl(act, col, pin.pageWidth, px -> {
+            change(act, pin, p -> p.pageWidth = px);
+            Session s = Sessions.forPin(pin.id);
+            if (s != null) s.setPageWidth(px);
+        });
 
         TextView aspect = Ui.text(act, Pin.ASPECT_LABELS[pin.aspect] + "  ›", 17f, Ui.GREEN, "sans-serif-medium");
         aspect.setPadding(0, Ui.dp(act, 8), 0, Ui.dp(act, 8));
@@ -120,8 +126,27 @@ final class PinSheet {
 
         TextView done = Ui.pill(act, "Done", Ui.GREEN);
         done.setOnClickListener(v -> d.dismiss());
+        Switch confirm = Ui.toggle(act);
+        confirm.setText("Ask before closing this page");
+        confirm.setChecked(pin.confirmClose);
+        confirm.setOnCheckedChangeListener((b, on) -> change(act, pin, p -> p.confirmClose = on));
+        col.addView(confirm, Ui.lp(act, 12, 4));
         col.addView(done, Ui.lp(act, 14, 0));
         d.show();
+    }
+
+    /** The page size: the width of the virtual screen the page believes it has. Separate from zoom, which works inside it. */
+    static void addSizeControl(Activity act, LinearLayout col, int current, java.util.function.IntConsumer onChange) {
+        TextView value = Ui.text(act, current + " px", 22f, Ui.TEXT, "sans-serif");
+        col.addView(Ui.label(act, "Page size (what the page thinks the screen is)"), Ui.lp(act, 12, 0));
+        col.addView(value, Ui.lp(act, 2, 2));
+        col.addView(Ui.slider(act, 3.84f, current / 1000f, (v, fromUser) -> {
+            int px = Math.max(480, Math.round(v * 100f) * 10);
+            value.setText(px + " px");
+            if (fromUser) onChange.accept(px);
+        }), new LinearLayout.LayoutParams(-1, -2));
+        col.addView(Ui.hint(act, "A wider screen lays the page out the way a big monitor would, in the same pixels as the phone draws. "
+                + "Zoom below works inside it."), Ui.lp(act, 0, 4));
     }
 
     /**
@@ -145,7 +170,7 @@ final class PinSheet {
     static void addMiniControls(Activity act, LinearLayout col, float zoomMini, float zoomNormal, int aspectMini,
                                 java.util.function.Consumer<Float> onZoom, java.util.function.IntConsumer onAspect) {
         col.addView(Ui.label(act, "In the Mini window"), Ui.lp(act, 14, 0));
-        android.widget.Switch own = new android.widget.Switch(act);
+        android.widget.Switch own = Ui.toggle(act);
         own.setText("Its own page zoom");
         own.setTextColor(Ui.TEXT);
         own.setChecked(zoomMini > 0);

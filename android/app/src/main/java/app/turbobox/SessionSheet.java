@@ -110,13 +110,13 @@ final class SessionSheet implements Session.Listener {
 
         // Privacy: what this page may use
         col.addView(Ui.label(act, "Privacy - this page may use"));
-        Switch micSwitch = new Switch(act);
+        Switch micSwitch = Ui.toggle(act);
         micSwitch.setText("Microphone");
         micSwitch.setTextColor(Ui.TEXT);
         micSwitch.setChecked(session.micAllowed());
         micSwitch.setOnCheckedChangeListener((b, on) -> session.setMicAllowed(on));
         col.addView(micSwitch, Ui.lp(act, 8, 4));
-        Switch camSwitch = new Switch(act);
+        Switch camSwitch = Ui.toggle(act);
         camSwitch.setText("Camera");
         camSwitch.setTextColor(Ui.TEXT);
         camSwitch.setChecked(session.cameraAllowed());
@@ -155,7 +155,7 @@ final class SessionSheet implements Session.Listener {
         micValue.setClickable(true);
         micValue.setOnClickListener(v -> chooseMic());
         col.addView(micValue, Ui.lp(act, 0, 4));
-        Switch aec = new Switch(act);
+        Switch aec = Ui.toggle(act);
         aec.setText("Echo cancellation & noise suppression");
         aec.setTextColor(Ui.DIM);
         aec.setChecked(Prefs.aec(act));
@@ -229,7 +229,7 @@ final class SessionSheet implements Session.Listener {
         // Page zoom: lays the page out again at a different width, like browser zoom (not a magnifier)
         float zoom = Math.max(0.5f, session.zoom());
         TextView zoomValue = Ui.text(act, Ui.pct(zoom), 30f, Ui.TEXT, "sans-serif");
-        col.addView(Ui.label(act, "Page zoom"));
+        col.addView(Ui.label(act, "Page zoom (inside the page size)"));
         col.addView(zoomValue, Ui.lp(act, 4, 2));
         col.addView(Ui.slider(act, 3f, zoom, (value, fromUser) -> {
             float z = Math.max(0.5f, value);
@@ -246,6 +246,12 @@ final class SessionSheet implements Session.Listener {
         }), new LinearLayout.LayoutParams(-1, -2));
         col.addView(Ui.hint(act, "Makes the whole page bigger or smaller by changing the width it is laid out at, like "
                 + "browser zoom. Pinch still magnifies. Kept with the pinned page."), Ui.lp(act, 0, 14));
+
+        PinSheet.addSizeControl(act, col, session.pageWidth(), px -> {
+            if (zoomApply != null) ui.removeCallbacks(zoomApply);
+            zoomApply = () -> session.setPageWidth(px);
+            ui.postDelayed(zoomApply, 250);
+        });
 
         // Forced shape: the page's area is fitted into a box of this shape (bars around it) instead of filling the space
         TextView aspectValue = Ui.text(act, Pin.ASPECT_LABELS[session.aspect()] + "  ›", 17f, Ui.GREEN, "sans-serif-medium");
@@ -265,7 +271,7 @@ final class SessionSheet implements Session.Listener {
                 z -> session.setZoomMini(z), a -> session.setAspectMini(a));
 
         // Desktop sites are the default; this page can ask for the phone layout instead
-        Switch mobileSwitch = new Switch(act);
+        Switch mobileSwitch = Ui.toggle(act);
         mobileSwitch.setText("Mobile site");
         mobileSwitch.setTextColor(Ui.TEXT);
         mobileSwitch.setChecked(session.isMobile());

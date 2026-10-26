@@ -30,6 +30,16 @@ final class Ui {
     private Ui() {
     }
 
+    /** A switch that can be seen on the dark background: lime when on, a light grey track when off. */
+    static android.widget.Switch toggle(Context c) {
+        android.widget.Switch sw = new android.widget.Switch(c);
+        int[][] states = {{android.R.attr.state_checked}, {}};
+        sw.setTrackTintList(new ColorStateList(states, new int[]{withAlpha(GREEN, 0.55f), 0xFF6A6A78}));
+        sw.setThumbTintList(new ColorStateList(states, new int[]{GREEN, 0xFFD6D6DE}));
+        sw.setTextColor(TEXT);
+        return sw;
+    }
+
     static int dp(Context c, float v) {
         return Math.round(v * c.getResources().getDisplayMetrics().density);
     }

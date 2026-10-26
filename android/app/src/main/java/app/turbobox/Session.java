@@ -111,6 +111,7 @@ final class Session {
     private float volume = 1f;        // 0..2, applied to the page's audio inside the page
     private String micKey = "";       // "" = the page's own capture; otherwise an input device, captured natively
     private boolean aec = true;
+    private int pageWidth = 1280;    // the virtual screen width the page believes it has
     private float zoom = 1f;          // 0.5..3: the page's layout width is 1280 / zoom
     private float micGain = 1f;       // 0..3: gain on what the other person hears
     private final VirtualMic vmic = new VirtualMic();
@@ -587,6 +588,20 @@ final class Session {
         js(String.format(Locale.US, "__turbobox.setVolume(%.3f)", volume));
     }
 
+    int pageWidth() {
+        return pageWidth;
+    }
+
+    /** The virtual screen width (CSS pixels) the page believes it has; separate from zoom, which works inside it. */
+    void setPageWidth(int px) {
+        pageWidth = Math.max(480, Math.min(3840, px));
+        if (pin != null) {
+            pin.pageWidth = pageWidth;
+            PinStore.put(app, pin);
+        }
+        js("__turbobox.setPageWidth(" + pageWidth + ")");
+    }
+
     /** Page zoom, 0.5..3: lays the page out again at 1280 / zoom CSS pixels wide (not a magnifier). */
     void setZoom(float value) {
         zoom = Math.max(0.5f, Math.min(3f, value));
@@ -771,6 +786,7 @@ final class Session {
         aec = Prefs.aec(app);
         micGain = Prefs.micGain(app);
         zoom = page.zoom;
+        pageWidth = page.pageWidth;
         aspect = page.aspect;
         zoomMini = page.zoomMini;
         aspectMini = page.aspectMini;
@@ -1190,7 +1206,7 @@ final class Session {
     private String pageScript() {
         try {
             JSONObject settings = new JSONObject()
-                    .put("muted", silenced()).put("volume", volume).put("aec", aec).put("zoom", effectiveZoom())
+                    .put("muted", silenced()).put("volume", volume).put("aec", aec).put("pageWidth", pageWidth).put("zoom", effectiveZoom())
                     .put("micGain", micGain).put("micLabel", micLabel())
                     .put("tap", isRecording()).put("micAllowed", micAllowed).put("cameraAllowed", cameraAllowed).put("localMute", frozen)
                     .put("keepVisible", Prefs.keepPlaying(app)).put("desktop", !mobile);

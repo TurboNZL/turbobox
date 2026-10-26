@@ -77,12 +77,13 @@ public class SessionActivity extends Activity implements Session.Listener {
     private PopupWindow floatButton;
     private boolean pipReceiverOn;
     private LinearLayout paneHolder;
-    private TextView splitButton;
-    private TextView muteButton;
-    private TextView recButton;
-    private TextView ccButton;
-    private TextView awayButton;
+    private IconButton splitButton;
+    private IconButton muteButton;
+    private IconButton recButton;
+    private IconButton ccButton;
+    private IconButton awayButton;
     private TextView countdown;
+    private IconButton pauseButton;
     private LevelMeterView strip;
     private View dim;
     private int focus;
@@ -101,7 +102,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     private LinearLayout editBar;
     private TextView editTitle;
     private TextView editShape;
-    private TextView layoutButton;
+    private IconButton layoutButton;
     private MiniLayoutEditor overlay;
     private FractionLayout editStack;
     private float paneAspect;   // width / height of the pages' area on screen when not in the Mini window
@@ -775,85 +776,80 @@ public class SessionActivity extends Activity implements Session.Listener {
             tabs[i] = t;
             tabRow.addView(t, Ui.weight(this, i == 0 ? 0 : gap));
         }
-        splitButton = Ui.pill(this, "Split", 0);
+        splitButton = new IconButton(this, IconButton.Icon.SPLIT, "Show several pages at once");
         splitButton.setOnClickListener(v -> toggleSplit());
-        tabRow.addView(splitButton, Ui.weight(this, gap));
+        tabRow.addView(splitButton, new LinearLayout.LayoutParams(Ui.dp(this, 48), ViewGroup.LayoutParams.WRAP_CONTENT));
         chromeBox.addView(tabRow, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // Close, Mute, Timer, Settings
+        // Row 1: the three things you do to a page while it runs: pause it, record it, or both at once (the old Step away);
+        // then captions and the microphone mute.
         LinearLayout row1 = new LinearLayout(this);
         row1.setGravity(Gravity.CENTER_VERTICAL);
         row1.setPadding(side, Ui.dp(this, 6), side, 0);
-        TextView close = Ui.pill(this, "Close", Ui.RED);
-        close.setOnClickListener(v -> confirmClose());
-        row1.addView(close, Ui.weight(this, 0));
-        muteButton = Ui.pill(this, "Mute", 0);
+        pauseButton = new IconButton(this, IconButton.Icon.PAUSE, "Pause: freeze the page and silence it on this phone");
+        pauseButton.setOnClickListener(v -> pauseOrResume());
+        row1.addView(pauseButton, Ui.weight(this, 0));
+        awayButton = new IconButton(this, IconButton.Icon.BOTH, "Pause and record: catch up on what you missed when you come back");
+        awayButton.setOnClickListener(v -> stepAwayOrBack());
+        row1.addView(awayButton, Ui.weight(this, gap));
+        recButton = new IconButton(this, IconButton.Icon.RECORD, "Record (hold for marks, playback and captions)");
+        recButton.setOnClickListener(v -> toggleRecording());
+        recButton.setOnLongClickListener(v -> {
+            recordingMenu();
+            return true;
+        });
+        row1.addView(recButton, Ui.weight(this, gap));
+        ccButton = new IconButton(this, IconButton.Icon.CAPTIONS, "Live captions");
+        ccButton.setOnClickListener(v -> toggleCaptions());
+        row1.addView(ccButton, Ui.weight(this, gap));
+        muteButton = new IconButton(this, IconButton.Icon.MIC, "Mute or unmute your microphone");
         muteButton.setOnClickListener(v -> {
             Session s = front();
             if (s != null) s.setMuted(!s.isMuted());
         });
         row1.addView(muteButton, Ui.weight(this, gap));
-        TextView timer = Ui.pill(this, "Timer", 0);
-        timer.setOnClickListener(v -> showTimerDialog());
-        row1.addView(timer, Ui.weight(this, gap));
-        TextView settings = Ui.pill(this, "Settings", 0);
-        settings.setOnClickListener(v -> showSettings());
-        row1.addView(settings, Ui.weight(this, gap));
         chromeBox.addView(row1, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // Step away / Back, Rec, CC
-        LinearLayout row2 = new LinearLayout(this);
-        row2.setGravity(Gravity.CENTER_VERTICAL);
-        row2.setPadding(side, Ui.dp(this, 6), side, 0);
-        awayButton = Ui.pill(this, "Step away", Ui.GREEN);
-        awayButton.setOnClickListener(v -> stepAwayOrBack());
-        row2.addView(awayButton, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 2f));
-        recButton = Ui.pill(this, "Rec", 0);
-        recButton.setOnClickListener(v -> recordingMenu());
-        row2.addView(recButton, Ui.weight(this, gap));
-        ccButton = Ui.pill(this, "CC", 0);
-        ccButton.setOnClickListener(v -> toggleCaptions());
-        row2.addView(ccButton, Ui.weight(this, gap));
-        chromeBox.addView(row2, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        // The countdown, with Mini (picture in picture) and Lock (pocket protection) beside it
+        // Row 2: the timer and its countdown, then layout, Mini window, lock, hide the bar, settings and close.
         LinearLayout row3 = new LinearLayout(this);
         row3.setGravity(Gravity.CENTER_VERTICAL);
         row3.setPadding(side, Ui.dp(this, 6), side, Ui.dp(this, 4));
-        countdown = Ui.text(this, "No timer", 13f, Ui.DIM, "sans-serif-medium");
+        IconButton timer = new IconButton(this, IconButton.Icon.TIMER, "Timer: hang up after a while or at a time");
+        timer.setOnClickListener(v -> showTimerDialog());
+        row3.addView(timer, new LinearLayout.LayoutParams(Ui.dp(this, 48), ViewGroup.LayoutParams.WRAP_CONTENT));
+        countdown = Ui.text(this, "", 13f, Ui.DIM, "sans-serif-medium");
         countdown.setGravity(Gravity.CENTER_VERTICAL);
-        row3.addView(countdown, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        cp.leftMargin = Ui.dp(this, 8);
+        row3.addView(countdown, cp);
+        int iw = Ui.dp(this, 46);
         if (canPip()) {
-            TextView pip = Ui.pill(this, "Mini", 0);
-            pip.setPadding(Ui.dp(this, 14), Ui.dp(this, 7), Ui.dp(this, 14), Ui.dp(this, 7));
+            IconButton pip = new IconButton(this, IconButton.Icon.MINI, "Mini window (hold to choose its layout)");
             pip.setOnClickListener(v -> enterPip());
             pip.setOnLongClickListener(v -> {
                 choosePipLayout();
                 return true;
             });
-            row3.addView(pip);
+            row3.addView(pip, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
-        layoutButton = Ui.pill(this, "Layout", 0);
-        layoutButton.setPadding(Ui.dp(this, 14), Ui.dp(this, 7), Ui.dp(this, 14), Ui.dp(this, 7));
+        layoutButton = new IconButton(this, IconButton.Icon.LAYOUT, "Arrange the pages");
         layoutButton.setOnClickListener(v -> layoutMenu());
-        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        layoutParams.leftMargin = Ui.dp(this, gap);
-        row3.addView(layoutButton, layoutParams);
-        TextView hide = Ui.pill(this, "Hide bar", 0);
-        hide.setPadding(Ui.dp(this, 14), Ui.dp(this, 7), Ui.dp(this, 14), Ui.dp(this, 7));
+        row3.addView(layoutButton, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
+        IconButton lock = new IconButton(this, IconButton.Icon.LOCK, "Lock this page against touches");
+        lock.setOnClickListener(v -> startPocketLock());
+        row3.addView(lock, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
+        IconButton hide = new IconButton(this, IconButton.Icon.HIDE, "Hide this bar");
         hide.setOnClickListener(v -> {
             Prefs.setBarHidden(this, true);
             applyBarMode();
         });
-        LinearLayout.LayoutParams hideParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        hideParams.leftMargin = Ui.dp(this, gap);
-        row3.addView(hide, hideParams);
-        TextView lock = Ui.pill(this, "Lock", 0);
-        lock.setPadding(Ui.dp(this, 14), Ui.dp(this, 7), Ui.dp(this, 14), Ui.dp(this, 7));
-        lock.setOnClickListener(v -> startPocketLock());
-        LinearLayout.LayoutParams lockParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lockParams.leftMargin = Ui.dp(this, gap);
-        row3.addView(lock, lockParams);
+        row3.addView(hide, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
+        IconButton settings = new IconButton(this, IconButton.Icon.GEAR, "This page's settings");
+        settings.setOnClickListener(v -> showSettings());
+        row3.addView(settings, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
+        IconButton close = new IconButton(this, IconButton.Icon.CLOSE, "Close this page");
+        close.setOnClickListener(v -> confirmClose());
+        row3.addView(close, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
         chromeBox.addView(row3, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
 
         strip = new LevelMeterView(this);
@@ -1117,14 +1113,19 @@ public class SessionActivity extends Activity implements Session.Listener {
         updateEditBar();
         Ui.tint(this, splitButton, split ? Ui.GREEN : 0);
         if (f == null) return;
-        muteButton.setText(f.isMuted() ? "Unmute" : "Mute");
+        muteButton.setIcon(f.isMuted() ? IconButton.Icon.MIC_OFF : IconButton.Icon.MIC);
         Ui.tint(this, muteButton, f.isMuted() ? Ui.RED : 0); // red while muted, so the state is obvious at a glance
         onTimer(f, f.getRemainingMs());
-        recButton.setText(f.isRecording() ? (f.isTranscribing() ? "● Rec CC" : "● Rec") : "Rec");
+        recButton.setIcon(f.isRecording() ? IconButton.Icon.STOP : IconButton.Icon.RECORD);
         Ui.tint(this, recButton, f.isRecording() ? Ui.RED : 0);
-        ccButton.setText(f.isTranscribing() ? "CC on" : "CC");
         Ui.tint(this, ccButton, f.isTranscribing() ? Ui.GREEN : 0);
-        awayButton.setText(f.awayAtWall != 0 ? "Back - play what I missed" : "Step away");
+        boolean away = f.awayAtWall != 0;
+        boolean paused = f.isFrozen();
+        pauseButton.setIcon(paused && !away ? IconButton.Icon.PLAY : IconButton.Icon.PAUSE);
+        Ui.tint(this, pauseButton, paused && !away ? Ui.AMBER : 0);
+        awayButton.setIcon(away ? IconButton.Icon.PLAY : IconButton.Icon.BOTH);
+        Ui.tint(this, awayButton, away ? Ui.GREEN : 0);
+        awayButton.setContentDescription(away ? "Back: play what you missed" : "Pause and record: catch up on what you missed when you come back");
     }
 
     // ---- the options bar, retracted into a button ---------------------------------------------
@@ -1300,10 +1301,14 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     // ---- actions -----------------------------------------------------------------------------
 
-    /** Closing is one tap away from a page that may be in use, so ask first. */
+    /** Closes at once, unless this page is set to ask first (page settings > Ask before closing). */
     private void confirmClose() {
         Session s = front();
         if (s == null) return;
+        if (s.pin() == null || !s.pin().confirmClose) {
+            s.close("you closed the page");
+            return;
+        }
         new AlertDialog.Builder(this)
                 .setTitle("Close " + s.title() + "?")
                 .setPositiveButton("Close page", (d, w) -> s.close("you closed the page"))
@@ -1327,7 +1332,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (s == null) return;
         if (s.awayAtWall == 0) {
             if (!s.stepAway()) return;   // this phone stops showing and playing the page; the recording goes on
-            Toast.makeText(this, "The page is frozen and silent here, and still being recorded. Tap Back when you return.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Paused and recording. Tap play when you return.", Toast.LENGTH_SHORT).show();
         } else {
             long from = s.awayAtWall;
             s.awayAtWall = 0;
@@ -1364,6 +1369,33 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (!s.isRecording()) return;
         s.setTranscribing(true);
         Toast.makeText(this, "Live captions on. They are saved with the recording (Recordings > Captions).", Toast.LENGTH_LONG).show();
+    }
+
+    /** Pause: the page is frozen and silenced on this phone (nothing is recorded because of it); tapping again lets it go. */
+    private void pauseOrResume() {
+        Session s = front();
+        if (s == null) return;
+        if (s.awayAtWall != 0) {
+            stepAwayOrBack();   // paused together with recording: this is the Back that plays what was missed
+            return;
+        }
+        s.setFrozen(!s.isFrozen());
+        updateControls();
+    }
+
+    /** Record: starts or stops the rolling recording of the page. */
+    private void toggleRecording() {
+        Session s = front();
+        if (s == null) return;
+        if (s.isRecording()) {
+            s.stopRecording();
+        } else {
+            s.startRecording();
+            if (s.isRecording()) {
+                Toast.makeText(this, String.format(Locale.US, "Recording. The last %d minutes are kept.", Prefs.bufferMinutes(this)), Toast.LENGTH_SHORT).show();
+            }
+        }
+        updateControls();
     }
 
     private void recordingMenu() {
@@ -1535,7 +1567,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     public void onTimer(Session s, long remainingMs) {
         if (s.slot != focus) return;
         if (remainingMs < 0) {
-            countdown.setText("No timer");
+            countdown.setText("");
             return;
         }
         long sec = (remainingMs + 999) / 1000;

@@ -18,8 +18,7 @@
 (function () {
   if (window.__turbobox) return;
   var T = window.__turbobox = {};
-  var WIDTH = 1280;
-  var cfg = { muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, cameraAllowed: false, localMute: false, keepVisible: true, desktop: !window.__tbMobile };
+  var cfg = { pageWidth: 1280, muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, cameraAllowed: false, localMute: false, keepVisible: true, desktop: !window.__tbMobile };
   var tracks = [], pcs = [];
 
   function post(type, data) {
@@ -102,14 +101,25 @@
       m.name = 'viewport';
       document.head.appendChild(m);
     }
-    var w = Math.round(WIDTH / cfg.zoom);
+    var w = Math.round(cfg.pageWidth / cfg.zoom);
     // The scale fits the layout width to the area the page really has (a small floating window, half of a split
     // screen), not to the whole screen, or a page in a small window would show only its top-left corner.
     var want = 'width=' + w + ', initial-scale=' + ((cfg.viewW || window.screen.width || w) / w).toFixed(3);
     if (m.content !== want) m.content = want;
   }
+  // The virtual screen the page believes it has (desktop mode): its width is the page size setting, its shape the phone's.
+  (function () {
+    if (!window.Screen) return;
+    var phys = { w: window.screen.width, h: window.screen.height };
+    function sw() { return cfg.desktop ? cfg.pageWidth : phys.w; }
+    function sh() { return cfg.desktop ? Math.round(cfg.pageWidth * phys.h / Math.max(1, phys.w)) : phys.h; }
+    [['width', sw], ['availWidth', sw], ['height', sh], ['availHeight', sh]].forEach(function (a) {
+      try { Object.defineProperty(Screen.prototype, a[0], { get: a[1], configurable: true, enumerable: true }); } catch (e) { /* kept */ }
+    });
+  })();
   viewport();
   window.addEventListener('orientationchange', function () { setTimeout(viewport, 300); });
+  T.setPageWidth = function (w) { cfg.pageWidth = Math.max(480, Math.min(3840, Math.round(+w) || 1280)); viewport(); };
   T.setZoom = function (z) { cfg.zoom = Math.max(0.5, Math.min(3, +z || 1)); viewport(); };
   T.setViewWidth = function (w) { if (T.resized && cfg.viewW && Math.max(0, +w || 0) !== cfg.viewW) T.resized(); cfg.viewW = Math.max(0, +w || 0); viewport(); setTimeout(viewport, 300); };
   new MutationObserver(viewport).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['content'] });
@@ -1089,6 +1099,7 @@
   T.configure = function (o) {
     if (!o) return;
     if ('aec' in o) cfg.aec = !!o.aec;
+    if ('pageWidth' in o) T.setPageWidth(o.pageWidth);
     if ('zoom' in o) T.setZoom(o.zoom);
     if ('micGain' in o) { cfg.micGain = Math.max(0, Math.min(3, +o.micGain || 0)); if (vm.gain) vm.gain.gain.value = cfg.micGain; }
     if ('micLabel' in o) vm.label = String(o.micLabel || '');
