@@ -86,7 +86,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     private IconButton recButton;
     private IconButton ccButton;
     private IconButton awayButton;
-    private TextView countdown;
+    private IconButton timerButton;
     private final java.util.Map<String, IconButton> barItems = new java.util.HashMap<>();
     private LinearLayout barRow1, barRow2;
     private IconButton pauseButton;
@@ -1002,6 +1002,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         IconButton timer = new IconButton(this, IconButton.Icon.TIMER, "Timer: hang up after a while or at a time");
         timer.setOnClickListener(v -> showTimerDialog());
         barItems.put("timer", timer);
+        timerButton = timer;
         if (canPip()) {
             IconButton pip = new IconButton(this, IconButton.Icon.MINI, "Mini window");
             pip.setOnClickListener(v -> enterPip());
@@ -1045,11 +1046,6 @@ public class SessionActivity extends Activity implements Session.Listener {
         barRow2.setPadding(side2, Ui.dp(this, 6), side2, Ui.dp(this, 4));
         chromeBox.addView(barRow1, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
         chromeBox.addView(barRow2, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
-        countdown = Ui.text(this, "", 13f, Ui.DIM, "sans-serif-medium");
-        countdown.setGravity(Gravity.CENTER);
-        countdown.setVisibility(View.INVISIBLE);   // its room is always kept, so the bar never changes height when a timer starts or ends
-        countdown.setTextSize(12f);
-        chromeBox.addView(countdown, Ui.match(Ui.dp(this, 18)));
         arrangeBar();
 
         // Workflows marked as a hotkey: one tap runs them, no questions asked.
@@ -1153,13 +1149,15 @@ public class SessionActivity extends Activity implements Session.Listener {
     }
 
     private void applyBrightness() {
-        // The slider is the screen's brightness for this app: the window's own brightness follows it, and below 20% a black veil
-        // darkens further than the phone's lowest setting can.
+        // Only this app is dimmed (a black veil over the pages): the phone's own brightness is never touched.
         float b = Math.max(0f, Math.min(1f, Prefs.brightness(this)));
         android.view.WindowManager.LayoutParams lp = getWindow().getAttributes();
-        lp.screenBrightness = b >= 0.999f ? android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE : Math.max(0.01f, b);
-        getWindow().setAttributes(lp);
-        dim.setAlpha(b >= 0.2f ? 0f : (0.2f - b) / 0.2f * 0.9f);
+        if (lp.screenBrightness != android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE) {
+            lp.screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
+            getWindow().setAttributes(lp);
+        }
+        dim.setAlpha((1f - b) * 0.9f);
+        dim.bringToFront();
     }
 
     /** The page the bar acts on, or null when none is open. */
@@ -1951,16 +1949,16 @@ public class SessionActivity extends Activity implements Session.Listener {
     @Override
     public void onTimer(Session s, long remainingMs) {
         if (s.slot != focus) return;
+        if (timerButton == null) return;
+        // The time left floats on the timer button itself, so nothing in the bar changes size.
         if (remainingMs < 0) {
-            countdown.setText("");
-            countdown.setVisibility(View.INVISIBLE);
+            timerButton.setBadge("");
             return;
         }
         long sec = (remainingMs + 999) / 1000;
-        countdown.setVisibility(View.VISIBLE);
-        countdown.setText(sec >= 3600
-                ? String.format(Locale.US, "Closes in %d:%02d:%02d", sec / 3600, sec % 3600 / 60, sec % 60)
-                : String.format(Locale.US, "Closes in %d:%02d", sec / 60, sec % 60));
+        timerButton.setBadge(sec >= 3600
+                ? String.format(Locale.US, "%d:%02d:%02d", sec / 3600, sec % 3600 / 60, sec % 60)
+                : String.format(Locale.US, "%d:%02d", sec / 60, sec % 60));
     }
 
     @Override
