@@ -250,6 +250,14 @@ check('ad boxes are hidden and the page is left alone', hid.ad === 'none' && hid
   await ctx.close();
 }
 
+// private display mode: focusing a field asks the app for text; the app's text goes in like typing
+await page.evaluate(() => { window.__said = []; const prev = window.TurboBoxBridge.post; window.__prevPost = prev; window.TurboBoxBridge.post = function (k, d) { if (k === 'field') window.__said.push(d); prev(k, d); }; window.__turbobox.configure({ privateDisplay: true }); document.body.insertAdjacentHTML('beforeend', '<input id="fld" value="old">'); document.getElementById('fld').focus(); });
+const fieldSaid = await page.evaluate(() => window.__said);
+check('focusing a field asks the app for its text', fieldSaid.length === 1 && JSON.parse(fieldSaid[0]).value === 'old', fieldSaid);
+const typed = await page.evaluate(() => { const f = document.getElementById('fld'); let ev = 0; f.addEventListener('input', () => ev++); window.__turbobox.setField('new text', false); return { v: f.value, ev }; });
+check('the text from the app is put in and the page is told', typed.v === 'new text' && typed.ev === 1, typed);
+await page.evaluate(() => window.__turbobox.configure({ privateDisplay: false }));
+
 // permission signalling follows the privacy switches
 await p2.evaluate(() => { window.__perm = []; });
 const st = await p2.evaluate(async () => {

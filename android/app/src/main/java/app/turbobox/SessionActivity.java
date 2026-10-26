@@ -112,6 +112,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     private TextView editSnap;
     private IconButton layoutButton;
     private MiniLayoutEditor overlay;
+    private final MirrorView[] mirrors = new MirrorView[Sessions.COUNT];
     private FractionLayout editStack;
     private float paneAspect;   // width / height of the pages' area on screen when not in the Mini window
     private SessionSheet sheet;
@@ -1047,7 +1048,16 @@ public class SessionActivity extends Activity implements Session.Listener {
             } else if (s.isActive()) {
                 wv = s.webView(this);
                 s.attach(this);
-                if (wv.getParent() != boxes[i]) {
+                if (s.privateDisplay() != null) {
+                    // The page lives on its own display; the pane shows a live picture of it.
+                    if (mirrors[i] == null) mirrors[i] = new MirrorView(this);
+                    if (mirrors[i].getParent() != boxes[i]) {
+                        if (mirrors[i].getParent() instanceof ViewGroup) ((ViewGroup) mirrors[i].getParent()).removeView(mirrors[i]);
+                        boxes[i].addView(mirrors[i], new FrameLayout.LayoutParams(-1, -1));
+                    }
+                    mirrors[i].setHost(s.privateDisplay());
+                    boxes[i].setRatio(Pin.ASPECTS[s.effectiveAspect()]);
+                } else if (wv.getParent() != boxes[i]) {
                     if (wv.getParent() instanceof ViewGroup) ((ViewGroup) wv.getParent()).removeView(wv);
                     boxes[i].addView(wv, new FrameLayout.LayoutParams(-1, -1));
                 }
@@ -1739,6 +1749,19 @@ public class SessionActivity extends Activity implements Session.Listener {
     }
 
     @Override
+    public void onField(Session s, String value, boolean multiline) {
+        EditText input = new EditText(this);
+        input.setText(value);
+        input.setSelection(value.length());
+        input.setTextColor(Ui.TEXT);
+        if (multiline) input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        else input.setSingleLine(true);
+        new AlertDialog.Builder(this).setTitle("Type into the page").setView(input)
+                .setPositiveButton(multiline ? "Done" : "Enter", (d, w) -> s.setField(input.getText().toString(), !multiline))
+                .setNeutralButton("Done", (d, w) -> s.setField(input.getText().toString(), false))
+                .setNegativeButton("Cancel", null).show();
+    }
+
     public void onFrozen(Session s, boolean frozen) {
         if (frozen) {
             freezeNow(s.slot);
