@@ -1177,6 +1177,7 @@ final class Session {
         wv.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                currentUrl = url == null ? "" : url;
                 allowSite(url);
                 if (mediaPlaying) {
                     mediaPlaying = false;
@@ -1202,17 +1203,22 @@ final class Session {
 
             @Override
             public android.webkit.WebResourceResponse shouldInterceptRequest(WebView view, android.webkit.WebResourceRequest request) {
-                if (adsBlocked() && AdBlock.shouldBlock(request.getUrl().toString(), view.getUrl(), request.isForMainFrame(),
+                try {
+                if (adsBlocked() && AdBlock.shouldBlock(request.getUrl().toString(), currentUrl, request.isForMainFrame(),
                         request.getRequestHeaders().get("Accept"))) {
                     blockedCount++;
                     return new android.webkit.WebResourceResponse("text/plain", "utf-8", 200, "Blocked", Collections.<String, String>emptyMap(),
                             new java.io.ByteArrayInputStream(new byte[0]));
+                }
+                } catch (RuntimeException e) {
+                    // A blocker problem must never break the page: let the request through.
                 }
                 return null;
             }
 
             @Override
             public void doUpdateVisitedHistory(WebView view, String url, boolean isReload) {
+                currentUrl = url == null ? "" : url;
                 for (Listener l : listeners) l.onNavigation(Session.this);
             }
         });
@@ -1397,6 +1403,7 @@ final class Session {
                 + major + ".0.0.0 Safari/537.36";
     }
 
+    private volatile String currentUrl = "";   // the page's address, kept here because WebView.getUrl() may only be called on the main thread
     private int blockedCount;     // requests answered with nothing on this page load, for Page info
 
     /** Ad blocking applies to this page: the app switch is on and this page has not been exempted. */
