@@ -117,6 +117,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     private TextView editShape;
     private TextView editFloat;
     private TextView editSnap;
+    private TextView editBarToggle;
     private IconButton layoutButton;
     private MiniLayoutEditor overlay;
     private EditText typeBox;
@@ -456,6 +457,15 @@ public class SessionActivity extends Activity implements Session.Listener {
         row1.addView(back, Ui.weight(this, 6));
         row1.addView(editFloat, Ui.weight(this, 6));
         row1.addView(editShape, Ui.weight(this, 6));
+        editBarToggle = Ui.pill(this, "Hide bar", 0);
+        editBarToggle.setOnClickListener(v -> {
+            // The top bar goes (or comes back) while arranging, so the pages can be arranged in the whole screen; the page area changes
+            // to match, and these buttons move to the bottom over the pages.
+            Prefs.setBarHidden(this, !Prefs.barHidden(this));
+            applyBarMode();
+            mainHandler.postDelayed(this::updateEditBar, 150);
+        });
+        row1.addView(editBarToggle, Ui.weight(this, 6));
         editBar.addView(row1, Ui.match(Ui.dp(this, 46)));
         LinearLayout row2 = new LinearLayout(this);
         editSnap = Ui.pill(this, "Snap", 0);
@@ -508,6 +518,7 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     private void updateEditBar() {
         editBar.setVisibility(editing && !inPip ? View.VISIBLE : View.GONE);
+        if (editBarToggle != null) editBarToggle.setText(Prefs.barHidden(this) ? "Show bar" : "Hide bar");
         if (editing && !inPip) {
             boolean chrome = chromeBox.getVisibility() == View.VISIBLE && chromeBox.getHeight() > 0;
             FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) editBar.getLayoutParams();
