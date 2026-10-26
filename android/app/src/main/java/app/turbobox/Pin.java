@@ -66,11 +66,7 @@ final class Pin {
         p.allowMic = o.optBoolean("allowMic", true);
         p.allowCamera = o.optBoolean("allowCamera", false);
         p.mobile = o.optBoolean("mobile", false);
-        p.pageWidth = Math.max(480, Math.min(3840, o.optInt("pageWidth", 1280)));
-        if (Math.abs(p.zoom - 1f) > 0.01f) {   // zoom and page size are one setting now: what the page lays itself out at
-            p.pageWidth = Math.max(480, Math.min(3840, Math.round(p.pageWidth / Math.max(0.5f, p.zoom))));
-            p.zoom = 1f;
-        }
+        p.pageWidth = Math.max(800, Math.min(3840, o.optInt("pageWidth", 1280)));
         p.shrinkOnType = o.optBoolean("shrinkOnType", true);
         p.confirmClose = o.optBoolean("confirmClose", false);
         p.noAdblock = o.optBoolean("noAdblock", false);

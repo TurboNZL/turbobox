@@ -92,6 +92,10 @@
   // Pages that ask for a device-width layout would otherwise get the phone layout whatever the UA says.
   // The layout width is also the zoom: a narrower layout shows the same page bigger (like browser zoom,
   // everything is laid out again, nothing is just magnified).
+  // The width the page lays itself out at: the page size divided by the zoom, never below what desktop sites can lay out in (they
+  // clip or scroll sideways under about 800 CSS pixels).
+  var MIN_LAYOUT = 800;
+  function layoutW() { return Math.max(MIN_LAYOUT, Math.round(cfg.pageWidth / Math.max(0.5, cfg.zoom))); }
   function viewport() {
     if (!cfg.desktop) return;   // mobile mode: the page's own viewport stands
     var m = document.querySelector('meta[name=viewport]');
@@ -101,7 +105,7 @@
       m.name = 'viewport';
       document.head.appendChild(m);
     }
-    var w = Math.round(cfg.pageWidth / cfg.zoom);
+    var w = layoutW();
     // The scale fits the layout width to the area the page really has (a small floating window, half of a split
     // screen), not to the whole screen, or a page in a small window would show only its top-left corner.
     // Fit the layout width to the physical width of the view: physical pixels over the browser's own pixel ratio is the CSS width that
@@ -114,15 +118,15 @@
   (function () {
     if (!window.Screen) return;
     var phys = { w: window.screen.width, h: window.screen.height };
-    function sw() { return cfg.desktop ? cfg.pageWidth : phys.w; }
-    function sh() { return cfg.desktop ? Math.round(cfg.shape > 0 ? cfg.pageWidth / cfg.shape : cfg.pageWidth * phys.h / Math.max(1, phys.w)) : phys.h; }
+    function sw() { return cfg.desktop ? layoutW() : phys.w; }
+    function sh() { return cfg.desktop ? Math.round(cfg.shape > 0 ? layoutW() / cfg.shape : layoutW() * phys.h / Math.max(1, phys.w)) : phys.h; }
     [['width', sw], ['availWidth', sw], ['height', sh], ['availHeight', sh]].forEach(function (a) {
       try { Object.defineProperty(Screen.prototype, a[0], { get: a[1], configurable: true, enumerable: true }); } catch (e) { /* kept */ }
     });
   })();
   viewport();
   window.addEventListener('orientationchange', function () { setTimeout(viewport, 300); });
-  T.setPageWidth = function (w) { cfg.pageWidth = Math.max(480, Math.min(3840, Math.round(+w) || 1280)); viewport(); };
+  T.setPageWidth = function (w) { cfg.pageWidth = Math.max(800, Math.min(3840, Math.round(+w) || 1280)); viewport(); };
   // The page's virtual screen takes the forced shape (wider for 16:9 or 21:9), and a size change re-fits the layout cleanly: the scale
   // is applied again from scratch so a stale pinch/fit state (after hiding the bar, a split, the Mini window) cannot stay.
   T.setViewPx = function (px) { px = Math.max(0, +px || 0); if (px === cfg.viewPx) return; cfg.viewPx = px; viewport(); setTimeout(viewport, 300); };
@@ -1198,6 +1202,11 @@
     if (e.type === 'pointerup' && e.pointerType === 'touch') return;   // the touchend that follows does it
     var el = e.composedPath ? e.composedPath()[0] : e.target;
     if (!el || el.nodeType !== 1) return;
+    // The inside of a button (its icon, a span) is not what a step should click: take the button, link or field around it.
+    try {
+      var hit = el.closest && el.closest('button,a[href],[role=button],[role=link],[role=menuitem],[role=tab],[role=option],[role=switch],[role=checkbox],input,select,textarea,summary,label,[onclick],[tabindex]:not([tabindex="-1"])');
+      if (hit) el = hit;
+    } catch (x) { /* odd selector support: keep the element itself */ }
     picking = false;
     var sel = selectorFor(el);
     post('picked', JSON.stringify({ selector: sel, text: (el.innerText || el.getAttribute('aria-label') || '').trim().slice(0, 60) }));

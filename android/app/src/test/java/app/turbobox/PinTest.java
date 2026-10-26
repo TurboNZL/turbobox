@@ -29,8 +29,8 @@ public class PinTest {
         Pin q = Pin.fromJson(p.toJson());
         assertEquals(p.id, q.id);
         assertEquals("Stream", q.name);
-        assertEquals(1f, q.zoom, 0.001f);                 // zoom is folded into the page size
-        assertEquals(853, q.pageWidth);                    // 1280 / 1.5
+        assertEquals(1.5f, q.zoom, 0.001f);
+        assertEquals(1280, q.pageWidth);
         assertEquals(0.8f, q.volume, 0.001f);
         assertEquals(2, q.recordMode);
         assertEquals("video.example.com", q.host());

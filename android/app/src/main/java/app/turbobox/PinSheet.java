@@ -51,23 +51,36 @@ final class PinSheet {
         // ---- Look
         LinearLayout look = Ui.section(act, col, IconButton.Icon.LAYOUT, "Size and shape", BLUE);
         look.addView(Ui.sliderRow(act, "Page size", pin.pageWidth + " px", 3.84f, pin.pageWidth / 1000f, BLUE, (v, fromUser) -> {
-            int px = Math.max(480, Math.round(v * 100f) * 10);
+            int px = Math.max(800, Math.round(v * 100f) * 10);
             if (!fromUser) return;
             change(act, pin, p -> p.pageWidth = px);
             Session s = Sessions.forPin(pin.id);
             if (s != null) s.setPageWidth(px);
-        }, v -> Math.max(480, Math.round(v * 100f) * 10) + " px"), Ui.lp(act, 0, 0));
-        android.widget.TextView reset = Ui.pill(act, "Reset page size (1280 px)", 0);
-        reset.setOnClickListener(v -> {
-            change(act, pin, p -> p.pageWidth = 1280);
+        }, v -> Math.max(800, Math.round(v * 100f) * 10) + " px"), Ui.lp(act, 0, 0));
+        look.addView(Ui.sliderRow(act, "Zoom", Ui.pct(Math.max(0.5f, pin.zoom)), 3f, Math.max(0.5f, pin.zoom), BLUE, (v, fromUser) -> {
+            if (!fromUser) return;
+            float z = Math.max(0.5f, v);
+            change(act, pin, p -> p.zoom = z);
             Session s = Sessions.forPin(pin.id);
-            if (s != null) s.setPageWidth(1280);
+            if (s != null) s.setZoom(z);
+        }, v -> Ui.pct(Math.max(0.5f, v))), Ui.lp(act, 8, 0));
+        android.widget.TextView reset = Ui.pill(act, "Reset page size and zoom", 0);
+        reset.setOnClickListener(v -> {
+            change(act, pin, p -> {
+                p.pageWidth = 1280;
+                p.zoom = 1f;
+            });
+            Session s = Sessions.forPin(pin.id);
+            if (s != null) {
+                s.setPageWidth(1280);
+                s.setZoom(1f);
+            }
             close.run();
-            Toast.makeText(act, "Page size reset to 1280 px.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(act, "Page size reset to 1280 px, zoom to 100%.", Toast.LENGTH_SHORT).show();
         });
         look.addView(reset, Ui.lp(act, 6, 0));
-        look.addView(Ui.hint(act, "How wide the page lays itself out, like a screen of that many pixels: smaller is bigger text, larger fits more. "
-                + "Nothing extra is drawn."), Ui.lp(act, 0, 8));
+        look.addView(Ui.hint(act, "Page size is how wide a screen the page thinks it has (at least 800 px: desktop sites cannot lay out narrower). "
+                + "Zoom divides it, so the page gets bigger text, but never below that 800 px."), Ui.lp(act, 0, 8));
         String[] shortAspects = {"Fill", "16:9", "4:3", "21:9", "1:1", "9:16", "3:2"};
         look.addView(Ui.segmented(act, shortAspects, pin.aspect, BLUE, which -> {
             change(act, pin, p -> p.aspect = which);

@@ -627,7 +627,7 @@ final class Session {
 
     /** The virtual screen width (CSS pixels) the page believes it has; separate from zoom, which works inside it. */
     void setPageWidth(int px) {
-        pageWidth = Math.max(480, Math.min(3840, px));
+        pageWidth = Math.max(800, Math.min(3840, px));
         if (pin != null) {
             pin.pageWidth = pageWidth;
             PinStore.put(app, pin);
