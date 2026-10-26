@@ -93,7 +93,7 @@
   // The layout width is also the zoom: a narrower layout shows the same page bigger (like browser zoom,
   // everything is laid out again, nothing is just magnified).
   function viewport() {
-    if (!cfg.desktop || cfg.privateDisplay) return;   // mobile mode: the page's own viewport stands. A private display is sized and given its density so the page fills it at scale 1: no meta, no fitting
+    if (!cfg.desktop) return;   // mobile mode: the page's own viewport stands
     var m = document.querySelector('meta[name=viewport]');
     if (!m) {
       if (!document.head) return;
@@ -131,7 +131,7 @@
     var m = document.querySelector('meta[name=viewport]');
     if (m) m.content = 'width=device-width, initial-scale=1';
     // At scale 1 the pixel ratio is the display's own (it moves with the page scale otherwise), so it is read again here.
-    setTimeout(function () { cfg.dsf = window.devicePixelRatio || cfg.dsf; viewport(); }, 120);
+    setTimeout(function () { if (!cfg.dsfFromApp) cfg.dsf = window.devicePixelRatio || cfg.dsf; viewport(); }, 120);
     setTimeout(viewport, 500);
   };
   T.setZoom = function (z) { cfg.zoom = Math.max(0.5, Math.min(3, +z || 1)); viewport(); };
@@ -1336,6 +1336,7 @@
     if ('micAllowed' in o || 'cameraAllowed' in o) { permissionsChanged(); relayToFrames({ __tb: 'cfg', cfg: { micAllowed: cfg.micAllowed, cameraAllowed: cfg.cameraAllowed } }); }
     if ('muted' in o) relayToFrames({ __tb: 'cfg', cfg: { muted: !!o.muted } });
     if ('viewWidth' in o) T.setViewWidth(o.viewWidth);
+    if ('dsf' in o && +o.dsf > 0) { cfg.dsf = +o.dsf; cfg.dsfFromApp = true; viewport(); }   // the browser's real pixel ratio, from the app (the page's own devicePixelRatio moves with its scale)
     if ('viewPx' in o) T.setViewPx(o.viewPx);
     if ('localMute' in o) T.setLocalMute(o.localMute);
     if ('tap' in o) T.setTap(o.tap);
