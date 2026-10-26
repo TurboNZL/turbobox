@@ -30,9 +30,9 @@ import java.nio.ByteBuffer;
 final class OffscreenHost {
     private final Context app;
     private final View view;
-    private final int width;
-    private final int height;
-    private final int densityDpi;
+    private int width;
+    private int height;
+    private int densityDpi;
     private final String name;
     private ImageReader reader;
     private VirtualDisplay display;
@@ -50,6 +50,38 @@ final class OffscreenHost {
         this.width = width;
         this.height = height;
         this.densityDpi = densityDpi;
+    }
+
+    /**
+     * Changes the display's size in place (the page keeps its state: it only gets a resize). Used when the display follows the
+     * window; a fixed display never calls this.
+     */
+    void resize(int w, int h, int dpi) {
+        w = Math.max(16, Math.min(3000, w));
+        h = Math.max(16, Math.min(3000, h));
+        if (display == null || (w == width && h == height && dpi == densityDpi)) return;
+        try {
+            ImageReader old = reader;
+            reader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2);
+            width = w;
+            height = h;
+            densityDpi = dpi;
+            display.resize(w, h, dpi);
+            if (mirror != null && mirrorSurface != null) {
+                android.graphics.SurfaceTexture st = mirror.getSurfaceTexture();
+                if (st != null) st.setDefaultBufferSize(w, h);
+            } else {
+                display.setSurface(reader.getSurface());
+            }
+            if (view.getLayoutParams() != null) {
+                view.getLayoutParams().width = w;
+                view.getLayoutParams().height = h;
+                view.requestLayout();
+            }
+            if (old != null) old.close();
+        } catch (RuntimeException ignored) {
+            // The display is going away.
+        }
     }
 
     int width() {

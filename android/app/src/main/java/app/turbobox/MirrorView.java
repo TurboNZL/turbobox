@@ -16,6 +16,7 @@ final class MirrorView extends ViewGroup {
     private final TextureView texture;
     private OffscreenHost host;
     private float scale = 1f, offX, offY;
+    private final Runnable sizeToWindow = this::syncSize;
 
     MirrorView(Context c) {
         super(c);
@@ -56,10 +57,26 @@ final class MirrorView extends ViewGroup {
         host = null;
     }
 
+    /** Fixed: the display keeps the shape it was made in. Follows: it takes this view's size, so the page is laid out for the space it really has. */
+    private void syncSize() {
+        OffscreenHost h = host;
+        int w = getWidth(), ht = getHeight();
+        if (h == null || w <= 0 || ht <= 0) return;
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        if (Prefs.displayFollows(getContext())) {
+            h.resize(w, ht, dm.densityDpi);
+        } else {
+            h.resize(Math.min(dm.widthPixels, dm.heightPixels), Math.max(dm.widthPixels, dm.heightPixels), dm.densityDpi);
+        }
+        requestLayout();
+    }
+
     @Override
     protected void onLayout(boolean changed, int l, int t, int r, int b) {
         int w = r - l, h = b - t;
         if (host == null || w <= 0 || h <= 0) return;
+        removeCallbacks(sizeToWindow);
+        postDelayed(sizeToWindow, 150);   // after the window has settled (a bar hiding, a split changing)
         scale = Math.min(w / (float) host.width(), h / (float) host.height());
         int dw = Math.round(host.width() * scale), dh = Math.round(host.height() * scale);
         offX = (w - dw) / 2f;

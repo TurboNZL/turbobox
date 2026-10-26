@@ -81,6 +81,9 @@ final class Session {
         /** The page put the cursor in a text field (private display mode: the app asks for the text). */
         default void onField(Session s, String value, boolean multiline) {}
 
+        /** The page's text field lost focus: the keyboard can go. */
+        default void onFieldEnd(Session s) {}
+
         /** The recording buffer started or stopped. */
         default void onRecording(Session s, boolean on, String note) {}
 
@@ -1339,6 +1342,11 @@ final class Session {
                     });
                     break;
                 }
+                case "fieldend":
+                    main.post(() -> {
+                        for (Listener l : listeners) l.onFieldEnd(this);
+                    });
+                    break;
                 case "fsratio": {
                     float r = Float.parseFloat(data);
                     fullscreenRatio = customView != null && r > 0.2f && r < 6f ? r : 0f;

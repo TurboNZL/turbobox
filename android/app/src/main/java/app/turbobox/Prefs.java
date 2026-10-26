@@ -43,6 +43,10 @@ final class Prefs {
     static boolean privateDisplay(Context c) { return sp(c).getBoolean("privateDisplay", false); }
     static void setPrivateDisplay(Context c, boolean v) { sp(c).edit().putBoolean("privateDisplay", v).apply(); }
 
+    /** Private display mode: false = the display keeps one fixed size and shape; true = it takes the size of the window it is shown in (hiding the bar, split, rotation). */
+    static boolean displayFollows(Context c) { return sp(c).getBoolean("displayFollows", false); }
+    static void setDisplayFollows(Context c, boolean v) { sp(c).edit().putBoolean("displayFollows", v).apply(); }
+
     // ---- standby: keep the foreground service up so scheduled workflows can use the microphone ----
     static boolean standby(Context c) { return sp(c).getBoolean("standby", false); }
     static void setStandby(Context c, boolean v) { sp(c).edit().putBoolean("standby", v).apply(); }
