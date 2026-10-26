@@ -262,15 +262,25 @@ final class IconButton extends TextView {
                 line(c, 6, 12, 18, 5.5f);
                 line(c, 6, 12, 18, 18.5f);
                 break;
-            case ROTATE:
+            case ROTATE: {
+                // A circular arrow: three quarters of a circle and a proper arrowhead at its end.
                 paint.setStyle(Paint.Style.STROKE);
-                c.drawArc(new RectF(4, 4, 20, 20), 40, 270, false, paint);
-                path.moveTo(15, 3);
-                path.lineTo(20, 5.5f);
-                path.lineTo(16.5f, 9.5f);
-                c.drawPath(path, paint);
+                RectF oval = new RectF(4.5f, 4.5f, 19.5f, 19.5f);
+                float start = -40f, sweep = 285f;
+                c.drawArc(oval, start, sweep, false, paint);
+                double end = Math.toRadians(start + sweep);
+                float ex = 12f + 7.5f * (float) Math.cos(end), ey = 12f + 7.5f * (float) Math.sin(end);
+                double tan = end + Math.PI / 2;   // the direction the arc is heading at its end
+                float tx = (float) Math.cos(tan), ty = (float) Math.sin(tan);
+                float nx = -ty, ny = tx;
+                path.moveTo(ex + tx * 4.2f, ey + ty * 4.2f);
+                path.lineTo(ex + nx * 3.6f, ey + ny * 3.6f);
+                path.lineTo(ex - nx * 3.6f, ey - ny * 3.6f);
+                path.close();
                 paint.setStyle(Paint.Style.FILL);
+                c.drawPath(path, paint);
                 break;
+            }
             case HIDE:
                 path.moveTo(5, 9);
                 path.lineTo(12, 16);

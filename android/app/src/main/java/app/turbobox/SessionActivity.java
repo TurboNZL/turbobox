@@ -554,6 +554,7 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     @Override
     protected void onResume() {
+        if (dim != null) applyBrightness();
         if (barRow1 != null) arrangeBar();
         if (!isInPictureInPictureMode()) lockBoxes(false);   // the Home gesture locked the sizes in case the Mini window opened; it did not
         applyRotation();
@@ -666,7 +667,9 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (pages.size() == 1) {
             OffscreenHost pd = pages.get(0).privateDisplay();
             float video = pages.get(0).fullscreenRatio();
-            if (video > 0) ratio = video;                                            // a full-screen video: its own shape, no bars
+            float forced = Pin.ASPECTS[pages.get(0).effectiveAspect()];
+            if (forced > 0 && !editing) ratio = forced;                              // a forced shape: the window has it, so no bars
+            else if (video > 0) ratio = video;                                       // a full-screen video: its own shape, no bars
             else if (pd != null && !Prefs.displayFollows(this) && !editing) ratio = pd.width() / (float) pd.height();   // the fixed display, no bars
         }
         if (inPip && pipRatio > 0) ratio = pipRatio;
@@ -792,10 +795,20 @@ public class SessionActivity extends Activity implements Session.Listener {
         }
     }
 
+    private String pipSignature = "";
+
     private void updatePip() {
         if (!canPip()) return;
         try {
-            setPictureInPictureParams(pipParams().build());
+            PictureInPictureParams params = pipParams().build();
+            // Setting the same params again makes Android re-evaluate the window, which is what made it jump while it was being
+            // resized: only a real change (a different shape or button state) is passed on.
+            String sig = pipRatio + "|" + PipButtons.get(this, 0) + PipButtons.get(this, 1) + PipButtons.get(this, 2) + PipButtons.get(this, 3) + "|"
+                    + Sessions.allMuted() + "|" + (front() != null && front().isFrozen()) + "|" + (front() != null && front().isRecording()) + "|"
+                    + (front() != null && front().isMediaPlaying()) + "|" + (front() != null && front().awayAtWall != 0);
+            if (sig.equals(pipSignature)) return;
+            pipSignature = sig;
+            setPictureInPictureParams(params);
         } catch (RuntimeException ignored) {
             // Not allowed right now; the Home gesture still works through onUserLeaveHint.
         }
@@ -807,6 +820,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (editing) stopEdit();
         if (sheet != null) sheet.dismiss();
         pipRatio = 0;
+        pipSignature = "";
         lockBoxes(true);
         try {
             return enterPictureInPictureMode(pipParams().build());
@@ -1023,6 +1037,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     private void forceRotation() {
         int state = Prefs.cycleForce(this, isLandscape());
         applyRotation();
+        updateControls();
         Toast.makeText(this, state == 1 ? "Turned the other way" : state == 2 ? "Held as it was" : "Back to normal rotation", Toast.LENGTH_SHORT).show();
     }
 
@@ -1056,7 +1071,13 @@ public class SessionActivity extends Activity implements Session.Listener {
     }
 
     private void applyBrightness() {
-        dim.setAlpha((1f - Prefs.brightness(this)) * 0.9f);
+        // The slider is the screen's brightness for this app: the window's own brightness follows it, and below 20% a black veil
+        // darkens further than the phone's lowest setting can.
+        float b = Math.max(0f, Math.min(1f, Prefs.brightness(this)));
+        android.view.WindowManager.LayoutParams lp = getWindow().getAttributes();
+        lp.screenBrightness = b >= 0.999f ? android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE : Math.max(0.01f, b);
+        getWindow().setAttributes(lp);
+        dim.setAlpha(b >= 0.2f ? 0f : (0.2f - b) / 0.2f * 0.9f);
     }
 
     /** The page the bar acts on, or null when none is open. */
@@ -1347,6 +1368,12 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     private void updateControls() {
         updateHotkeys();
+        IconButton rotateBtn = barItems.get("rotate");
+        if (rotateBtn != null) {
+            int force = Prefs.forceRotate(this);   // white = normal, amber = turned the other way, lime = held as it was
+            rotateBtn.setIconColor(force == 1 ? Ui.AMBER : force == 2 ? Ui.GREEN : Ui.TEXT);
+            Ui.tint(this, rotateBtn, force == 1 ? Ui.AMBER : force == 2 ? Ui.GREEN : 0);
+        }
         Session f = front();
         for (int i = 0; i < Sessions.COUNT; i++) {
             Session s = Sessions.get(i);
@@ -1498,10 +1525,12 @@ public class SessionActivity extends Activity implements Session.Listener {
     private void updateLocks() {
         dismissLocks();
         if (inPip) return;
+        if (!allShownLocked()) hideNavigation(false);
         paneHolder.post(() -> {
             if (isFinishing() || isDestroyed()) return;
             View decor = getWindow().getDecorView();
             boolean everything = allShownLocked();
+            hideNavigation(everything);
             for (Session s : gridPages) {
                 if (!s.isLocked() || lockPopups[s.slot] != null) continue;
                 FrameLayout pane = panes[s.slot];
@@ -1536,6 +1565,27 @@ public class SessionActivity extends Activity implements Session.Listener {
         });
         updateControls();
         updatePip();
+    }
+
+    /**
+     * While the whole screen is locked the navigation buttons are hidden too (the status bar stays, as a way out and to see
+     * notifications). A swipe from the edge still brings them back for a moment.
+     */
+    private void hideNavigation(boolean hide) {
+        if (Build.VERSION.SDK_INT >= 30) {
+            android.view.WindowInsetsController c = getWindow().getInsetsController();
+            if (c == null) return;
+            if (hide) {
+                c.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                c.hide(android.view.WindowInsets.Type.navigationBars());
+            } else {
+                c.show(android.view.WindowInsets.Type.navigationBars());
+            }
+        } else {
+            View d = getWindow().getDecorView();
+            int base = d.getSystemUiVisibility() & ~(View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+            d.setSystemUiVisibility(hide ? base | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY : base);
+        }
     }
 
     private void dismissLocks() {
