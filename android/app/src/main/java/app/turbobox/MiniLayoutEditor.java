@@ -14,7 +14,7 @@ import android.view.View;
  */
 final class MiniLayoutEditor extends View {
     interface OnChange {
-        void changed(float[][] rects, int[] order);
+        void changed(float[][] rects, int[] order, boolean[] floats);
     }
 
     private static final int[] COLORS = {0xFFA6E22E, 0xFF66D9EF, 0xFFFD971F, 0xFFF92672};
@@ -26,6 +26,8 @@ final class MiniLayoutEditor extends View {
     private final OnChange onChange;
     private float[][] rects = MiniLayout.defaults();
     private int[] order = {0, 1};      // back to front
+    private boolean[] floats = new boolean[MiniLayout.PAGES];   // pages that float: movable, not resizable, not touchable
+    private boolean snap;
     private int pages = 2;
     private int selected = -1;
     private boolean resizing;
@@ -44,7 +46,26 @@ final class MiniLayoutEditor extends View {
         setBackgroundColor(0x00000000);   // the pages show through
     }
 
-    void set(float[][] r, int[] z) {
+    /** Edges meet when brought close (pages can still overlap). Off by default. */
+    void setSnap(boolean on) {
+        snap = on;
+    }
+
+    /** Makes the selected page float (or not): it can be moved around like a picture in picture, but not resized or used. */
+    boolean toggleFloat() {
+        if (selected < 0) return false;
+        floats[selected] = !floats[selected];
+        invalidate();
+        onChange.changed(rects, order, floats);
+        return true;
+    }
+
+    boolean isFloating(int page) {
+        return page >= 0 && page < floats.length && floats[page];
+    }
+
+    void set(float[][] r, int[] z, boolean[] f) {
+        if (f != null) floats = f;
         rects = r;
         pages = Math.max(1, Math.min(MiniLayout.PAGES, z.length));
         order = z.clone();
@@ -72,7 +93,7 @@ final class MiniLayoutEditor extends View {
         order[at] = order[to];
         order[to] = t;
         invalidate();
-        onChange.changed(rects, order);
+        onChange.changed(rects, order, floats);
         return true;
     }
 
@@ -94,10 +115,12 @@ final class MiniLayoutEditor extends View {
             edge.setAlpha(i == selected ? 255 : 170);
             c.drawRect(r, edge);
             label.setColor(col);
-            c.drawText("Page " + (i + 1), r.centerX(), r.top + label.getTextSize() * 1.2f, label);
-            fill.setColor(col);
-            fill.setAlpha(255);
-            c.drawRect(r.right - handle / 2, r.bottom - handle / 2, r.right, r.bottom, fill);   // the resize corner
+            c.drawText("Page " + (i + 1) + (floats[i] ? " (floating)" : ""), r.centerX(), r.top + label.getTextSize() * 1.2f, label);
+            if (!floats[i]) {
+                fill.setColor(col);
+                fill.setAlpha(255);
+                c.drawRect(r.right - handle / 2, r.bottom - handle / 2, r.right, r.bottom, fill);   // the resize corner
+            }
         }
     }
 
@@ -112,7 +135,7 @@ final class MiniLayoutEditor extends View {
                     RectF r = px(i);
                     if (!r.contains(x, y) && !(Math.abs(x - r.right) < handle && Math.abs(y - r.bottom) < handle)) continue;
                     selected = i;
-                    resizing = x > r.right - handle && y > r.bottom - handle;
+                    resizing = !floats[i] && x > r.right - handle && y > r.bottom - handle;
                     dragging = true;
                     break;
                 }
@@ -134,9 +157,10 @@ final class MiniLayoutEditor extends View {
                     r[0] += dx;
                     r[1] += dy;
                 }
-                rects[selected] = MiniLayout.clamp(r);
+                float[] fixed = MiniLayout.clamp(r);
+                rects[selected] = snap ? MiniLayout.snap(fixed, rects, selected, resizing, 0.03f) : fixed;
                 invalidate();
-                onChange.changed(rects, order);
+                onChange.changed(rects, order, floats);
                 return true;
             }
             case MotionEvent.ACTION_UP:

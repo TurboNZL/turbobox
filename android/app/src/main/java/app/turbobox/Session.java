@@ -1164,6 +1164,8 @@ final class Session {
                 if (hostAllowed(request.getOrigin())) {
                     for (String r : request.getResources()) {
                         if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r) && micAllowed) allowed.add(r);
+                        // Widevine (Netflix-style protected video): the page asks for the DRM key system through this resource.
+                        if (PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID.equals(r) && pin != null && pin.allowDrm) allowed.add(r);
                         if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r) && cameraAllowed
                                 && app.checkSelfPermission(android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
                             allowed.add(r);

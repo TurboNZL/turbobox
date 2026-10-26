@@ -19,6 +19,7 @@ final class SavedLayout {
     boolean mini;                               // for the Mini (picture in picture) window instead of the full-screen split
     int shape;                                  // a Mini layout's window shape: index into MiniLayout.SHAPES
     String rects = "";                          // MiniLayout.encode of the first {@link #count} rectangles; "" = the preset
+    String floats = "";                         // MiniLayout.encodeFloats: pages that float; "" = none
     String z = "";                              // MiniLayout.encodeOrder: pages back to front; "" = page 1 at the back
 
     static SavedLayout create() {
@@ -42,6 +43,10 @@ final class SavedLayout {
         return out;
     }
 
+    boolean[] floatFlags() {
+        return MiniLayout.decodeFloats(floats, count);
+    }
+
     int[] order() {
         return MiniLayout.decodeOrder(z, count);
     }
@@ -58,7 +63,7 @@ final class SavedLayout {
     JSONObject toJson() {
         JSONObject o = new JSONObject();
         try {
-            o.put("id", id).put("name", name).put("count", count).put("mini", mini).put("shape", shape).put("rects", rects).put("z", z);
+            o.put("id", id).put("name", name).put("count", count).put("mini", mini).put("shape", shape).put("rects", rects).put("z", z).put("floats", floats);
         } catch (JSONException ignored) {
             // Plain values cannot fail.
         }
@@ -74,6 +79,7 @@ final class SavedLayout {
         l.shape = Math.max(0, Math.min(MiniLayout.SHAPES.length - 1, o.optInt("shape", 0)));
         l.rects = o.optString("rects", "");
         l.z = o.optString("z", "");
+        l.floats = o.optString("floats", "");
         return l;
     }
 }

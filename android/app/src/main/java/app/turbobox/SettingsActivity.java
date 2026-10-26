@@ -181,6 +181,17 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
             }
         });
         screen.addView(keep, Ui.lp(this, 8, 2));
+        String[] rotations = {"Follow the phone's rotation setting", "Always rotate with the phone", "Portrait only"};
+        TextView rot = Ui.text(this, "Rotation: " + rotations[Prefs.rotation(this)] + "  \u203A", 15f, Ui.GREEN, "sans-serif-medium");
+        rot.setPadding(0, Ui.dp(this, 10), 0, Ui.dp(this, 6));
+        rot.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("Rotation of the page screen")
+                .setSingleChoiceItems(rotations, Prefs.rotation(this), (d, which) -> {
+                    Prefs.setRotation(this, which);
+                    d.dismiss();
+                    render();
+                }).show());
+        screen.addView(rot);
+        screen.addView(Ui.hint(this, "Each orientation remembers its own arrangement of the pages; until you arrange one, it starts stacked or as a grid."), Ui.lp(this, 0, 6));
         screen.addView(Ui.hint(this, "Sites like YouTube pause a video when the browser says nobody can see the page. With this on, the page "
                 + "is told it is visible and is kept on a private display of its own while the screen is off, so it carries on."), Ui.lp(this, 0, 8));
         body.addView(screen, Ui.lp(this, 12, 0));

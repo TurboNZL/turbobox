@@ -84,6 +84,8 @@ public class SessionActivity extends Activity implements Session.Listener {
     private IconButton awayButton;
     private TextView countdown;
     private IconButton pauseButton;
+    private android.widget.HorizontalScrollView hotkeyScroll;
+    private LinearLayout hotkeyRow;
     private LevelMeterView strip;
     private View dim;
     private int focus;
@@ -95,6 +97,10 @@ public class SessionActivity extends Activity implements Session.Listener {
     private int[] liveZ;
     private float[][] liveMiniRects;    // the same for the Mini window
     private int[] liveMiniZ;
+    private boolean[] liveFloats;       // which pages float (see FloatLayer), full screen and Mini window
+    private boolean[] liveMiniFloats;
+    private boolean liveLandscape;      // the orientation the live full-screen arrangement was made in
+    private FloatLayer floatLayer;
     private boolean editing;
     private boolean editMini;
     private String editingLayoutId;
@@ -102,6 +108,8 @@ public class SessionActivity extends Activity implements Session.Listener {
     private LinearLayout editBar;
     private TextView editTitle;
     private TextView editShape;
+    private TextView editFloat;
+    private TextView editSnap;
     private IconButton layoutButton;
     private MiniLayoutEditor overlay;
     private FractionLayout editStack;
@@ -235,16 +243,20 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (!splitSet.contains(focus)) focus = slots.get(0);
         float[][] r = l.rectangles();
         int[] z = l.order();
+        boolean[] fl = l.floatFlags();
         if (l.mini) {
             liveMiniRects = r;
             liveMiniZ = z;
+            liveMiniFloats = fl;
             Prefs.setMiniShape(this, l.shape);
             Toast.makeText(this, "Used by the Mini window.", Toast.LENGTH_SHORT).show();
         } else {
             liveRects = r;
             liveZ = z;
+            liveFloats = fl;
+            liveLandscape = isLandscape();
         }
-        Prefs.setLastArrangement(this, l.mini, l.count, MiniLayout.pack(r, z));
+        Prefs.setLastArrangement(this, l.mini, l.count, isLandscape(), MiniLayout.pack(r, z, fl));
         rebuild();
         return true;
     }
@@ -256,6 +268,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         float[][] rects;
         int[] z;
         int[] rows;
+        boolean[] floats;
     }
 
     /**
@@ -266,19 +279,21 @@ public class SessionActivity extends Activity implements Session.Listener {
         Arr a = new Arr();
         float[][] live = mini ? liveMiniRects : liveRects;
         int[] liveOrder = mini ? liveMiniZ : liveZ;
-        if (live != null && live.length == n && liveOrder != null) {
+        if (live != null && live.length == n && liveOrder != null && (mini || liveLandscape == landscape)) {
             a.rects = live;
             a.z = liveOrder;
+            a.floats = mini ? liveMiniFloats : liveFloats;
             return a;
         }
         if (mini) {
             int mode = Prefs.pipLayout(this);
             if (mode == SplitLayout.OVERLAY) {
-                String last = Prefs.lastArrangement(this, true, n);
+                String last = Prefs.lastArrangement(this, true, n, false);
                 float[][] r = MiniLayout.unpackRects(last, n);
                 if (r != null) {
                     a.rects = r;
                     a.z = MiniLayout.unpackOrder(last, n);
+                    a.floats = MiniLayout.unpackFloats(last, n);
                     return a;
                 }
                 mode = SplitLayout.LIKE_SPLIT;
@@ -288,11 +303,12 @@ public class SessionActivity extends Activity implements Session.Listener {
         }
         int d = Prefs.splitDefault(this);
         if (d == 0) {
-            String last = Prefs.lastArrangement(this, false, n);
+            String last = Prefs.lastArrangement(this, false, n, landscape);
             float[][] r = MiniLayout.unpackRects(last, n);
             if (r != null) {
                 a.rects = r;
                 a.z = MiniLayout.unpackOrder(last, n);
+                a.floats = MiniLayout.unpackFloats(last, n);
                 return a;
             }
             d = 2;
@@ -332,12 +348,16 @@ public class SessionActivity extends Activity implements Session.Listener {
             for (int i = 0; i < n; i++) r[i] = base[i];
         }
         int[] z = a.z != null ? a.z.clone() : MiniLayout.decodeOrder("", n);
+        boolean[] fl = a.floats != null ? a.floats.clone() : new boolean[n];
         if (mini) {
             liveMiniRects = r;
             liveMiniZ = z;
+            liveMiniFloats = fl;
         } else {
             liveRects = r;
             liveZ = z;
+            liveFloats = fl;
+            liveLandscape = isLandscape();
         }
         editing = true;
         editMini = mini;
@@ -350,7 +370,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (!editing) return;
         float[][] r = editMini ? liveMiniRects : liveRects;
         int[] z = editMini ? liveMiniZ : liveZ;
-        if (r != null && z != null) Prefs.setLastArrangement(this, editMini, r.length, MiniLayout.pack(r, z));
+        if (r != null && z != null) Prefs.setLastArrangement(this, editMini, r.length, isLandscape(), MiniLayout.pack(r, z, editMini ? liveMiniFloats : liveFloats));
         editing = false;
         editingLayoutId = null;
         rebuild();
@@ -395,6 +415,8 @@ public class SessionActivity extends Activity implements Session.Listener {
         l.shape = Prefs.miniShape(this);
         l.rects = MiniLayout.encode(r);
         l.z = MiniLayout.encodeOrder(z);
+        boolean[] fl = editMini ? liveMiniFloats : liveFloats;
+        l.floats = fl != null && MiniLayout.anyFloat(fl) ? MiniLayout.encodeFloats(fl) : "";
     }
 
     /** The row of buttons that shows while arranging: order of the pages, window shape, save, done. */
@@ -418,12 +440,24 @@ public class SessionActivity extends Activity implements Session.Listener {
                     d.dismiss();
                     rebuild();
                 }).show());
+        editFloat = Ui.pill(this, "Float", 0);
+        editFloat.setOnClickListener(v -> {
+            if (overlay == null || !overlay.toggleFloat()) Toast.makeText(this, "Tap a page's frame first.", Toast.LENGTH_SHORT).show();
+            else updateEditBar();
+        });
         row1.addView(forward, Ui.weight(this, 0));
         row1.addView(back, Ui.weight(this, 6));
+        row1.addView(editFloat, Ui.weight(this, 6));
         row1.addView(editShape, Ui.weight(this, 6));
         editBar.addView(row1, Ui.lp(this, 6, 0));
         LinearLayout row2 = new LinearLayout(this);
-        TextView save = Ui.pill(this, "Save as layout", 0);
+        editSnap = Ui.pill(this, "Snap", 0);
+        editSnap.setOnClickListener(v -> {
+            Prefs.setSnapEdges(this, !Prefs.snapEdges(this));
+            if (overlay != null) overlay.setSnap(Prefs.snapEdges(this));
+            updateEditBar();
+        });
+        TextView save = Ui.pill(this, "Save", 0);
         save.setOnClickListener(v -> saveEdit());
         TextView reset = Ui.pill(this, "Reset to grid", 0);
         reset.setOnClickListener(v -> {
@@ -434,15 +468,18 @@ public class SessionActivity extends Activity implements Session.Listener {
             if (editMini) {
                 liveMiniRects = r;
                 liveMiniZ = MiniLayout.decodeOrder("", n);
+                liveMiniFloats = new boolean[n];
             } else {
                 liveRects = r;
                 liveZ = MiniLayout.decodeOrder("", n);
+                liveFloats = new boolean[n];
             }
             rebuild();
         });
         TextView done = Ui.pill(this, "Done", Ui.GREEN);
         done.setOnClickListener(v -> stopEdit());
-        row2.addView(save, Ui.weight(this, 0));
+        row2.addView(editSnap, Ui.weight(this, 0));
+        row2.addView(save, Ui.weight(this, 6));
         row2.addView(reset, Ui.weight(this, 6));
         row2.addView(done, Ui.weight(this, 6));
         editBar.addView(row2, Ui.lp(this, 6, 0));
@@ -460,10 +497,14 @@ public class SessionActivity extends Activity implements Session.Listener {
     private void updateEditBar() {
         editBar.setVisibility(editing && !inPip ? View.VISIBLE : View.GONE);
         if (!editing) return;
+        Ui.tint(this, editSnap, Prefs.snapEdges(this) ? Ui.GREEN : 0);
+        boolean sel = overlay != null && overlay.selected() >= 0;
+        Ui.tint(this, editFloat, sel && overlay.isFloating(overlay.selected()) ? Ui.GREEN : 0);
         editShape.setVisibility(editMini ? View.VISIBLE : View.GONE);
         editShape.setText("Shape: " + MiniLayout.SHAPE_LABELS[Math.max(0, Math.min(MiniLayout.SHAPE_LABELS.length - 1, Prefs.miniShape(this)))]);
         editTitle.setText((editMini ? "Arranging the Mini window" : "Arranging the split") + (editingLayoutId != null ? " (a saved layout)" : "")
-                + ". Drag a page's frame, drag its corner to resize. Pages stay live underneath.");
+                + ". Drag a page's frame, drag its corner to resize. Float turns a page into a movable picture-in-picture that cannot be touched. "
+                + "Snap makes edges meet.");
     }
 
     private void layoutMenu() {
@@ -512,6 +553,7 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     @Override
     protected void onResume() {
+        applyRotation();
         super.onResume();
         Profiles.returning();
         // After the screen was off or locked a page recorded off screen is put back into its pane.
@@ -832,8 +874,14 @@ public class SessionActivity extends Activity implements Session.Listener {
             });
             row3.addView(pip, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
-        layoutButton = new IconButton(this, IconButton.Icon.LAYOUT, "Arrange the pages");
-        layoutButton.setOnClickListener(v -> layoutMenu());
+        layoutButton = new IconButton(this, IconButton.Icon.LAYOUT, "Arrange the pages (hold for more)");
+        layoutButton.setOnClickListener(v -> {
+            if (editing) stopEdit(); else startEdit(false, null);   // one tap: arrange the pages right here, live
+        });
+        layoutButton.setOnLongClickListener(v -> {
+            layoutMenu();
+            return true;
+        });
         row3.addView(layoutButton, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
         IconButton lock = new IconButton(this, IconButton.Icon.LOCK, "Lock this page against touches");
         lock.setOnClickListener(v -> startPocketLock());
@@ -851,6 +899,14 @@ public class SessionActivity extends Activity implements Session.Listener {
         close.setOnClickListener(v -> confirmClose());
         row3.addView(close, new LinearLayout.LayoutParams(iw, ViewGroup.LayoutParams.WRAP_CONTENT));
         chromeBox.addView(row3, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // Workflows marked as a hotkey: one tap runs them, no questions asked.
+        hotkeyScroll = new android.widget.HorizontalScrollView(this);
+        hotkeyScroll.setHorizontalScrollBarEnabled(false);
+        hotkeyRow = new LinearLayout(this);
+        hotkeyScroll.addView(hotkeyRow);
+        hotkeyScroll.setPadding(side, 0, side, Ui.dp(this, 4));
+        chromeBox.addView(hotkeyScroll, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
 
         strip = new LevelMeterView(this);
         LinearLayout.LayoutParams ml = new LinearLayout.LayoutParams(-1, Ui.dp(this, 5));
@@ -885,6 +941,14 @@ public class SessionActivity extends Activity implements Session.Listener {
         dim.setFocusable(false);
         frame.addView(dim, new FrameLayout.LayoutParams(-1, -1));
         setContentView(frame);
+    }
+
+    /** Rotation of this screen: with the phone's setting, always with the sensor, or portrait only (Settings). */
+    private void applyRotation() {
+        int mode = Prefs.rotation(this);
+        setRequestedOrientation(mode == 1 ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                : mode == 2 ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
+                : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
     }
 
     private void applyBrightness() {
@@ -966,8 +1030,8 @@ public class SessionActivity extends Activity implements Session.Listener {
         if (shown.isEmpty() && front() != null) shown.add(front());
         boolean together = split && shown.size() >= 2;
         // An arrangement made for another number of pages no longer applies.
-        if (liveRects != null && liveRects.length != shown.size()) liveRects = null;
-        if (liveMiniRects != null && liveMiniRects.length != shown.size()) liveMiniRects = null;
+        if (liveRects != null && (liveRects.length != shown.size() || liveFloats == null || liveFloats.length != shown.size())) liveRects = null;
+        if (liveMiniRects != null && (liveMiniRects.length != shown.size() || liveMiniFloats == null || liveMiniFloats.length != shown.size())) liveMiniRects = null;
         if (editing && (inPip || !together || (editMini ? liveMiniRects : liveRects) == null)) editing = false;
         Arr arr = together ? arrangement(inPip || editMini && editing, shown.size(), landscape) : null;
         boolean custom0 = arr != null && arr.rects != null;
@@ -1010,15 +1074,22 @@ public class SessionActivity extends Activity implements Session.Listener {
                 // The frames sit over the live pages. The Mini window is arranged in a box of its own shape.
                 FrameLayout canvas = new FrameLayout(this);
                 canvas.addView(stack, new FrameLayout.LayoutParams(-1, -1));
-                overlay = new MiniLayoutEditor(this, (rects, order) -> {
+                overlay = new MiniLayoutEditor(this, (rects, order, floating) -> {
                     int[] before = editMini ? liveMiniZ : liveZ;
                     int[] copy = order.clone();
-                    if (editMini) liveMiniZ = copy; else liveZ = copy;
+                    if (editMini) {
+                        liveMiniZ = copy;
+                        liveMiniFloats = floating.clone();
+                    } else {
+                        liveZ = copy;
+                        liveFloats = floating.clone();
+                    }
                     editSelected = overlay != null ? overlay.selected() : -1;
                     if (!java.util.Arrays.equals(before, copy)) mainHandler.post(this::rebuild);   // the stacking changed
                     else if (editStack != null) editStack.setRects(permuted(rects, copy));
                 });
-                overlay.set(arr.rects, arr.z);
+                overlay.set(arr.rects, arr.z, arr.floats != null ? arr.floats : new boolean[n]);
+                overlay.setSnap(Prefs.snapEdges(this));
                 overlay.select(editSelected);
                 canvas.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
                 editStack = stack;
@@ -1030,6 +1101,21 @@ public class SessionActivity extends Activity implements Session.Listener {
                     boxFrame.addView(canvas, new FrameLayout.LayoutParams(-1, -1));
                     content = boxFrame;
                 }
+            }
+            if (!editing && !inPip && MiniLayout.anyFloat(arr.floats)) {
+                // Floating pages: drag them around; touches on them never reach the page.
+                FrameLayout withFloat = new FrameLayout(this);
+                withFloat.addView(stack, new FrameLayout.LayoutParams(-1, -1));
+                final float[][] r = arr.rects;
+                final int[] zOrder = arr.z;
+                final boolean[] fl = arr.floats;
+                floatLayer = new FloatLayer(this, moved -> {
+                    stack.setRects(permuted(moved, zOrder));
+                    Prefs.setLastArrangement(this, false, moved.length, isLandscape(), MiniLayout.pack(moved, zOrder, fl));
+                });
+                floatLayer.set(r, zOrder, fl, Prefs.snapEdges(this));
+                withFloat.addView(floatLayer, new FrameLayout.LayoutParams(-1, -1));
+                content = withFloat;
             }
             paneHolder.addView(content, new LinearLayout.LayoutParams(-1, 0, 1f));
         } else {
@@ -1097,7 +1183,30 @@ public class SessionActivity extends Activity implements Session.Listener {
         grid.setRatios(r, Prefs.reclaimEmpty(this));
     }
 
+    private void updateHotkeys() {
+        hotkeyRow.removeAllViews();
+        for (Workflow w : WorkflowStore.load(this)) {
+            if (!w.hotkey) continue;
+            TextView b = Ui.pill(this, w.name.isEmpty() ? "Workflow" : w.name, WorkflowRunner.isRunning(w.id) ? Ui.GREEN : 0);
+            b.setSingleLine(true);
+            b.setPadding(Ui.dp(this, 14), Ui.dp(this, 7), Ui.dp(this, 14), Ui.dp(this, 7));
+            b.setOnClickListener(v -> {
+                if (WorkflowRunner.isRunning(w.id)) {
+                    WorkflowRunner.stop(w.id);
+                } else {
+                    WorkflowRunner.start(this, w.id, false);
+                }
+                v.postDelayed(this::updateHotkeys, 400);
+            });
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            p.rightMargin = Ui.dp(this, 6);
+            hotkeyRow.addView(b, p);
+        }
+        hotkeyScroll.setVisibility(hotkeyRow.getChildCount() == 0 ? View.GONE : View.VISIBLE);
+    }
+
     private void updateControls() {
+        updateHotkeys();
         Session f = front();
         for (int i = 0; i < Sessions.COUNT; i++) {
             Session s = Sessions.get(i);
@@ -1111,6 +1220,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         splitButton.setVisibility(Sessions.active().size() > 1 ? View.VISIBLE : View.GONE);
         layoutButton.setVisibility(Sessions.active().size() > 1 ? View.VISIBLE : View.GONE);
         updateEditBar();
+        Ui.tint(this, layoutButton, editing ? Ui.GREEN : 0);
         Ui.tint(this, splitButton, split ? Ui.GREEN : 0);
         if (f == null) return;
         muteButton.setIcon(f.isMuted() ? IconButton.Icon.MIC_OFF : IconButton.Icon.MIC);

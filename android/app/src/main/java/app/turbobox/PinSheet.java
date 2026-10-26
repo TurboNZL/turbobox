@@ -136,6 +136,13 @@ final class PinSheet {
         ads.setChecked(!pin.noAdblock);
         ads.setOnCheckedChangeListener((b, on) -> change(act, pin, p -> p.noAdblock = !on));
         col.addView(ads, Ui.lp(act, 4, 4));
+        Switch drm = Ui.toggle(act);
+        drm.setText("Allow protected video (Widevine)");
+        drm.setChecked(pin.allowDrm);
+        drm.setOnCheckedChangeListener((b, on) -> change(act, pin, p -> p.allowDrm = on));
+        col.addView(drm, Ui.lp(act, 4, 0));
+        col.addView(Ui.hint(act, "Needed by streaming sites that protect their video. Tradeoff: protected video cannot be recorded (it comes out black) and may "
+                + "not play while the screen is off. Takes effect when the page is opened again."), Ui.lp(act, 0, 4));
         col.addView(done, Ui.lp(act, 14, 0));
         d.show();
     }
