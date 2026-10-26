@@ -367,6 +367,7 @@ public class SessionActivity extends Activity implements Session.Listener {
             liveLandscape = isLandscape();
         }
         editing = true;
+        Toast.makeText(this, "Drag a page to move it, a corner to resize it, pinch to resize keeping its shape. Float makes a page a movable, untouchable picture-in-picture.", Toast.LENGTH_LONG).show();
         editMini = mini;
         editingLayoutId = layoutId;
         editSelected = -1;
@@ -433,8 +434,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         editBar.setBackgroundColor(Ui.BG);
         int side = Ui.dp(this, 12);
         editBar.setPadding(side, Ui.dp(this, 6), side, Ui.dp(this, 6));
-        editTitle = Ui.text(this, "", 13f, Ui.DIM, "sans-serif");
-        editBar.addView(editTitle);
+        editTitle = Ui.text(this, "", 13f, Ui.DIM, "sans-serif");   // kept for the code that sets it; the hint is shown once as a toast instead, so the bar stays small
         LinearLayout row1 = new LinearLayout(this);
         TextView forward = Ui.pill(this, "Bring forward", 0);
         forward.setOnClickListener(v -> moveSelected(1));
@@ -456,7 +456,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         row1.addView(back, Ui.weight(this, 6));
         row1.addView(editFloat, Ui.weight(this, 6));
         row1.addView(editShape, Ui.weight(this, 6));
-        editBar.addView(row1, Ui.lp(this, 6, 0));
+        editBar.addView(row1, Ui.match(Ui.dp(this, 46)));
         LinearLayout row2 = new LinearLayout(this);
         editSnap = Ui.pill(this, "Snap", 0);
         editSnap.setOnClickListener(v -> {
@@ -489,7 +489,12 @@ public class SessionActivity extends Activity implements Session.Listener {
         row2.addView(save, Ui.weight(this, 6));
         row2.addView(reset, Ui.weight(this, 6));
         row2.addView(done, Ui.weight(this, 6));
-        editBar.addView(row2, Ui.lp(this, 6, 0));
+        LinearLayout.LayoutParams r2 = Ui.match(Ui.dp(this, 46));
+        r2.topMargin = Ui.dp(this, 6);
+        editBar.addView(row2, r2);
+        for (LinearLayout row : new LinearLayout[]{row1, row2}) {
+            for (int i = 0; i < row.getChildCount(); i++) row.getChildAt(i).getLayoutParams().height = ViewGroup.LayoutParams.MATCH_PARENT;
+        }
         editBar.setVisibility(View.GONE);
     }
 
@@ -503,6 +508,17 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     private void updateEditBar() {
         editBar.setVisibility(editing && !inPip ? View.VISIBLE : View.GONE);
+        if (editing && !inPip) {
+            boolean chrome = chromeBox.getVisibility() == View.VISIBLE && chromeBox.getHeight() > 0;
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) editBar.getLayoutParams();
+            int want = chrome ? chromeBox.getHeight() : ViewGroup.LayoutParams.WRAP_CONTENT;
+            int grav = chrome ? Gravity.TOP : Gravity.BOTTOM;   // with the bar hidden it sits at the bottom over the pages
+            if (lp.height != want || lp.gravity != grav) {
+                lp.height = want;
+                lp.gravity = grav;
+                editBar.setLayoutParams(lp);
+            }
+        }
         if (!editing) return;
         Ui.tint(this, editSnap, Prefs.snapEdges(this) ? Ui.GREEN : 0);
         boolean sel = overlay != null && overlay.selected() >= 0;
@@ -1075,7 +1091,6 @@ public class SessionActivity extends Activity implements Session.Listener {
             panes[i].addView(boxes[i], new FrameLayout.LayoutParams(-1, -1));
         }
         buildEditBar();
-        root.addView(editBar, new LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT));
         paneStage = new PipStage(this);
         paneStage.addView(paneHolder, new FrameLayout.LayoutParams(-1, -1));
         root.addView(paneStage, new LinearLayout.LayoutParams(-1, 0, 1f));
@@ -1083,6 +1098,8 @@ public class SessionActivity extends Activity implements Session.Listener {
         // Brightness veil over everything, the same trick as Tether's main screen.
         FrameLayout frame = new FrameLayout(this);
         frame.addView(root, new FrameLayout.LayoutParams(-1, -1));
+        // The arranging buttons sit over the top bar (not in their own row), so the page area is exactly the size it is normally.
+        frame.addView(editBar, new FrameLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP));
         dim = new View(this);
         dim.setBackgroundColor(Color.BLACK);
         dim.setClickable(false);
