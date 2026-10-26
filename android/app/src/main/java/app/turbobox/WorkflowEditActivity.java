@@ -198,7 +198,7 @@ public class WorkflowEditActivity extends Activity {
         List<String> names = new ArrayList<>();
         for (String id : wf.pinIds) {
             Pin p = PinStore.find(this, id);
-            if (p != null) names.add(p.name);
+            if (p != null && !Profiles.isLocked(this, p.profileId)) names.add(p.name);
         }
         return names.isEmpty() ? "Choose pinned pages" : String.join(", ", names);
     }

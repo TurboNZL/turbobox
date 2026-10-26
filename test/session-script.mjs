@@ -180,6 +180,17 @@ await p2.evaluate(() => window.__turbobox.configure({ micAllowed: false }));
 const denied = await p2.evaluate(async () => { try { await navigator.mediaDevices.getUserMedia({ audio: true }); return 'allowed'; } catch (e) { return e.name; } });
 check('a blocked microphone is refused like a browser "Block"', denied === 'NotAllowedError', denied);
 await p2.evaluate(() => window.__turbobox.configure({ micAllowed: true }));
+// virtual devices: pages see one fixed set whatever the phone has
+const devs = await p2.evaluate(async () => (await navigator.mediaDevices.enumerateDevices()).map(d => d.kind + ':' + d.label));
+check('a page sees one microphone and one speaker, nothing else', JSON.stringify(devs) === JSON.stringify(['audioinput:Microphone', 'audiooutput:Speaker']), devs);
+await p2.evaluate(() => window.__turbobox.configure({ cameraAllowed: true }));
+const devs2 = await p2.evaluate(async () => (await navigator.mediaDevices.enumerateDevices()).map(d => d.kind + ':' + d.label));
+check('a front and a back camera are listed once the camera is allowed', devs2.length === 4 && devs2.includes('videoinput:Back camera'), devs2);
+await p2.evaluate(() => window.__turbobox.configure({ cameraAllowed: false }));
+const sink = await p2.evaluate(async () => { const a = new Audio(); await a.setSinkId('anything'); return a.sinkId + '|' + (await navigator.mediaDevices.selectAudioOutput()).label; });
+check('choosing an output device is accepted and changes nothing', sink === '|Speaker', sink);
+const micPick = await p2.evaluate(async () => { const s = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: 'some-real-headset' } } }); const l = s.getAudioTracks().length; s.getTracks().forEach(t => t.stop()); return l; });
+check('a page that asks for another microphone id still gets the virtual one', micPick === 1, micPick);
 const allowed = await p2.evaluate(async () => { try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach(t => t.stop()); return 'allowed'; } catch (e) { return e.name; } });
 check('an allowed microphone is handed over', allowed === 'allowed', allowed);
 
@@ -203,6 +214,16 @@ check('the page still reads back what it set', lm.seen.every(v => v === false), 
 await page.evaluate(() => window.__turbobox.setLocalMute(false));
 const lm2 = await page.evaluate(() => ({ master: window.__turbobox.state().masters, real: [document.getElementById('a'), window.__na].map(e => window.__turbobox.realMuted(e)) }));
 check('letting go restores the page\'s own settings', lm2.master.every(g => g === 1) && lm2.real.every(v => v === false), lm2);
+// page volume is a middleman: the page's own volume stays readable and is not the one that is scaled
+await page.evaluate(() => window.__turbobox.setVolume(0.5));
+await page.waitForTimeout(300);
+const pv = await page.evaluate(() => { const a = document.getElementById('a'); return { masters: window.__turbobox.state().masters, own: a.volume, real: (window.__turbobox.state().masters.length, a.volume) }; });
+check('page volume scales the master gain, not what the page reads from its element', pv.masters.some(g => Math.abs(g - 0.5) < 0.01) && pv.own === 1, pv);
+await page.evaluate(() => { window.__na.volume = 0.8; });
+const pv2 = await page.evaluate(() => window.__na.volume);
+check('what the page sets on its element reads back unchanged', pv2 === 0.8, pv2);
+await page.evaluate(() => window.__turbobox.setVolume(1));
+await page.waitForTimeout(200);
 await page.evaluate(() => { window.__osc.stop(); window.__na.pause(); });
 
 // permission signalling follows the privacy switches

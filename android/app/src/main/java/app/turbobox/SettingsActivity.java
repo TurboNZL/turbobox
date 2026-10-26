@@ -97,6 +97,23 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         }
         body.addView(power, Ui.lp(this, 12, 0));
 
+        // Sound
+        LinearLayout sound = Ui.card(this);
+        sound.addView(Ui.text(this, "Sound", 17f, Ui.TEXT, "sans-serif-medium"));
+        sound.addView(Ui.hint(this, "Pages always see one microphone and one speaker. Here you choose the real ones behind them."), Ui.lp(this, 4, 8));
+        TextView micRow = Ui.text(this, "Microphone: " + MicPicker.summary(this), 15f, Ui.TEXT, "sans-serif");
+        micRow.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 8));
+        micRow.setOnClickListener(v -> MicPicker.show(this, this::render));
+        sound.addView(micRow);
+        TextView volLabel = Ui.text(this, "Phone volume " + Ui.pct(NativeVolume.get(this)), 15f, Ui.TEXT, "sans-serif");
+        sound.addView(volLabel, Ui.lp(this, 8, 0));
+        sound.addView(Ui.slider(this, 1f, NativeVolume.get(this), (value, fromUser) -> {
+            volLabel.setText("Phone volume " + Ui.pct(value));
+            if (fromUser) NativeVolume.set(this, value);
+        }));
+        sound.addView(Ui.hint(this, "Sets the media and the call volume together, so it works while a Bluetooth headset is in call mode and the volume buttons only move one of them."), Ui.lp(this, 4, 0));
+        body.addView(sound, Ui.lp(this, 12, 0));
+
         // The session screen
         LinearLayout screen = Ui.card(this);
         screen.addView(Ui.text(this, "Pages on screen", 17f, Ui.TEXT, "sans-serif-medium"));

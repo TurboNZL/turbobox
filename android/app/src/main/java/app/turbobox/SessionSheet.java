@@ -306,34 +306,18 @@ final class SessionSheet implements Session.Listener {
     // ---- microphone: the phone's real inputs, and a level test ---------------------------------
 
     private AudioDeviceInfo chosenInput() {
-        return Devices.find(act, Prefs.micKey(act));
+        return MicPicker.chosen(act);
     }
 
     private String micSummary() {
-        Devices.ensureMicChoice(act);
-        AudioDeviceInfo d = chosenInput();
-        return d == null ? "Chosen input not available" : Devices.describe(d);
+        return MicPicker.summary(act);
     }
 
     private void chooseMic() {
-        List<AudioDeviceInfo> inputs = Devices.inputs(act);
-        List<String> items = new ArrayList<>();
-        for (AudioDeviceInfo d : inputs) items.add(Devices.describe(d));
-        String key = Prefs.micKey(act);
-        int checked = 0;
-        for (int i = 0; i < inputs.size(); i++) if (Devices.key(inputs.get(i)).equals(key)) checked = i;
-        new AlertDialog.Builder(act)
-                .setTitle("Microphone")
-                .setSingleChoiceItems(items.toArray(new String[0]), checked, (d, which) -> {
-                    String chosen = Devices.key(inputs.get(which));
-                    Prefs.setMicKey(act, chosen);
-                    for (Session s : Sessions.active()) s.setMicChoice(chosen);
-                    if (micValue != null) micValue.setText(micSummary());
-                    InputRoute.apply(act, chosenInput());
-                    startMicTest(); // test the one just picked
-                    d.dismiss();
-                })
-                .show();
+        MicPicker.show(act, () -> {
+            if (micValue != null) micValue.setText(micSummary());
+            startMicTest(); // test the one just picked
+        });
     }
 
     private void startMicTest() {

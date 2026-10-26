@@ -166,7 +166,8 @@ public class MainActivity extends Activity {
     private void profileMenu(Profiles.Profile profile) {
         List<String> items = new ArrayList<>();
         items.add("Rename");
-        items.add(profile.hasPassword() ? "Change or remove the password" : "Set a password");
+        items.add(profile.hasPassword() ? "Change the code" : "Set a code");
+        if (profile.hasPassword()) items.add("Remove the code");
         if (profile.hasPassword() && !Profiles.isLocked(this, profile.id)) items.add("Lock now");
         if (!profile.id.equals(Profiles.DEFAULT)) items.add("Remove, with its pages and sign-ins");
         new AlertDialog.Builder(this).setTitle(profile.name)
@@ -174,8 +175,14 @@ public class MainActivity extends Activity {
                     String chosen = items.get(which);
                     if (chosen.equals("Rename")) {
                         nameProfile(profile);
-                    } else if (chosen.equals("Set a password") || chosen.startsWith("Change")) {
+                    } else if (chosen.equals("Set a code") || chosen.equals("Change the code")) {
                         if (profile.hasPassword()) askPassword(profile, () -> newPassword(profile)); else newPassword(profile);
+                    } else if (chosen.equals("Remove the code")) {
+                        askPassword(profile, () -> {
+                            Profiles.setPassword(this, profile.id, "");
+                            Shortcuts.refresh(this);
+                            render();
+                        });
                     } else if (chosen.equals("Lock now")) {
                         Profiles.lock(profile.id);
                         Shortcuts.refresh(this);
@@ -193,54 +200,18 @@ public class MainActivity extends Activity {
                 }).show();
     }
 
-    /** Asks for the profile's password and runs {@code then} when it is right. */
+    /** Asks for the profile's code on the number pad and runs {@code then} when it is right. */
     private void askPassword(Profiles.Profile profile, Runnable then) {
-        EditText pw = new EditText(this);
-        pw.setHint("Password");
-        pw.setSingleLine(true);
-        pw.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        AlertDialog d = new AlertDialog.Builder(this).setTitle("Unlock " + profile.name).setView(pw)
-                .setPositiveButton("Unlock", null).setNegativeButton("Cancel", null).create();
-        d.setOnShowListener(x -> d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            if (Profiles.unlock(this, profile.id, pw.getText().toString())) {
-                d.dismiss();
-                then.run();
-            } else {
-                pw.setError("Wrong password");
-            }
-        }));
-        d.show();
+        PinPad.ask(this, "Unlock " + profile.name, code -> Profiles.unlock(this, profile.id, code), then);
     }
 
-    /** A new password for a profile, typed twice; leaving both empty removes the password. */
+    /** A new code for a profile, entered twice on the pad. */
     private void newPassword(Profiles.Profile profile) {
-        LinearLayout form = new LinearLayout(this);
-        form.setOrientation(LinearLayout.VERTICAL);
-        int p = Ui.dp(this, 20);
-        form.setPadding(p, Ui.dp(this, 8), p, 0);
-        EditText one = new EditText(this);
-        one.setHint("New password (empty removes it)");
-        EditText two = new EditText(this);
-        two.setHint("Again");
-        for (EditText e : new EditText[]{one, two}) {
-            e.setSingleLine(true);
-            e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-            form.addView(e);
-        }
-        form.addView(Ui.hint(this, "It only hides this profile's pages here; it cannot be recovered if you forget it (removing the profile is the way out)."), Ui.lp(this, 6, 0));
-        AlertDialog d = new AlertDialog.Builder(this).setTitle("Password for " + profile.name).setView(form)
-                .setPositiveButton("Save", null).setNegativeButton("Cancel", null).create();
-        d.setOnShowListener(x -> d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            if (!one.getText().toString().equals(two.getText().toString())) {
-                two.setError("They do not match");
-                return;
-            }
-            Profiles.setPassword(this, profile.id, one.getText().toString());
+        PinPad.create(this, "Code for " + profile.name, code -> {
+            Profiles.setPassword(this, profile.id, code);
             Shortcuts.refresh(this);
-            d.dismiss();
             render();
-        }));
-        d.show();
+        });
     }
 
     private void nameProfile(Profiles.Profile existing) {

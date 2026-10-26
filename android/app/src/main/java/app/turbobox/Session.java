@@ -600,10 +600,7 @@ final class Session {
     void setMicChoice(String key) {
         micKey = key == null ? "" : key;
         js("__turbobox.configure({micLabel:" + JSONObject.quote(micLabel()) + "})");
-        js("__turbobox.setVirtualMic(" + !micKey.isEmpty() + ")");
-        if (micKey.isEmpty()) {
-            stopCapture();
-        } else if (pageWantsMic) {
+        if (pageWantsMic) {
             stopCapture();
             startCapture();
         }
@@ -646,7 +643,7 @@ final class Session {
     }
 
     private void startCapture() {
-        if (micKey.isEmpty() || vmic.isRunning() || !active) return;
+        if (vmic.isRunning() || !active) return;
         AudioDeviceInfo device = Devices.find(app, micKey);
         if (device == null) notice("The chosen microphone is not available now; using the system default input.");
         if (!micAllowed) return;
@@ -1194,7 +1191,7 @@ final class Session {
         try {
             JSONObject settings = new JSONObject()
                     .put("muted", silenced()).put("volume", volume).put("aec", aec).put("zoom", effectiveZoom())
-                    .put("micGain", micGain).put("virtual", !micKey.isEmpty()).put("micLabel", micLabel())
+                    .put("micGain", micGain).put("micLabel", micLabel())
                     .put("tap", isRecording()).put("micAllowed", micAllowed).put("cameraAllowed", cameraAllowed).put("localMute", frozen)
                     .put("keepVisible", Prefs.keepPlaying(app)).put("desktop", !mobile);
             if (viewCssWidth > 0) settings.put("viewWidth", viewCssWidth);
