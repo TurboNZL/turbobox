@@ -147,6 +147,62 @@ final class StepTemplates {
         return ALL;
     }
 
+    // ---- icons and colours (the editor maps the key to its drawn icon) ----------------------------------------------------
+
+    static final int C_WAIT = 0xFFFD971F, C_PAGE = 0xFF66D9EF, C_SOUND = 0xFFF92672, C_REC = 0xFFE10600, C_CLOSE = 0xFFFBBF24, C_FLOW = 0xFFB48EF7;
+
+    /** The name of the icon (an IconButton.Icon constant) for a kind of step. */
+    static String iconKey(WorkflowParser.Kind k) {
+        switch (k) {
+            case OPEN: return "ROTATE";
+            case WAIT: case WAIT_UNTIL: return "TIMER";
+            case WAITFOR: return "EYE";
+            case CLICK: case MARK: return "TARGET";
+            case TYPE: case KEY: return "EDIT";
+            case SCROLL: return "DOWN";
+            case MUTE: return "MIC_OFF";
+            case UNMUTE: return "MIC";
+            case VOLUME: return "SPEAKER";
+            case HANGUP: case CLOSE: case CLOSE_OTHERS: case CLOSE_ALL: case CLOSE_KEEP: return "CLOSE";
+            case RECORD_START: return "RECORD";
+            case RECORD_STOP: return "STOP";
+            case STEP_AWAY: return "BOTH";
+            case STEP_BACK: case RESUME: case MEDIA: return "PLAY";
+            case PAUSE: return "PAUSE";
+            case TRANSCRIBE_ON: case TRANSCRIBE_OFF: return "CAPTIONS";
+            case JS: return "GEAR";
+            case APP: return "MINI";
+            case RUN: return "SHARE";
+            default: return "GEAR";
+        }
+    }
+
+    static int colorFor(WorkflowParser.Kind k) {
+        switch (k) {
+            case WAIT: case WAIT_UNTIL: return C_WAIT;
+            case OPEN: case WAITFOR: case CLICK: case TYPE: case KEY: case SCROLL: case JS: return C_PAGE;
+            case MUTE: case UNMUTE: case VOLUME: case MEDIA: return C_SOUND;
+            case RECORD_START: case RECORD_STOP: case STEP_AWAY: case STEP_BACK: case PAUSE: case RESUME: case MARK: case TRANSCRIBE_ON: case TRANSCRIBE_OFF: return C_REC;
+            case HANGUP: case CLOSE: case CLOSE_OTHERS: case CLOSE_ALL: case CLOSE_KEEP: return C_CLOSE;
+            default: return C_FLOW;
+        }
+    }
+
+    /** The kind of step a line is, or null when it does not parse. */
+    static WorkflowParser.Kind kindOf(String line) {
+        try {
+            List<WorkflowParser.Step> l = WorkflowParser.parse(line);
+            return l.isEmpty() ? null : l.get(0).kind;
+        } catch (WorkflowParser.ParseError e) {
+            return null;
+        }
+    }
+
+    /** The line with the condition ("if mobile ..." / "if desktop ...") the person chose: 0 always, 1 mobile site, 2 desktop site. */
+    static String withCondition(String line, int condition) {
+        return condition == 1 ? "if mobile " + line : condition == 2 ? "if desktop " + line : line;
+    }
+
     /** What the editor shows for a step line: plain words instead of the syntax. Falls back to the line itself. */
     static String describe(String line) {
         WorkflowParser.Step s;
@@ -192,6 +248,8 @@ final class StepTemplates {
             case APP: text = "Open app: " + s.text; break;
             default: text = line;
         }
+        if (s.condition == 1) text += " (only on the mobile site)";
+        if (s.condition == 2) text += " (only on the desktop site)";
         return s.optional ? text + " (skip if it fails)" : text;
     }
 
@@ -210,6 +268,7 @@ final class StepTemplates {
         String[] values;
         boolean optional;
         long withinSeconds;   // 0 = the usual time
+        int condition;        // 0 always, 1 mobile site only, 2 desktop site only
     }
 
     /** Null when the line is not one a template can rebuild (it is then edited as plain text). */
@@ -266,6 +325,7 @@ final class StepTemplates {
             e.template = t;
             e.values = v;
             e.optional = s.optional;
+            e.condition = s.condition;
             long def = defaultWithin(s.kind);
             e.withinSeconds = t.pageStep && s.withinMs != def ? s.withinMs / 1000 : 0;
             return e;

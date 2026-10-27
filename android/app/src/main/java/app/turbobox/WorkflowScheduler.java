@@ -18,6 +18,7 @@ import java.time.ZonedDateTime;
 final class WorkflowScheduler {
     static final String ACTION_RUN = "app.turbobox.RUN_WORKFLOW";
     static final String EXTRA_ID = "id";
+    static final String EXTRA_PIN = "pin";   // set for a page that has its own schedule
 
     private WorkflowScheduler() {
     }
@@ -36,23 +37,17 @@ final class WorkflowScheduler {
         return -1;
     }
 
-    private static PendingIntent intentFor(Context c, String id) {
+    private static PendingIntent intentFor(Context c, String id, String pinId) {
         Intent i = new Intent(c, WorkflowReceiver.class).setAction(ACTION_RUN).putExtra(EXTRA_ID, id);
-        return PendingIntent.getBroadcast(c, id.hashCode(), i, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        if (pinId != null) i.putExtra(EXTRA_PIN, pinId);
+        return PendingIntent.getBroadcast(c, (pinId == null ? id : id + ":" + pinId).hashCode(), i,
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
     }
 
-    static boolean canScheduleExact(Context c) {
-        if (Build.VERSION.SDK_INT < 31) return true;
-        return c.getSystemService(AlarmManager.class).canScheduleExactAlarms();
-    }
-
-    static void schedule(Context c, Workflow wf) {
-        AlarmManager am = c.getSystemService(AlarmManager.class);
-        cancel(c, wf.id);
-        if (!wf.timed || !wf.enabled) return;
-        long when = nextRun(System.currentTimeMillis(), wf.hour, wf.minute, wf.days, ZoneId.systemDefault());
+    private static void plan(Context c, AlarmManager am, String id, String pinId, int hour, int minute, int days) {
+        long when = nextRun(System.currentTimeMillis(), hour, minute, days, ZoneId.systemDefault());
         if (when < 0) return;
-        PendingIntent pi = intentFor(c, wf.id);
+        PendingIntent pi = intentFor(c, id, pinId);
         if (canScheduleExact(c)) {
             am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, when, pi);
         } else {
@@ -61,8 +56,32 @@ final class WorkflowScheduler {
         }
     }
 
+    static boolean canScheduleExact(Context c) {
+        if (Build.VERSION.SDK_INT < 31) return true;
+        return c.getSystemService(AlarmManager.class).canScheduleExactAlarms();
+    }
+
+    /** One alarm for the workflow's own schedule and one for each page that has a schedule of its own. */
+    static void schedule(Context c, Workflow wf) {
+        AlarmManager am = c.getSystemService(AlarmManager.class);
+        cancelAll(c, wf);
+        if (wf.timed && wf.enabled) plan(c, am, wf.id, null, wf.hour, wf.minute, wf.days);
+        for (java.util.Map.Entry<String, Workflow.PageSchedule> e : wf.pageSchedules.entrySet()) {
+            Workflow.PageSchedule ps = e.getValue();
+            if (ps.enabled && wf.pinIds.contains(e.getKey())) plan(c, am, wf.id, e.getKey(), ps.hour, ps.minute, ps.days);
+        }
+    }
+
+    static void cancelAll(Context c, Workflow wf) {
+        AlarmManager am = c.getSystemService(AlarmManager.class);
+        am.cancel(intentFor(c, wf.id, null));
+        java.util.Set<String> pins = new java.util.HashSet<>(wf.pinIds);
+        pins.addAll(wf.pageSchedules.keySet());
+        for (String pin : pins) am.cancel(intentFor(c, wf.id, pin));
+    }
+
     static void cancel(Context c, String id) {
-        c.getSystemService(AlarmManager.class).cancel(intentFor(c, id));
+        c.getSystemService(AlarmManager.class).cancel(intentFor(c, id, null));
     }
 
     static void scheduleAll(Context c) {
@@ -73,12 +92,22 @@ final class WorkflowScheduler {
     static Object[] soonest(Context c) {
         long best = Long.MAX_VALUE;
         String name = null;
+        long now = System.currentTimeMillis();
         for (Workflow w : WorkflowStore.load(c)) {
-            if (!w.timed || !w.enabled) continue;
-            long t = nextRun(System.currentTimeMillis(), w.hour, w.minute, w.days, ZoneId.systemDefault());
-            if (t >= 0 && t < best) {
-                best = t;
-                name = w.name;
+            if (w.timed && w.enabled) {
+                long t = nextRun(now, w.hour, w.minute, w.days, ZoneId.systemDefault());
+                if (t >= 0 && t < best) {
+                    best = t;
+                    name = w.name;
+                }
+            }
+            for (Workflow.PageSchedule ps : w.pageSchedules.values()) {
+                if (!ps.enabled) continue;
+                long t = nextRun(now, ps.hour, ps.minute, ps.days, ZoneId.systemDefault());
+                if (t >= 0 && t < best) {
+                    best = t;
+                    name = w.name;
+                }
             }
         }
         return name == null ? null : new Object[]{name, best};

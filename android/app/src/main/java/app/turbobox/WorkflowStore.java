@@ -66,7 +66,8 @@ final class WorkflowStore {
     }
 
     static void remove(Context c, String id) {
-        WorkflowScheduler.cancel(c, id);
+        Workflow old = find(c, id);
+        if (old != null) WorkflowScheduler.cancelAll(c, old); else WorkflowScheduler.cancel(c, id);
         List<Workflow> list = load(c);
         for (int i = list.size() - 1; i >= 0; i--) if (list.get(i).id.equals(id)) list.remove(i);
         save(c, list);

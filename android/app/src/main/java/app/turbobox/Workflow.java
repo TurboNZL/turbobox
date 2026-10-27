@@ -18,7 +18,15 @@ final class Workflow {
     final String id;
     String name = "";
     final List<String> pinIds = new ArrayList<>();   // the pinned pages it runs on; every one gets its own run of the steps
-    final java.util.Map<String, Long> pinDelays = new java.util.HashMap<>();   // seconds after the start that each page's run begins (absent = at once)
+    /** A page that runs the same steps at a time and on days of its own, instead of with the workflow's schedule. */
+    static final class PageSchedule {
+        boolean enabled = true;
+        int hour = 8;
+        int minute;
+        int days = ALL_DAYS;
+    }
+
+    final java.util.Map<String, PageSchedule> pageSchedules = new java.util.LinkedHashMap<>();   // by pinned page id; absent = follows the workflow's schedule
     String steps = "";
     boolean timed;                       // run by itself at hour:minute on the chosen days
     boolean hotkey;                      // shown as a one-tap button on the page screen
@@ -46,7 +54,7 @@ final class Workflow {
     JSONObject toJson() {
         try {
             return new JSONObject().put("id", id).put("name", name).put("pinId", firstPinId())
-                    .put("pinIds", new JSONArray(pinIds)).put("steps", steps).put("pinDelays", delaysJson())
+                    .put("pinIds", new JSONArray(pinIds)).put("steps", steps).put("pageSchedules", schedulesJson())
                     .put("timed", timed).put("enabled", enabled).put("hotkey", hotkey).put("hour", hour).put("minute", minute)
                     .put("days", days).put("lastRunAt", lastRunAt).put("lastOk", lastOk)
                     .put("lastMessage", lastMessage);
@@ -55,19 +63,23 @@ final class Workflow {
         }
     }
 
-    private JSONObject delaysJson() {
+    private JSONObject schedulesJson() {
         JSONObject d = new JSONObject();
         try {
-            for (java.util.Map.Entry<String, Long> e : pinDelays.entrySet()) if (e.getValue() > 0 && pinIds.contains(e.getKey())) d.put(e.getKey(), e.getValue());
+            for (java.util.Map.Entry<String, PageSchedule> e : pageSchedules.entrySet()) {
+                if (!pinIds.contains(e.getKey())) continue;
+                PageSchedule ps = e.getValue();
+                d.put(e.getKey(), new JSONObject().put("enabled", ps.enabled).put("hour", ps.hour).put("minute", ps.minute).put("days", ps.days));
+            }
         } catch (JSONException ignored) {
             // Plain values cannot fail.
         }
         return d;
     }
 
-    long delayFor(String pinId) {
-        Long d = pinDelays.get(pinId);
-        return d == null ? 0 : d;
+    /** True when this page has a schedule of its own. */
+    boolean hasOwnSchedule(String pinId) {
+        return pageSchedules.containsKey(pinId);
     }
 
     static Workflow fromJson(JSONObject o) {
@@ -83,10 +95,17 @@ final class Workflow {
             w.pinIds.add(o.optString("pinId"));   // saved before a workflow could have several pages
         }
         w.steps = o.optString("steps");
-        JSONObject delays = o.optJSONObject("pinDelays");
-        if (delays != null) for (java.util.Iterator<String> it = delays.keys(); it.hasNext(); ) {
+        JSONObject own = o.optJSONObject("pageSchedules");
+        if (own != null) for (java.util.Iterator<String> it = own.keys(); it.hasNext(); ) {
             String k = it.next();
-            w.pinDelays.put(k, delays.optLong(k));
+            JSONObject so = own.optJSONObject(k);
+            if (so == null) continue;
+            PageSchedule ps = new PageSchedule();
+            ps.enabled = so.optBoolean("enabled", true);
+            ps.hour = so.optInt("hour", 8);
+            ps.minute = so.optInt("minute", 0);
+            ps.days = so.optInt("days", ALL_DAYS);
+            w.pageSchedules.put(k, ps);
         }
         w.timed = o.optBoolean("timed");
         w.enabled = o.optBoolean("enabled", true);
@@ -102,8 +121,9 @@ final class Workflow {
 
     /** "Every day 07:30", "Mon, Wed 07:30" or "Manual". */
     String scheduleText(android.content.Context c) {
-        if (!timed) return "Manual";
-        return daysText(days) + " " + Ui.formatTime(c, hour, minute) + (enabled ? "" : " (off)");
+        String own = pageSchedules.isEmpty() ? "" : "; " + pageSchedules.size() + (pageSchedules.size() == 1 ? " page has" : " pages have") + " its own time";
+        if (!timed) return (pageSchedules.isEmpty() ? "Manual" : "Manual for the others") + own;
+        return daysText(days) + " " + Ui.formatTime(c, hour, minute) + (enabled ? "" : " (off)") + own;
     }
 
     static String daysText(int mask) {

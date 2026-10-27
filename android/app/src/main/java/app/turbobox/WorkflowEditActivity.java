@@ -61,8 +61,6 @@ public class WorkflowEditActivity extends Activity {
         if (isNew) {
             wf = Workflow.create();
             wf.steps = EXAMPLE;
-            java.util.List<Pin> pins = PinStore.load(this);
-            if (!pins.isEmpty()) wf.pinIds.add(pins.get(0).id);
         }
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
@@ -191,33 +189,67 @@ public class WorkflowEditActivity extends Activity {
         body.addView(logView);
     }
 
-    /** With more than one page: when each one starts, counted from the start of the workflow (its own time for each page). */
+    /**
+     * With more than one page: each page can run the same steps at a time and on days of its own (instead of with the workflow's
+     * schedule). Tap a page to give it its own, or to take it back.
+     */
     private void renderDelays() {
         delayBox.removeAllViews();
         if (wf.pinIds.size() < 2) return;
-        delayBox.addView(Ui.hint(this, "Each page can start at its own time. Tap one to change when it starts."), Ui.lp(this, 0, 4));
+        delayBox.addView(Ui.hint(this, "Each page can run these steps at its own time and on its own days. Tap a page to set that."), Ui.lp(this, 0, 4));
         for (String id : wf.pinIds) {
             Pin p = PinStore.find(this, id);
             if (p == null || Profiles.isLocked(this, p.profileId)) continue;
-            long d = wf.delayFor(id);
-            TextView row = Ui.text(this, p.name + ":  " + (d == 0 ? "at the start" : StepTemplates.duration(d) + " after the start") + "  \u203A", 15f, Ui.GREEN, "sans-serif-medium");
+            Workflow.PageSchedule ps = wf.pageSchedules.get(id);
+            String when = ps == null ? "with the workflow's schedule"
+                    : ps.enabled ? Workflow.daysText(ps.days) + " " + Ui.formatTime(this, ps.hour, ps.minute) + " (its own)" : "its own schedule, off";
+            TextView row = Ui.text(this, p.name + ":  " + when + "  \u203A", 15f, Ui.GREEN, "sans-serif-medium");
             row.setPadding(0, Ui.dp(this, 6), 0, Ui.dp(this, 6));
-            row.setOnClickListener(v -> {
-                LinearLayout col = new LinearLayout(this);
-                Dialog dlg = Ui.sheet(this, col);
-                col.addView(Ui.text(this, p.name + " starts after", 20f, Ui.TEXT, "semibold"), Ui.lp(this, 0, 8));
-                Supplier answer = timeInput(col, wf.delayFor(id));
-                TextView ok = Ui.pill(this, "Set", Ui.GREEN);
-                ok.setOnClickListener(x -> {
-                    wf.pinDelays.put(id, Long.parseLong(answer.get()));
-                    dlg.dismiss();
-                    renderDelays();
-                });
-                col.addView(ok, Ui.lp(this, 16, 0));
-                dlg.show();
-            });
+            row.setOnClickListener(v -> editPageSchedule(p, id));
             delayBox.addView(row);
         }
+    }
+
+    private void editPageSchedule(Pin p, String id) {
+        final Workflow.PageSchedule ps = wf.pageSchedules.containsKey(id) ? wf.pageSchedules.get(id) : new Workflow.PageSchedule();
+        final boolean[] own = {wf.pageSchedules.containsKey(id)};
+        LinearLayout col = new LinearLayout(this);
+        Dialog dlg = Ui.sheet(this, col);
+        col.addView(Ui.text(this, p.name, 20f, Ui.TEXT, "semibold"), Ui.lp(this, 0, 6));
+        col.addView(Ui.switchRow(this, "Its own time and days", "Off: this page runs with the workflow's schedule", own[0], Ui.GREEN, (b, on) -> own[0] = on));
+        TextView time = Ui.text(this, Ui.formatTime(this, ps.hour, ps.minute), 26f, Ui.TEXT, "sans-serif");
+        time.setPadding(0, Ui.dp(this, 10), 0, Ui.dp(this, 10));
+        time.setOnClickListener(v -> new TimePickerDialog(this, (view, h, m) -> {
+            ps.hour = h;
+            ps.minute = m;
+            time.setText(Ui.formatTime(this, h, m));
+        }, ps.hour, ps.minute, android.text.format.DateFormat.is24HourFormat(this)).show());
+        col.addView(time);
+        LinearLayout days = new LinearLayout(this);
+        String[] names = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+        TextView[] chips = new TextView[7];
+        for (int i = 0; i < 7; i++) {
+            final int bit = 1 << i;
+            TextView d = Ui.pill(this, names[i], (ps.days & bit) != 0 ? Ui.GREEN : 0);
+            d.setPadding(0, Ui.dp(this, 9), 0, Ui.dp(this, 9));
+            d.setTextSize(12f);
+            chips[i] = d;
+            d.setOnClickListener(v -> {
+                ps.days ^= bit;
+                Ui.tint(this, d, (ps.days & bit) != 0 ? Ui.GREEN : 0);
+            });
+            days.addView(d, Ui.weight(this, i == 0 ? 0 : 4));
+        }
+        col.addView(days, Ui.lp(this, 4, 0));
+        col.addView(Ui.hint(this, "The phone does not need to be awake. This page runs the same steps, on its own, at this time."), Ui.lp(this, 8, 0));
+        TextView save = Ui.pill(this, "Save", Ui.GREEN);
+        save.setOnClickListener(v -> {
+            if (own[0]) wf.pageSchedules.put(id, ps); else wf.pageSchedules.remove(id);
+            dlg.dismiss();
+            renderDelays();
+        });
+        col.addView(save, Ui.lp(this, 16, 0));
+        dlg.show();
     }
 
     /** The names behind a comma-separated list of pinned page ids, for the form. */
@@ -275,12 +307,19 @@ public class WorkflowEditActivity extends Activity {
                 group = t.group;
                 col.addView(Ui.label(this, group), Ui.lp(this, 14, 4));
             }
+            LinearLayout line = new LinearLayout(this);
+            line.setGravity(Gravity.CENTER_VERTICAL);
+            WorkflowParser.Kind kind = StepTemplates.kindOf(t.line(t.defaults()));
+            if (kind != null) line.addView(stepIcon(kind, 36), new LinearLayout.LayoutParams(Ui.dp(this, 36), Ui.dp(this, 36)));
             TextView b = Ui.pill(this, t.title, 0);
             b.setOnClickListener(v -> {
                 d.dismiss();
                 askStep(t);
             });
-            col.addView(b, Ui.lp(this, 4, 0));
+            LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            bp.leftMargin = Ui.dp(this, 8);
+            line.addView(b, bp);
+            col.addView(line, Ui.lp(this, 4, 0));
             col.addView(Ui.hint(this, t.help), Ui.lp(this, 2, 0));
         }
         d.show();
@@ -295,10 +334,6 @@ public class WorkflowEditActivity extends Activity {
     }
 
     private void askStep(StepTemplates.Template t, StepTemplates.Edit edit, java.util.function.Consumer<String> onLine) {
-        if (t.fields.length == 0 && !t.pageStep) {
-            onLine.accept(t.line(t.defaults()));
-            return;
-        }
         LinearLayout col = new LinearLayout(this);
         Dialog d = Ui.sheet(this, col);
         col.addView(Ui.text(this, t.title, 20f, Ui.TEXT, "semibold"));
@@ -324,6 +359,10 @@ public class WorkflowEditActivity extends Activity {
         }
         final Switch optionalFinal = optional;
         final Supplier withinFinal = within;
+        // Any step can be limited to the mobile or the desktop site: otherwise it is skipped.
+        col.addView(Ui.label(this, "Run this step"), Ui.lp(this, 14, 4));
+        final int[] condition = {edit == null ? 0 : edit.condition};
+        col.addView(Ui.segmented(this, new String[]{"Always", "Only on the mobile site", "Only on the desktop site"}, condition[0], Ui.GREEN, which -> condition[0] = which));
         TextView add = Ui.pill(this, edit == null ? "Add step" : "Save step", Ui.GREEN);
         add.setOnClickListener(v -> {
             String[] values = new String[answers.length];
@@ -333,6 +372,7 @@ public class WorkflowEditActivity extends Activity {
                 Toast.makeText(this, "Fill in what it should look for.", Toast.LENGTH_SHORT).show();
                 return;
             }
+            line = StepTemplates.withCondition(line, condition[0]);
             if (t.pageStep) {
                 line = StepTemplates.decorate(line, optionalFinal.isChecked(), Long.parseLong(withinFinal.get()));
             }
@@ -458,6 +498,17 @@ public class WorkflowEditActivity extends Activity {
                 boxes[2].getText().toString()));
     }
 
+    /** A small round icon for a kind of step, in the colour of its group. */
+    private IconButton stepIcon(WorkflowParser.Kind kind, int sizeDp) {
+        IconButton ic = new IconButton(this, IconButton.Icon.valueOf(StepTemplates.iconKey(kind)), "");
+        int color = StepTemplates.colorFor(kind);
+        ic.setClickable(false);
+        ic.setOnLongClickListener(null);
+        ic.setIconColor(color);
+        ic.setBackground(Ui.rounded(this, Ui.withAlpha(color, 0.18f), 0, 100));
+        return ic;
+    }
+
     private void renderSteps() {
         stepsBox.removeAllViews();
         if (lines.isEmpty()) {
@@ -473,6 +524,12 @@ public class WorkflowEditActivity extends Activity {
             TextView number = Ui.text(this, String.valueOf(i + 1), 13f, Ui.FAINT, "sans-serif-medium");
             number.setMinWidth(Ui.dp(this, 20));
             row.addView(number);
+            WorkflowParser.Kind kind = StepTemplates.kindOf(lines.get(i));
+            if (kind != null) {
+                LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(Ui.dp(this, 34), Ui.dp(this, 34));
+                ip.leftMargin = Ui.dp(this, 4);
+                row.addView(stepIcon(kind, 34), ip);
+            }
             TextView text = Ui.text(this, StepTemplates.describe(lines.get(i)), 15f, Ui.TEXT, "sans-serif");
             text.setPadding(Ui.dp(this, 6), Ui.dp(this, 8), Ui.dp(this, 6), Ui.dp(this, 8));
             text.setOnClickListener(v -> editStep(at));

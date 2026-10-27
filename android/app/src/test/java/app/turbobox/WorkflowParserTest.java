@@ -158,4 +158,21 @@ public class WorkflowParserTest {
             assertTrue(e.getMessage().contains("pages to keep"));
         }
     }
+
+    @Test
+    public void conditionsOnTheSiteMode() throws Exception {
+        WorkflowParser.Step a = WorkflowParser.parse("if mobile click Menu").get(0);
+        assertEquals(1, a.condition);
+        assertEquals(WorkflowParser.Kind.CLICK, a.kind);
+        assertEquals("text:Menu", a.target);
+        WorkflowParser.Step b = WorkflowParser.parse("? if desktop click Menu within 2m").get(0);
+        assertEquals(2, b.condition);
+        assertTrue(b.optional);
+        assertEquals(120_000, b.withinMs);
+        assertEquals(0, WorkflowParser.parse("click Menu").get(0).condition);
+        assertEquals("Click \"Menu\" (only on the mobile site)", StepTemplates.describe("if mobile click Menu"));
+        StepTemplates.Edit e = StepTemplates.toEdit("if desktop mute");
+        assertEquals(2, e.condition);
+        assertEquals("if mobile mute", StepTemplates.withCondition("mute", 1));
+    }
 }
