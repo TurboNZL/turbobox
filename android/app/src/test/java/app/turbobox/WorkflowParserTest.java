@@ -147,6 +147,7 @@ public class WorkflowParserTest {
         assertEquals(WorkflowParser.Kind.FOCUS, a.kind);
         assertEquals("a1b2", a.text);
         assertTrue(!WorkflowParser.needsPage(a.kind));
+        assertEquals("this", WorkflowParser.parse("focus this").get(0).text);
         try {
             WorkflowParser.parse("focus");
             fail("needs a page");

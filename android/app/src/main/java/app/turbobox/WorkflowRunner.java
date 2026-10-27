@@ -34,6 +34,7 @@ final class WorkflowRunner {
     private static final Map<String, Run> RUNS = new java.util.LinkedHashMap<>();   // one per workflow and page: "workflowId:pinId"
     private static final Map<String, List<String>> LOGS = new HashMap<>();
     private static PowerManager.WakeLock wakeLock;
+    private static Run focusHolder;   // the run whose "focus" step is in force; others wait until it finishes
 
     private WorkflowRunner() {
     }
@@ -418,14 +419,20 @@ final class WorkflowRunner {
                     break;
                 }
                 case FOCUS: {
-                    Session target = Sessions.forPin(s.text);
-                    if (target == null || !target.isActive()) {
-                        log("  not focused: that page is not running");
+                    // "this" = the page this run works on; with several pages or workflows running, the first run to focus keeps
+                    // the focus until it finishes and later ones are skipped (the tiebreaker).
+                    String wantPin = s.text.equals("this") ? pinId : s.text;
+                    Session target = wantPin.isEmpty() ? null : Sessions.forPin(wantPin);
+                    if (focusHolder != null && focusHolder != this && !focusHolder.finished) {
+                        log("  not focused: " + focusHolder.wf.name + (focusHolder.pinId.isEmpty() ? "" : " (" + focusHolder.pinName() + ")") + " already holds the focus");
+                    } else if (target == null || !target.isActive()) {
+                        log("  not focused: " + (wantPin.isEmpty() ? "this workflow has no page" : "that page is not running"));
                     } else {
-                        SessionActivity.pendingFocusPin = s.text;   // taken up when the screen is on and the app is in front
+                        focusHolder = this;
+                        SessionActivity.pendingFocusPin = wantPin;   // taken up when the screen is on and the app is in front
                         try {
                             app.startActivity(new Intent(app, SessionActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    .setAction(SessionActivity.ACTION_OPEN_PIN).putExtra(SessionActivity.EXTRA_PIN, s.text));
+                                    .setAction(SessionActivity.ACTION_OPEN_PIN).putExtra(SessionActivity.EXTRA_PIN, wantPin));
                             log("  focused " + target.title());
                         } catch (RuntimeException e) {
                             log("  could not bring the app up; the page is focused when you open it");
@@ -489,6 +496,7 @@ final class WorkflowRunner {
             attemptToken++;
             log(ok ? "Finished" : "Stopped: " + message);
             RUNS.remove(wf.id + ":" + pinId);
+            if (focusHolder == this) focusHolder = null;
             // A borrowed page goes when its work is done, unless a hang-up timer is still counting or something went wrong
             // (then it stays open so you can look at it).
             if (ownsTemporary && ok && session != null && session.isActive() && session.getRemainingMs() < 0) {

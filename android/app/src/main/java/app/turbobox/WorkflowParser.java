@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
  * mark Chapter 2 starts     a bookmark in the buffer
  * pause | resume            freeze and silence the page on this phone / let go (nothing is recorded because of it)
  * close others | close all   close every other running page / every running page, without asking
- * focus ID                 bring that pinned page to the front, only if it is running (skipped otherwise)
+ * focus ID | this          bring that pinned page (this = the page the workflow runs on) to the front, only if it is running (skipped otherwise)
  * close keep ID,ID [and workflow]  close every running page except those pinned pages (and, with "and workflow", this workflow's own pages)
  * media play|pause|toggle|next|previous   press that media key (the music app that last played gets it)
  * app spotify                open another app (spotify, youtube music, or its package name)
