@@ -13,7 +13,7 @@ final class StepTemplates {
     private StepTemplates() {
     }
 
-    enum FieldType { TIME, TEXT, TARGET, NUMBER, CHOICE, CLOCK, WORKFLOW, PAGES }
+    enum FieldType { TIME, TEXT, TARGET, NUMBER, CHOICE, CLOCK, WORKFLOW, PAGES, PAGE }
 
     static final class Field {
         final FieldType type;
@@ -55,7 +55,7 @@ final class StepTemplates {
         /** The line for these answers, one per field (TIME as seconds); null when a required answer is empty. */
         String line(String[] values) {
             for (int i = 0; i < fields.length; i++) {
-                boolean required = fields[i].type == FieldType.TARGET || fields[i].type == FieldType.PAGES || (fields[i].type == FieldType.TEXT && fields[i].def != null && !fields[i].def.isEmpty());
+                boolean required = fields[i].type == FieldType.TARGET || fields[i].type == FieldType.PAGES || fields[i].type == FieldType.PAGE || (fields[i].type == FieldType.TEXT && fields[i].def != null && !fields[i].def.isEmpty());
                 if (required && (values[i] == null || values[i].trim().isEmpty())) return null;
             }
             return formatter.format(values);
@@ -114,6 +114,9 @@ final class StepTemplates {
                 v -> "close keep " + v[0].trim() + (v[1].startsWith("Yes") ? " and workflow" : ""),
                 new Field(FieldType.PAGES, "Pages that stay open", null, "page"),
                 new Field(FieldType.CHOICE, "Also keep this workflow's pages?", null, "No", "No", "Yes, keep them too")));
+        ALL.add(new Template(pageGroup, "Focus a page", "Bring one page to the front, if it is running. Skipped when it is not.", false,
+                v -> "focus " + v[0].trim(),
+                new Field(FieldType.PAGE, "Page to bring to the front", null, "page")));
         ALL.add(new Template(pageGroup, "Press a media key", "Play, pause or skip in whichever music app played last.", false, v -> "media " + v[0],
                 new Field(FieldType.CHOICE, "Which key?", null, "play", "play", "pause", "toggle", "next", "previous")));
         ALL.add(new Template(pageGroup, "Open another app", "Spotify, YouTube Music, or any app by its package name.", false, v -> "app " + v[0].trim(),
@@ -163,6 +166,7 @@ final class StepTemplates {
             case MUTE: return "MIC_OFF";
             case UNMUTE: return "MIC";
             case VOLUME: return "SPEAKER";
+            case FOCUS: return "LAYOUT";
             case HANGUP: case CLOSE: case CLOSE_OTHERS: case CLOSE_ALL: case CLOSE_KEEP: return "CLOSE";
             case RECORD_START: return "RECORD";
             case RECORD_STOP: return "STOP";
@@ -233,6 +237,7 @@ final class StepTemplates {
             case CLOSE: text = "Close the page"; break;
             case CLOSE_OTHERS: text = "Close the other pages"; break;
             case CLOSE_ALL: text = "Close every page"; break;
+            case FOCUS: text = "Focus a page, if it is running"; break;
             case CLOSE_KEEP: text = "Close all but " + (s.text.isEmpty() ? 0 : s.text.split(",").length) + " chosen page(s)" + (s.number == 1 ? " and this workflow's pages" : ""); break;
             case RECORD_START: text = "Start recording"; break;
             case RECORD_STOP: text = "Stop recording"; break;
@@ -315,6 +320,7 @@ final class StepTemplates {
             case CLOSE_OTHERS: title = "Close the other pages"; v = new String[]{"all but this workflow's pages"}; break;
             case CLOSE_ALL: title = "Close the other pages"; v = new String[]{"every page"}; break;
             case CLOSE_KEEP: title = "Close all but chosen pages"; v = new String[]{s.text.isEmpty() ? "none" : s.text, s.number == 1 ? "Yes, keep them too" : "No"}; break;
+            case FOCUS: title = "Focus a page"; v = new String[]{s.text}; break;
             case MEDIA: title = "Press a media key"; v = new String[]{s.text}; break;
             case APP: title = "Open another app"; v = new String[]{s.text}; break;
             default: return null;

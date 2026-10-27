@@ -94,6 +94,8 @@ public class SessionActivity extends Activity implements Session.Listener {
     private LinearLayout hotkeyRow;
     private LevelMeterView strip;
     private View dim;
+    /** A workflow asked for this page to be in front; applied the next time the screen shows (the launch can be refused with the screen off). */
+    static volatile String pendingFocusPin;
     private int focus;
     private boolean split;
     private final java.util.Set<Integer> splitSet = new java.util.TreeSet<>();   // the slots shown together while Split is on (up to four)
@@ -592,6 +594,10 @@ public class SessionActivity extends Activity implements Session.Listener {
         applyRotation();
         super.onResume();
         Profiles.returning();
+        String want = pendingFocusPin;
+        pendingFocusPin = null;
+        Session wanted = want == null ? null : Sessions.forPin(want);
+        if (wanted != null && wanted.isActive()) focus = wanted.slot;
         // After the screen was off or locked a page recorded off screen is put back into its pane.
         if (!Sessions.active().isEmpty()) rebuild();
         // Back from the replay of what was missed: the live page is shown and heard again.

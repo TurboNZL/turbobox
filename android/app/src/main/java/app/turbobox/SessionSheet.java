@@ -110,9 +110,6 @@ final class SessionSheet implements Session.Listener {
 
         Pin pin = session.pin();
         if (pin != null) PinSheet.build(act, col, pin, this::dismiss);
-        TextView volumes = Ui.pill(act, "Volumes and brightness", 0);
-        volumes.setOnClickListener(v -> VolumeSheet.show(act));
-        col.addView(volumes, Ui.lp(act, 12, 4));
         TextView reload = Ui.pill(act, "Reload the page", 0);
         reload.setOnClickListener(v -> {
             session.reload();

@@ -142,6 +142,20 @@ public class WorkflowParserTest {
     }
 
     @Test
+    public void focusStep() throws Exception {
+        WorkflowParser.Step a = WorkflowParser.parse("focus a1b2").get(0);
+        assertEquals(WorkflowParser.Kind.FOCUS, a.kind);
+        assertEquals("a1b2", a.text);
+        assertTrue(!WorkflowParser.needsPage(a.kind));
+        try {
+            WorkflowParser.parse("focus");
+            fail("needs a page");
+        } catch (WorkflowParser.ParseError e) {
+            assertTrue(e.getMessage().contains("one page"));
+        }
+    }
+
+    @Test
     public void closeKeepStep() throws Exception {
         WorkflowParser.Step a = WorkflowParser.parse("close keep a1b2,c3d4").get(0);
         assertEquals(WorkflowParser.Kind.CLOSE_KEEP, a.kind);

@@ -17,10 +17,14 @@ final class VolumeSheet {
         col.addView(Ui.text(act, "Volumes", 20f, Ui.TEXT, "semibold"), Ui.lp(act, 0, 4));
 
         LinearLayout phone = Ui.section(act, col, IconButton.Icon.SPEAKER, "Phone", PinSheet.BLUE);
-        phone.addView(Ui.sliderRow(act, "Volume (media and calls together)", Ui.pct(NativeVolume.get(act)), 1f, NativeVolume.get(act), PinSheet.BLUE,
+        phone.addView(Ui.sliderRow(act, "Media volume", Ui.pct(NativeVolume.getMedia(act)), 1f, NativeVolume.getMedia(act), PinSheet.BLUE,
                 (v, fromUser) -> {
-                    if (fromUser) NativeVolume.set(act, v);
+                    if (fromUser) NativeVolume.setMedia(act, v);
                 }, Ui::pct));
+        phone.addView(Ui.sliderRow(act, "Call volume", Ui.pct(NativeVolume.getCall(act)), 1f, NativeVolume.getCall(act), PinSheet.BLUE,
+                (v, fromUser) -> {
+                    if (fromUser) NativeVolume.setCall(act, v);
+                }, Ui::pct), Ui.lp(act, 12, 0));
         phone.addView(Ui.sliderRow(act, "Screen brightness of this app", Ui.pct(Prefs.brightness(act)), 1f, Prefs.brightness(act), PinSheet.ORANGE,
                 (v, fromUser) -> {
                     if (!fromUser) return;
