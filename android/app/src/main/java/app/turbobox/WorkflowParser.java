@@ -29,6 +29,7 @@ import java.util.regex.Pattern;
  * mark Chapter 2 starts     a bookmark in the buffer
  * pause | resume            freeze and silence the page on this phone / let go (nothing is recorded because of it)
  * close others | close all   close every other running page / every running page, without asking
+ * focus ID                 bring that pinned page to the front, only if it is running (skipped otherwise)
  * close keep ID,ID [and workflow]  close every running page except those pinned pages (and, with "and workflow", this workflow's own pages)
  * media play|pause|toggle|next|previous   press that media key (the music app that last played gets it)
  * app spotify                open another app (spotify, youtube music, or its package name)
@@ -46,7 +47,7 @@ final class WorkflowParser {
     private WorkflowParser() {
     }
 
-    enum Kind { OPEN, WAIT, WAITFOR, CLICK, TYPE, KEY, SCROLL, MUTE, UNMUTE, VOLUME, HANGUP, RECORD_START, RECORD_STOP, TRANSCRIBE_ON, TRANSCRIBE_OFF, STEP_AWAY, STEP_BACK, PAUSE, RESUME, MARK, JS, CLOSE, CLOSE_OTHERS, CLOSE_ALL, MEDIA, APP, RUN, WAIT_UNTIL, CLOSE_KEEP }
+    enum Kind { OPEN, WAIT, WAITFOR, CLICK, TYPE, KEY, SCROLL, MUTE, UNMUTE, VOLUME, HANGUP, RECORD_START, RECORD_STOP, TRANSCRIBE_ON, TRANSCRIBE_OFF, STEP_AWAY, STEP_BACK, PAUSE, RESUME, MARK, JS, CLOSE, CLOSE_OTHERS, CLOSE_ALL, MEDIA, APP, RUN, WAIT_UNTIL, CLOSE_KEEP, FOCUS }
 
     static final class Step {
         Kind kind;
@@ -191,6 +192,11 @@ final class WorkflowParser {
                 }
                 if (s.number < 0 || s.number > 200) throw new ParseError(no, "volume is 0 to 200");
                 break;
+            case "focus":
+                if (rest.isEmpty() || rest.contains(",") || rest.contains(" ")) throw new ParseError(no, "focus needs one page, like focus a1b2c3d4");
+                s.kind = Kind.FOCUS;
+                s.text = rest;
+                break;
             case "pause":
                 s.kind = Kind.PAUSE;
                 break;
@@ -284,7 +290,7 @@ final class WorkflowParser {
     /** Does a step of this kind need a page to act on? (The others work in a workflow that has none.) */
     static boolean needsPage(Kind k) {
         switch (k) {
-            case WAIT: case WAIT_UNTIL: case RUN: case CLOSE_ALL: case CLOSE_KEEP: case CLOSE_OTHERS: case MEDIA: case APP:
+            case WAIT: case WAIT_UNTIL: case RUN: case CLOSE_ALL: case CLOSE_KEEP: case CLOSE_OTHERS: case MEDIA: case APP: case FOCUS:
                 return false;
             default:
                 return true;

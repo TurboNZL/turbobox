@@ -117,13 +117,19 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         micRow.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 8));
         micRow.setOnClickListener(v -> MicPicker.show(this, this::render));
         sound.addView(micRow);
-        TextView volLabel = Ui.text(this, "Phone volume " + Ui.pct(NativeVolume.get(this)), 15f, Ui.TEXT, "sans-serif");
+        TextView volLabel = Ui.text(this, "Media volume " + Ui.pct(NativeVolume.getMedia(this)), 15f, Ui.TEXT, "sans-serif");
         sound.addView(volLabel, Ui.lp(this, 8, 0));
-        sound.addView(Ui.slider(this, 1f, NativeVolume.get(this), (value, fromUser) -> {
-            volLabel.setText("Phone volume " + Ui.pct(value));
-            if (fromUser) NativeVolume.set(this, value);
+        sound.addView(Ui.slider(this, 1f, NativeVolume.getMedia(this), (value, fromUser) -> {
+            volLabel.setText("Media volume " + Ui.pct(value));
+            if (fromUser) NativeVolume.setMedia(this, value);
         }));
-        sound.addView(Ui.hint(this, "Sets the media and the call volume together, so it works while a Bluetooth headset is in call mode and the volume buttons only move one of them."), Ui.lp(this, 4, 0));
+        TextView callLabel = Ui.text(this, "Call volume " + Ui.pct(NativeVolume.getCall(this)), 15f, Ui.TEXT, "sans-serif");
+        sound.addView(callLabel, Ui.lp(this, 8, 0));
+        sound.addView(Ui.slider(this, 1f, NativeVolume.getCall(this), (value, fromUser) -> {
+            callLabel.setText("Call volume " + Ui.pct(value));
+            if (fromUser) NativeVolume.setCall(this, value);
+        }));
+        sound.addView(Ui.hint(this, "Media and call volume are separate. A Bluetooth headset in call mode follows the call volume."), Ui.lp(this, 4, 0));
         Switch virt = Ui.toggle(this);
         virt.setText("Virtual devices for pages (experimental)");
         virt.setChecked(Prefs.virtualDevices(this));

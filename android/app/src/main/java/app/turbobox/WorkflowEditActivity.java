@@ -394,7 +394,9 @@ public class WorkflowEditActivity extends Activity {
     /** One input for a field, added to {@code col}; returns what to read the answer with. */
     private Supplier fieldInput(LinearLayout col, StepTemplates.Field f) {
         switch (f.type) {
-            case PAGES: {
+            case PAGES:
+            case PAGE: {
+                final boolean multi = f.type == StepTemplates.FieldType.PAGES;
                 final String[] picked = {f.def == null ? "" : f.def};
                 TextView value = Ui.text(this, pagesText(picked[0]) + "  \u203A", 17f, Ui.GREEN, "sans-serif-medium");
                 value.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 8));
@@ -402,7 +404,7 @@ public class WorkflowEditActivity extends Activity {
                     List<Pin> all = PinStore.load(this);
                     java.util.Set<String> now = new LinkedHashSet<>();
                     for (String id : picked[0].split(",")) if (!id.trim().isEmpty()) now.add(id.trim());
-                    PinGrid.pick(this, f.label, all, now, true, chosen -> {
+                    PinGrid.pick(this, f.label, all, now, multi, chosen -> {
                         StringBuilder sb = new StringBuilder();
                         for (Pin p : all) if (chosen.contains(p.id)) sb.append(sb.length() == 0 ? "" : ",").append(p.id);
                         picked[0] = sb.toString();

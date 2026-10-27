@@ -4,9 +4,8 @@ import android.content.Context;
 import android.media.AudioManager;
 
 /**
- * The phone's own volume, set from inside the app. A Bluetooth headset in call mode (HFP) only exposes the call
- * volume to the hardware buttons, and the buttons follow whichever stream the system believes is active, so
- * this sets the media and the call stream together, as one level.
+ * The phone's own volumes, set from inside the app: media and calls are separate. A Bluetooth headset in call mode
+ * (HFP) only exposes the call volume to the hardware buttons, so both can be reached from here.
  */
 final class NativeVolume {
     private NativeVolume() {
@@ -17,25 +16,42 @@ final class NativeVolume {
     }
 
     /** 0..1: the media stream's level. */
-    static float get(Context c) {
+    static float getMedia(Context c) {
         AudioManager a = am(c);
         int max = Math.max(1, a.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
         return a.getStreamVolume(AudioManager.STREAM_MUSIC) / (float) max;
     }
 
-    /** Sets the media and call volume to the same fraction of each one's range. */
-    static void set(Context c, float level) {
+    /** 0..1: the call stream's level (what a Bluetooth headset in call mode follows). */
+    static float getCall(Context c) {
         AudioManager a = am(c);
+        int min = callMin(a);
+        int max = Math.max(min + 1, a.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL));
+        return Math.max(0f, (a.getStreamVolume(AudioManager.STREAM_VOICE_CALL) - min) / (float) (max - min));
+    }
+
+    /** Sets the media volume only. */
+    static void setMedia(Context c, float level) {
+        set(am(c), AudioManager.STREAM_MUSIC, 0, level);
+    }
+
+    /** Sets the call volume only. */
+    static void setCall(Context c, float level) {
+        AudioManager a = am(c);
+        set(a, AudioManager.STREAM_VOICE_CALL, callMin(a), level);
+    }
+
+    private static int callMin(AudioManager a) {
+        return Math.max(1, android.os.Build.VERSION.SDK_INT >= 28 ? a.getStreamMinVolume(AudioManager.STREAM_VOICE_CALL) : 1);
+    }
+
+    private static void set(AudioManager a, int stream, int min, float level) {
         float f = Math.max(0f, Math.min(1f, level));
-        int[] streams = {AudioManager.STREAM_MUSIC, AudioManager.STREAM_VOICE_CALL};
-        for (int stream : streams) {
-            int max = a.getStreamMaxVolume(stream);
-            int min = stream == AudioManager.STREAM_VOICE_CALL ? Math.max(1, android.os.Build.VERSION.SDK_INT >= 28 ? a.getStreamMinVolume(stream) : 1) : 0;
-            try {
-                a.setStreamVolume(stream, Math.max(min, Math.round(f * max)), 0);
-            } catch (SecurityException ignored) {
-                // Do Not Disturb can refuse a volume change; the other stream may still take it.
-            }
+        int max = a.getStreamMaxVolume(stream);
+        try {
+            a.setStreamVolume(stream, Math.max(min, min + Math.round(f * (max - min))), 0);
+        } catch (SecurityException ignored) {
+            // Do Not Disturb can refuse a volume change.
         }
     }
 }

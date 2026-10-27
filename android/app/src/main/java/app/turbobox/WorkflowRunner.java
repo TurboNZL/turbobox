@@ -417,6 +417,23 @@ final class WorkflowRunner {
                     next();
                     break;
                 }
+                case FOCUS: {
+                    Session target = Sessions.forPin(s.text);
+                    if (target == null || !target.isActive()) {
+                        log("  not focused: that page is not running");
+                    } else {
+                        SessionActivity.pendingFocusPin = s.text;   // taken up when the screen is on and the app is in front
+                        try {
+                            app.startActivity(new Intent(app, SessionActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    .setAction(SessionActivity.ACTION_OPEN_PIN).putExtra(SessionActivity.EXTRA_PIN, s.text));
+                            log("  focused " + target.title());
+                        } catch (RuntimeException e) {
+                            log("  could not bring the app up; the page is focused when you open it");
+                        }
+                    }
+                    next();
+                    break;
+                }
                 case MEDIA:
                     MediaKeys.press(app, s.text);
                     next();
