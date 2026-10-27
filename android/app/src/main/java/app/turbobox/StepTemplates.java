@@ -114,6 +114,8 @@ final class StepTemplates {
                 v -> "close keep " + v[0].trim() + (v[1].startsWith("Yes") ? " and workflow" : ""),
                 new Field(FieldType.PAGES, "Pages that stay open", null, "page"),
                 new Field(FieldType.CHOICE, "Also keep this workflow's pages?", null, "No", "No", "Yes, keep them too")));
+        ALL.add(new Template(pageGroup, "Focus this workflow's page", "Bring the page running this workflow to the front. If several workflows or pages run at once, the first to ask keeps it until it finishes.", false,
+                v -> "focus this"));
         ALL.add(new Template(pageGroup, "Focus a page", "Bring one page to the front, if it is running. Skipped when it is not.", false,
                 v -> "focus " + v[0].trim(),
                 new Field(FieldType.PAGE, "Page to bring to the front", null, "page")));
@@ -237,7 +239,7 @@ final class StepTemplates {
             case CLOSE: text = "Close the page"; break;
             case CLOSE_OTHERS: text = "Close the other pages"; break;
             case CLOSE_ALL: text = "Close every page"; break;
-            case FOCUS: text = "Focus a page, if it is running"; break;
+            case FOCUS: text = s.text.equals("this") ? "Focus this workflow's page" : "Focus a page, if it is running"; break;
             case CLOSE_KEEP: text = "Close all but " + (s.text.isEmpty() ? 0 : s.text.split(",").length) + " chosen page(s)" + (s.number == 1 ? " and this workflow's pages" : ""); break;
             case RECORD_START: text = "Start recording"; break;
             case RECORD_STOP: text = "Stop recording"; break;
@@ -320,7 +322,10 @@ final class StepTemplates {
             case CLOSE_OTHERS: title = "Close the other pages"; v = new String[]{"all but this workflow's pages"}; break;
             case CLOSE_ALL: title = "Close the other pages"; v = new String[]{"every page"}; break;
             case CLOSE_KEEP: title = "Close all but chosen pages"; v = new String[]{s.text.isEmpty() ? "none" : s.text, s.number == 1 ? "Yes, keep them too" : "No"}; break;
-            case FOCUS: title = "Focus a page"; v = new String[]{s.text}; break;
+            case FOCUS:
+                if (s.text.equals("this")) { title = "Focus this workflow's page"; v = new String[0]; }
+                else { title = "Focus a page"; v = new String[]{s.text}; }
+                break;
             case MEDIA: title = "Press a media key"; v = new String[]{s.text}; break;
             case APP: title = "Open another app"; v = new String[]{s.text}; break;
             default: return null;
