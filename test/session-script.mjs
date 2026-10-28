@@ -263,6 +263,19 @@ await page.evaluate(() => window.__turbobox.setVolume(1));
 await page.waitForTimeout(200);
 await page.evaluate(() => { window.__osc.stop(); window.__na.pause(); });
 
+// turning the phone does not put back the scroll position of the other orientation
+await page.setViewportSize({ width: 400, height: 800 });
+await page.evaluate(() => { document.body.style.height = '6000px'; window.scrollTo(0, 900); });
+await page.waitForTimeout(500);
+await page.evaluate(() => window.__turbobox.resized());      // the app tells the page first, then the page turns
+await page.setViewportSize({ width: 800, height: 400 });
+await page.waitForTimeout(150);
+await page.evaluate(() => window.scrollTo(0, 100));          // where the page itself puts things in landscape
+await page.waitForTimeout(1800);
+const turned = await page.evaluate(() => document.scrollingElement.scrollTop);
+check('after turning the phone, the old orientation\'s scroll position is not put back', turned < 400, turned);
+await page.evaluate(() => { document.body.style.height = ''; window.scrollTo(0, 0); });
+
 // ad hiding: valid selectors hide, one the browser does not understand costs only its own chunk
 await page.evaluate(() => { document.body.insertAdjacentHTML('beforeend', '<div class="adx" id="adx">ad</div><div class="keep" id="keepme">content</div>'); window.__turbobox.hide(['.adx', 'div:bogus-pseudo(x)', '.nothing']); });
 const hid = await page.evaluate(() => ({ ad: getComputedStyle(document.getElementById('adx')).display, keep: getComputedStyle(document.getElementById('keepme')).display }));

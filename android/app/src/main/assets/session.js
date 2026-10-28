@@ -1298,6 +1298,23 @@
       try { window.scrollTo({ left: keep.x, top: keep.y, behavior: 'instant' }); } catch (e) { window.scrollTo(keep.x, keep.y); }
     }
   }
+  // A turn of the phone is not a window being resized: the scroll position of the other orientation means nothing in this one (a mobile
+  // video page keeps its player at the top in portrait and scrolled away in landscape), so putting it back left the player half off screen.
+  var wasLandscape = window.innerWidth > window.innerHeight;
+  window.addEventListener('resize', function () {
+    var land = window.innerWidth > window.innerHeight;
+    if (land === wasLandscape) return;
+    wasLandscape = land;
+    keep = null;
+    scrollLog.length = 0;
+    [250, 900].forEach(function (d) {
+      setTimeout(function () {
+        var sc = scroller();
+        if (sc.scrollLeft && sc.scrollWidth <= window.innerWidth * 1.05) window.scrollTo(0, sc.scrollTop);   // nothing to the side to look at
+      }, d);
+    });
+  });
+  T.turned = function () { return wasLandscape; };   // for the tests
   T.resized = function () {
     var now = Date.now();
     if (keep && now < keep.until) { keep.until = now + 1600; return; }   // several resize steps in a row: same target
