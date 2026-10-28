@@ -1094,6 +1094,9 @@ public class SessionActivity extends Activity implements Session.Listener {
         chromeBox.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
             if (b - t != ob - ot) chromeBox.post(this::applyBarOverlay);   // the bar's height changed: keep the page under it the same
         });
+        root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (b - t != ob - ot) root.post(this::applyBarOverlay);        // the screen's height changed (rotation, keyboard): so does the page area
+        });
         paneHolder = new LinearLayout(this);
         paneHolder.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
             if (inPip || editing || r - l < 50 || b - t < 50) return;
@@ -1487,14 +1490,23 @@ public class SessionActivity extends Activity implements Session.Listener {
      * is drawn on top with a slightly see-through background, so the page keeps the size it has without the bar.
      */
     void applyBarOverlay() {
-        if (chromeBox == null || paneStage == null) return;
+        if (chromeBox == null || paneStage == null || root == null) return;
         Session f = front();
         boolean overlay = f != null && f.pin() != null && f.pin().barOverlay && chromeBox.getVisibility() == View.VISIBLE && !inPip;
+        int rootH = root.getHeight();
+        if (overlay && rootH <= 0) return;   // not laid out yet: the layout listeners call this again
         LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) paneStage.getLayoutParams();
-        int want = overlay ? -chromeBox.getHeight() : 0;
-        if (lp.topMargin != want) {
-            lp.topMargin = want;
+        // A vertical LinearLayout ignores a negative margin on a child that has a weight (it never gives the space back), so the page
+        // area could only be shifted up, not grown. While the bar floats it gets the whole height of the screen as a fixed size instead.
+        int height = overlay ? rootH : 0;
+        float weight = overlay ? 0f : 1f;
+        int margin = overlay ? -chromeBox.getHeight() : 0;
+        if (lp.height != height || lp.weight != weight || lp.topMargin != margin) {
+            lp.height = height;
+            lp.weight = weight;
+            lp.topMargin = margin;
             paneStage.setLayoutParams(lp);
+            for (Session a : Sessions.active()) a.refit();   // the page area changed size: fit the page to it
         }
         chromeBox.setElevation(overlay ? Ui.dp(this, 12) : 0f);
         chromeBox.setBackgroundColor(overlay ? Ui.withAlpha(Ui.BG, 0.82f) : Color.TRANSPARENT);
