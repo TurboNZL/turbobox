@@ -100,8 +100,46 @@ final class PinSheet {
         look.addView(Ui.switchRow(act, "Shrink for the keyboard", "Typing makes the page smaller so the keyboard does not cover it", pin.shrinkOnType, BLUE,
                 (b, on) -> change(act, pin, p -> p.shrinkOnType = on)), Ui.lp(act, 8, 4));
 
+        // ---- Workflow recording size
+        LinearLayout wfs = Ui.section(act, col, IconButton.Icon.RECORD, "Size while a workflow records", PINK);
+        wfs.addView(Ui.switchRow(act, "Lock a size for workflows", "While a workflow uses this page (and until its recording ends) the page has the size below, "
+                + "whatever the screen does. Off: the page keeps its normal size.", pin.wfSize, PINK, (b, on) -> {
+            change(act, pin, p -> p.wfSize = on);
+            Session s = Sessions.forPin(pin.id);
+            if (s != null) s.refreshLock();
+        }), Ui.lp(act, 0, 4));
+        wfs.addView(Ui.sliderRow(act, "Page size", pin.wfPageWidth + " px", 3.84f, pin.wfPageWidth / 1000f, PINK, (v, fromUser) -> {
+            int px = Math.max(800, Math.round(v * 100f) * 10);
+            if (!fromUser) return;
+            change(act, pin, p -> p.wfPageWidth = px);
+            Session s = Sessions.forPin(pin.id);
+            if (s != null) s.refreshLock();
+        }, v -> Math.max(800, Math.round(v * 100f) * 10) + " px"), Ui.lp(act, 8, 0));
+        wfs.addView(Ui.sliderRow(act, "Zoom", Ui.pct(Math.max(0.5f, pin.wfZoom)), 3f, Math.max(0.5f, pin.wfZoom), PINK, (v, fromUser) -> {
+            if (!fromUser) return;
+            float z = Math.max(0.5f, v);
+            change(act, pin, p -> p.wfZoom = z);
+            Session s = Sessions.forPin(pin.id);
+            if (s != null) s.refreshLock();
+        }, v -> Ui.pct(Math.max(0.5f, v))), Ui.lp(act, 8, 0));
+        String[] lockShapes = {"Phone", "16:9", "4:3", "21:9", "1:1", "9:16", "3:2"};
+        wfs.addView(Ui.label(act, "Shape of the recording"), Ui.lp(act, 8, 4));
+        wfs.addView(Ui.segmented(act, lockShapes, pin.wfAspect, PINK, which -> {
+            change(act, pin, p -> p.wfAspect = which);
+            Session s = Sessions.forPin(pin.id);
+            if (s != null) s.refreshLock();
+        }));
+
+        // ---- Workflows this page takes part in
+        PageWorkflows.section(act, col, pin, ORANGE);
+
         // ---- Behaviour
         LinearLayout beh = Ui.section(act, col, IconButton.Icon.GEAR, "Behaviour", ORANGE);
+        beh.addView(Ui.switchRow(act, "Top bar floats over the page", "The bar sits on top of this page instead of pushing it down, so the page keeps its full size", pin.barOverlay, ORANGE,
+                (b, on) -> {
+                    change(act, pin, p -> p.barOverlay = on);
+                    if (act instanceof SessionActivity) ((SessionActivity) act).applyBarOverlay();
+                }), Ui.lp(act, 0, 4));
         beh.addView(Ui.switchRow(act, "Ask before closing", "A confirmation for pages where closing could cost you something", pin.confirmClose, ORANGE,
                 (b, on) -> change(act, pin, p -> p.confirmClose = on)), Ui.lp(act, 0, 4));
         beh.addView(Ui.switchRow(act, "Block ads and trackers", null, !pin.noAdblock, ORANGE,

@@ -30,7 +30,7 @@ final class MicPicker {
         String key = Prefs.micKey(act);
         int checked = -1;
         for (int i = 0; i < inputs.size(); i++) if (Devices.key(inputs.get(i)).equals(key)) checked = i;
-        new AlertDialog.Builder(act)
+        new DimBuilder(act)
                 .setTitle("Microphone")
                 .setSingleChoiceItems(items.toArray(new String[0]), checked, (d, which) -> {
                     String picked = Devices.key(inputs.get(which));

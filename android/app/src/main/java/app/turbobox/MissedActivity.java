@@ -150,7 +150,7 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
         long bytes = BufferStore.totalBytes(BufferRecorder.root(this));
         listBody.addView(Ui.hint(this, String.format(Locale.US, "Using %.0f MB.", bytes / 1_048_576.0)), Ui.lp(this, 14, 0));
         TextView wipe = Ui.pill(this, "Delete all recordings", Ui.RED);
-        wipe.setOnClickListener(v -> new AlertDialog.Builder(this)
+        wipe.setOnClickListener(v -> new DimBuilder(this)
                 .setTitle("Delete all recordings?")
                 .setPositiveButton("Delete", (d, w) -> {
                     for (BufferStore.Run r : BufferStore.listRuns(BufferRecorder.root(this))) {
@@ -228,7 +228,7 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
         return c;
     }
 
-    /** Makes captions for a recording that is already made (Android 13+): it takes about as long as the recording. */
+    /** Makes captions for a recording that is already made (Android 13+): the speed is set in Settings > Live transcription. */
     private void transcribeRun(BufferStore.Run r, File vtt) {
         if (isLive(r)) {
             Toast.makeText(this, "It is still recording. Stop it first, or use live captions.", Toast.LENGTH_LONG).show();
@@ -246,14 +246,14 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
         final RecordingTranscribe[] job = new RecordingTranscribe[1];
         TextView status = Ui.text(this, "Starting...", 15f, Ui.TEXT, "sans-serif");
         status.setPadding(Ui.dp(this, 22), Ui.dp(this, 14), Ui.dp(this, 22), Ui.dp(this, 6));
-        AlertDialog dlg = new AlertDialog.Builder(this).setTitle("Transcribing").setView(status)
+        AlertDialog dlg = new DimBuilder(this).setTitle("Transcribing").setView(status)
                 .setNegativeButton("Stop", (d, w) -> {
                     if (job[0] != null) job[0].stop();
                 })
                 .setCancelable(false).create();
-        dlg.show();
+        dlg.show(); Dimmer.apply(this, dlg.getWindow());
         job[0] = new RecordingTranscribe(this, r, (text, finished) -> {
-            status.setText(text + (finished ? "" : "\n\nThis takes about as long as the recording. You can leave this screen on."));
+            status.setText(text + (finished ? "" : "\n\nIt is quicker than the recording, depending on the speed set in Settings. You can leave this screen on."));
             if (finished) {
                 dlg.getButton(AlertDialog.BUTTON_NEGATIVE).setText("Close");
                 dlg.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(x -> {
@@ -265,48 +265,126 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
         job[0].start();
     }
 
-    /** Copies the recording's pieces (and captions) to Downloads/TurboBox, where a file manager sees them. */
+    /** Export: one video, or the 30-second pieces numbered in order; either way with the captions and marks. */
     private void exportRun(BufferStore.Run r) {
-        File[] files = r.dir.listFiles();
-        if (files == null || files.length == 0) {
+        if (BufferStore.segments(r).isEmpty()) {
             Toast.makeText(this, "Nothing to export yet.", Toast.LENGTH_SHORT).show();
             return;
         }
-        String folder = (r.name.isEmpty() ? "Recording" : r.name.replaceAll("[^A-Za-z0-9 _-]", "")) + " "
+        new DimBuilder(this).setTitle("Export")
+                .setItems(new String[]{"One video (joins the pieces in order)", "Numbered pieces (30 seconds each)"}, (d, which) -> {
+                    if (which == 0) exportMerged(r); else exportPieces(r);
+                }).setNegativeButton("Cancel", null).show();
+    }
+
+    private String exportFolder(BufferStore.Run r) {
+        return (r.name.isEmpty() ? "Recording" : r.name.replaceAll("[^A-Za-z0-9 _-]", "")) + " "
                 + new java.text.SimpleDateFormat("yyyy-MM-dd HH-mm", Locale.US).format(r.startedAt);
-        int n = 0;
-        try {
-            for (File f : files) {
-                String name = f.getName();
-                if (!(name.endsWith(".mp4") || name.endsWith(".vtt") || name.endsWith(".json") || name.endsWith(".txt"))) continue;
-                String mime = name.endsWith(".mp4") ? "video/mp4" : name.endsWith(".vtt") ? "text/vtt" : "text/plain";
-                java.io.OutputStream out;
-                if (android.os.Build.VERSION.SDK_INT >= 29) {
-                    android.content.ContentValues v = new android.content.ContentValues();
-                    v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
-                    v.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mime);
-                    v.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Download/TurboBox/" + folder);
-                    android.net.Uri uri = getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
-                    if (uri == null) continue;
-                    out = getContentResolver().openOutputStream(uri);
-                } else {
-                    File dir = new File(getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), "TurboBox/" + folder);
-                    dir.mkdirs();
-                    out = new java.io.FileOutputStream(new File(dir, name));
+    }
+
+    /** An output stream into Downloads/TurboBox/folder (Android 10+: the shared Downloads; before: the app's own Downloads folder). */
+    private java.io.OutputStream exportStream(String folder, String name, String mime) throws java.io.IOException {
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            android.content.ContentValues v = new android.content.ContentValues();
+            v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
+            v.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mime);
+            v.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Download/TurboBox/" + folder);
+            android.net.Uri uri = getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+            if (uri == null) throw new java.io.IOException("Downloads would not make the file");
+            return getContentResolver().openOutputStream(uri);
+        }
+        File dir = new File(getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), "TurboBox/" + folder);
+        dir.mkdirs();
+        return new java.io.FileOutputStream(new File(dir, name));
+    }
+
+    private void copyTo(File f, java.io.OutputStream out) throws java.io.IOException {
+        try (java.io.InputStream in = new java.io.FileInputStream(f); java.io.OutputStream o = out) {
+            byte[] buf = new byte[65536];
+            int k;
+            while ((k = in.read(buf)) > 0) o.write(buf, 0, k);
+        }
+    }
+
+    /** The pieces named in order: "001 - 19-30-05.mp4", the number first, then the time of day it starts. */
+    private void exportPieces(BufferStore.Run r) {
+        final String folder = exportFolder(r);
+        final List<BufferStore.Segment> segs = BufferStore.segments(r);
+        Toast.makeText(this, "Exporting " + segs.size() + " pieces...", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            int n = 0;
+            String error = null;
+            try {
+                int width = Math.max(3, String.valueOf(segs.size()).length());
+                java.text.SimpleDateFormat clock = new java.text.SimpleDateFormat("HH-mm-ss", Locale.US);
+                for (int i = 0; i < segs.size(); i++) {
+                    BufferStore.Segment sg = segs.get(i);
+                    String name = String.format(Locale.US, "%0" + width + "d - %s.mp4", i + 1, clock.format(sg.startWallMs));
+                    copyTo(sg.file, exportStream(folder, name, "video/mp4"));
+                    n++;
                 }
-                try (java.io.InputStream in = new java.io.FileInputStream(f); java.io.OutputStream o = out) {
-                    byte[] buf = new byte[65536];
-                    int k;
-                    while ((k = in.read(buf)) > 0) o.write(buf, 0, k);
-                }
-                n++;
+                exportExtras(r, folder);
+            } catch (java.io.IOException | RuntimeException e) {
+                error = e.getMessage();
             }
-        } catch (java.io.IOException | RuntimeException e) {
-            Toast.makeText(this, "Export stopped: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            final int count = n;
+            final String err = error;
+            runOnUiThread(() -> exportDone(err, count + " pieces, numbered in order, were copied to Downloads/TurboBox/" + folder + "."));
+        }, "export-pieces").start();
+    }
+
+    /** The captions and marks that go with either kind of export. */
+    private void exportExtras(BufferStore.Run r, String folder) throws java.io.IOException {
+        File[] files = r.dir.listFiles();
+        if (files == null) return;
+        for (File f : files) {
+            String name = f.getName();
+            if (name.endsWith(".vtt") || name.endsWith(".json") || name.endsWith(".txt")) {
+                copyTo(f, exportStream(folder, name, name.endsWith(".vtt") ? "text/vtt" : "text/plain"));
+            }
+        }
+    }
+
+    /** Joins the pieces, in order, into one MP4 without re-encoding them (they share one format). */
+    private void exportMerged(BufferStore.Run r) {
+        final String folder = exportFolder(r);
+        final List<BufferStore.Segment> segs = BufferStore.segments(r);
+        final TextView status = Ui.text(this, "Joining " + segs.size() + " pieces...", 15f, Ui.TEXT, "sans-serif");
+        status.setPadding(Ui.dp(this, 20), Ui.dp(this, 16), Ui.dp(this, 20), Ui.dp(this, 8));
+        final AlertDialog dlg = new DimBuilder(this).setTitle("Exporting").setView(status).setCancelable(false).create();
+        dlg.show();
+        Dimmer.apply(this, dlg.getWindow());
+        new Thread(() -> {
+            String error = null;
+            java.io.File temp = null;
+            try {
+                // MediaMuxer needs a seekable file: join into the cache, then copy that out.
+                temp = new File(getCacheDir(), "export_" + System.currentTimeMillis() + ".mp4");
+                SegmentJoin.join(segs, temp, (i, total) -> runOnUiThread(() -> status.setText("Joining piece " + i + " of " + total + "...")));
+                runOnUiThread(() -> status.setText("Copying to Downloads..."));
+                String name = (r.name.isEmpty() ? "Recording" : r.name.replaceAll("[^A-Za-z0-9 _-]", "")) + ".mp4";
+                copyTo(temp, exportStream(folder, name, "video/mp4"));
+                exportExtras(r, folder);
+            } catch (java.io.IOException | RuntimeException e) {
+                error = e.getMessage() == null ? e.toString() : e.getMessage();
+            } finally {
+                if (temp != null) temp.delete();
+            }
+            final String err = error;
+            runOnUiThread(() -> {
+                dlg.dismiss();
+                exportDone(err, "One video, with the captions, was copied to Downloads/TurboBox/" + folder + ".");
+            });
+        }, "export-merge").start();
+    }
+
+    private void exportDone(String error, String message) {
+        if (error != null) {
+            Toast.makeText(this, "Export stopped: " + error, Toast.LENGTH_LONG).show();
             return;
         }
-        new AlertDialog.Builder(this).setTitle("Exported")
-                .setMessage(n + " files were copied to Downloads/TurboBox/" + folder + ". The recording is in 30-second pieces.")
+        new DimBuilder(this).setTitle("Exported")
+                .setMessage(message)
                 .setPositiveButton("Open Downloads", (d, w) -> startActivity(new android.content.Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS)
                         .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)))
                 .setNegativeButton("OK", null).show();
@@ -319,15 +397,14 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
         StringBuilder sb = new StringBuilder();
         for (Vtt.Cue c : list) sb.append(Vtt.timestamp(c.startMs), 0, 8).append("   ").append(c.text).append("\n\n");
         TextView t = Ui.text(this, none
-                ? "No captions were recorded for this recording.\n\nLive captions are off unless you turn them on before or during a recording: "
-                + "tap CC on the page, or switch on Settings > Live transcription > Transcribe the next recording, or use the "
-                + "workflow step \"transcribe on\". They need Android 13 or newer."
+                ? "No captions were recorded for this recording.\n\nCaptions are made while a recording runs, unless Settings > Live transcription > "
+                + "Turn off captions while recording is on. They need Android 13 or newer. Use Transcribe to make them now."
                 : sb.toString(), 15f, Ui.TEXT, "sans-serif");
         t.setTextIsSelectable(true);
         t.setPadding(Ui.dp(this, 20), Ui.dp(this, 12), Ui.dp(this, 20), Ui.dp(this, 12));
         android.widget.ScrollView sv = new android.widget.ScrollView(this);
         sv.addView(t);
-        new AlertDialog.Builder(this)
+        new DimBuilder(this)
                 .setTitle("Captions - " + (r.name.isEmpty() ? "recording" : r.name))
                 .setView(sv)
                 .setPositiveButton(none ? "OK" : "Share .vtt file", (d, w) -> {
@@ -657,7 +734,7 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
         for (int i = 0; i < items.length; i++) {
             items[i] = DateFormat.getTimeFormat(this).format(marks.get(i).wallMs) + "   " + marks.get(i).label;
         }
-        new AlertDialog.Builder(this)
+        new DimBuilder(this)
                 .setTitle("Marks")
                 .setItems(items, (d, which) -> seekTo(BufferStore.offsetOfWall(BufferStore.segments(run), marks.get(which).wallMs), true))
                 .show();

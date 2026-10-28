@@ -229,10 +229,12 @@ final class WorkflowRunner {
                 log("Opening " + pin.name + " in a slot"
                         + (ownsTemporary ? ", a temporary extra page (all four page slots are busy). Open it from the tabs." : ""));
                 session.open(app, pin);
+                session.setWorkflowLock(true);   // the page's workflow recording size (if it has one) from the first moment
                 waitUntil = System.currentTimeMillis() + OPEN_TIMEOUT_MS;
                 awaitLoad(this::next);
             } else {
                 log("Using " + pin.name + ", already open (slot " + (session.slot + 1) + ")");
+                session.setWorkflowLock(true);
                 next();
             }
         }
@@ -304,6 +306,7 @@ final class WorkflowRunner {
                             return;
                         }
                         session.open(app, pin);
+                        session.setWorkflowLock(true);
                     } else {
                         session.reload();
                     }
@@ -325,10 +328,13 @@ final class WorkflowRunner {
                     session.setVolume(s.number / 100f);
                     next();
                     break;
-                case HANGUP:
-                    session.arm(s.seconds * 1000);
+                case HANGUP: {
+                    final String after = StepTemplates.duration(s.seconds);
+                    session.arm(s.seconds * 1000, () -> log("Final action finished: the " + after + " timer ran out and the page was closed"));
+                    log("  the page closes in " + after + " (the hang-up timer); the workflow's last action is logged then");
                     next();
                     break;
+                }
                 case RECORD_START:
                     session.startRecording();
                     next();
@@ -349,11 +355,8 @@ final class WorkflowRunner {
                     next();
                     break;
                 case TRANSCRIBE_ON:
-                    session.setTranscribing(true);
-                    next();
-                    break;
                 case TRANSCRIBE_OFF:
-                    session.setTranscribing(false);
+                    log("Live captions are automatic with every recording now (Settings turns them off); this step does nothing.");
                     next();
                     break;
                 case MARK:
@@ -494,7 +497,9 @@ final class WorkflowRunner {
             if (finished) return;
             finished = true;
             attemptToken++;
-            log(ok ? "Finished" : "Stopped: " + message);
+            boolean timerRunning = ok && session != null && session.isActive() && session.getRemainingMs() >= 0;
+            log(ok ? (timerRunning ? "Steps finished; the hang-up timer is still counting down" : "Finished") : "Stopped: " + message);
+            if (session != null) session.releaseWorkflowLock();
             RUNS.remove(wf.id + ":" + pinId);
             if (focusHolder == this) focusHolder = null;
             // A borrowed page goes when its work is done, unless a hang-up timer is still counting or something went wrong

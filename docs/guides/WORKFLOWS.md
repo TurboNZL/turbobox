@@ -2,6 +2,8 @@
 
 A workflow opens one or more of your pinned pages and follows steps you write: click this, type that, wait, record, hang up. It can start **by itself at a time you choose, on the days you choose, with the screen off**, or when you tap **Run now**.
 
+A workflow does not belong to a page. Make it once, name it, and then in a **page's settings > Workflows** switch it on for that page and choose the days and time it runs there (a 2-hour lecture on one page, a morning check-in on another). The same links can be changed from the workflow itself (the pages it runs on), so use whichever is closer.
+
 Home > Workflows > **New workflow**. Give it a name, choose the pages (tap tiles in the same layout as the home screen; pick several to run the steps on each page at once), optionally switch on **Start by itself at a set time**, and write the steps.
 
 ## The steps
@@ -21,7 +23,7 @@ Tap **+ Add a step** in the editor and pick one from the buttons: it asks what i
 | `hangup 1h30m` | Closes the page after that long (`hangup off` cancels). `hangup` or `close` with no time closes it now: they are the same step. |
 | `record start` / `record stop` | The [recording buffer](RECORDING_BUFFER.md). |
 | `step away` / `step back` | Like the Step away button: freezes and silences the page on the phone while it keeps recording (it starts the recording if needed). `step back` lets go, without opening the replay. |
-| `transcribe on` / `transcribe off` | Live captions saved as WebVTT with the recording ([RECORDING_BUFFER](RECORDING_BUFFER.md)). |
+| `transcribe on` / `transcribe off` | Old workflows only: captions are automatic with every recording now (Settings turns them off), so these do nothing. |
 | `mark Chapter 2 starts` | A bookmark in the recording. |
 | `js document.title` | Runs a script on the page. |
 
@@ -38,7 +40,8 @@ Elements inside open shadow roots and same-origin frames are found too. A page f
 - **Timed**: pick the time (shown the way your phone shows time, with AM/PM unless it is set to 24 hours) and the days. The phone does not have to be awake: Android wakes it at that time (allow **exact alarms** so it is on time, not minutes late), TurboBox opens the page and starts clicking. A notification says it is running.
 - **Run now** on the workflow's card, or **Save and run now** in the editor, brings the page to the front and shows the log live (in the editor); use it to try a workflow before you trust it with an alarm. Because the page is on screen, a recording it starts gets the full picture.
 - If its page is already open, it uses that one. If all four page slots are busy, it opens the page in a **temporary extra tab** (E, F...) that you can reach from the session screen as usual; the tab closes when the workflow finishes (it stays if a hang-up timer is still running or something went wrong, so you can look). A workflow with several pages starts one run per page, side by side; the log shows `[Page]` in front of each line.
-- A run's result is reported once, when the last page is done.
+- A run's result is reported once, when the last page is done. A `hangup` timer keeps counting after the steps are done: the log says *Steps finished; the hang-up timer is still counting down*, and when it runs out, *Final action finished: the timer ran out and the page was closed*.
+- **Recording size.** A page can have its own size for workflows (page settings > *Size while a workflow records*: page size, zoom and the shape of the picture). While a workflow uses the page, and until its recording ends, the page keeps that size whatever the screen does, so the recording is the same shape from the first frame to the last and nothing is cut off. Off: the page keeps its normal size.
 - If a step fails (a button never appears, the page was closed) the workflow stops, a notification says which step and why, and the last run is shown on its card.
 
 ## With the screen off

@@ -867,7 +867,7 @@
       get: function () { return this.__tbWant === undefined ? mutedDesc.get.call(this) : this.__tbWant; },
       set: function (v) { noteMedia(this); this.__tbWant = !!v; if (quiet() || this.__tbStream) applyLocalMute(this); else mutedDesc.set.call(this, !!v); }
     });
-    hook(HTMLMediaElement.prototype, 'play', function () { noteMedia(this); if (quiet() || wantsRoute()) applyLocalMute(this); });
+    hook(HTMLMediaElement.prototype, 'play', function () { noteMedia(this); applyLocalMute(this); });
   }
   // Silent for the phone: Pause, or the page volume at 0 (which must silence everything the page plays, whatever the page does).
   function quiet() { return cfg.localMute || cfg.volume <= 0.001; }
@@ -876,6 +876,24 @@
   // The last stage between the page and the phone's speaker: Pause closes it, the page volume scales it. (Our own context
   // carries a call's remote voices, which apply the volume themselves.) The page's own volume and mute buttons act before it.
   function masterLevel(m) { return quiet() ? 0 : (m && m.__own ? 1 : cfg.volume); }
+  // The page volume is a sound-device volume: everything the page plays that we take into Web Audio (media files, live streams, the
+  // page's own Web Audio graphs) is added together first and passes ONE gain, set by the volume slider. Nothing is turned up or down
+  // sink by sink. (Only what cannot be taken in, such as media from another site that forbids it, is scaled where it plays.)
+  var bus = null;
+  function busLevel() { return quiet() ? 0 : cfg.volume; }
+  function pageBus() {
+    var c = ensureCtx();
+    if (!bus || bus.context !== c) {
+      bus = c.createGain();
+      bus.gain.value = busLevel();
+      bus.connect(c.destination);
+    }
+    return bus;
+  }
+  function syncLevels() {
+    masters.forEach(function (g) { g.gain.value = masterLevel(g); });
+    if (bus) bus.gain.value = busLevel();
+  }
   var masters = [], origConnect = AudioNode.prototype.connect, origDisconnect = AudioNode.prototype.disconnect;
   var LiveContext = window.AudioContext || window.webkitAudioContext;
   function isLiveDestination(d) { return window.AudioDestinationNode && d instanceof AudioDestinationNode && LiveContext && d.context instanceof LiveContext; }
@@ -931,7 +949,7 @@
       if (c.state !== 'running') return;
       var src = c.createMediaStreamSource(st), g = c.createGain();
       src.connect(g);
-      g.connect(c.destination);   // goes through the master gain
+      g.connect(pageBus());   // the page bus: one volume for everything
       el.__tbStream = { src: src, g: g };
       el.__tbStreamOf = st;
     } catch (e) { /* this stream cannot be routed: the native volume scaling stays */ }
@@ -945,13 +963,15 @@
   function routeElement(el) {
     if (el.srcObject && el.srcObject.getAudioTracks) { routeStream(el); return; }
     if (el.__tbSrc !== undefined) return;
-    el.__tbSrc = null;
-    if (!canRoute(el)) return;
+    if (!canRoute(el)) {
+      if (el.currentSrc || el.src) el.__tbSrc = null;   // cannot be taken in (another site's media): scaled where it plays. No source yet: try again later
+      return;
+    }
     try {
       var c = ensureCtx();
-      if (c.state !== 'running') return;     // a stuck context would make the page inaudible for good: do not
+      if (c.state !== 'running') return;     // a stuck context would make the page inaudible for good: do not (tried again on the next sweep)
       var node = c.createMediaElementSource(el);
-      node.connect(c.destination);           // goes through the master gain
+      node.connect(pageBus());               // the page bus: one volume for everything
       el.__tbSrc = node;
       if (tap.on && tap.sp) {
         el.__tbTapG = c.createGain(); el.__tbTapG.gain.value = elAudible(el) ? 1 : 0;
@@ -961,7 +981,9 @@
   }
   function applyLocalMute(el) {
     noteMedia(el);
-    if (wantsRoute()) routeElement(el); else if (el.__tbStream) unrouteStream(el);
+    // Media files are always taken into the page bus (so the volume is one gain, whatever it is set to); a live stream only when the
+    // volume is not 100%, because taking a call's voice out of its element can upset the call's echo cancellation.
+    if (wantsRoute() || (!el.srcObject && canRoute(el))) routeElement(el); else if (el.__tbStream) unrouteStream(el);
     if (el.__tbStream) {
       // Its sound goes through our stage: the page's own mute only closes this element's gain, and the element itself stays silent.
       el.__tbStream.g.gain.value = el.__tbWant ? 0 : 1;
@@ -980,7 +1002,7 @@
       deepQuery(d, 'audio,video', []).forEach(function (el) { if (all.indexOf(el) < 0) all.push(el); });
     });
     all.forEach(applyLocalMute);
-    masters.forEach(function (g) { g.gain.value = masterLevel(g); });
+    syncLevels();
   }
   // ---- page volume for media elements ---------------------------------------------------------------------
   // The volume is a middleman between the page and the phone's speaker: the page keeps reading and writing its own
@@ -1017,8 +1039,10 @@
       applyLocalMute(el);   // routes what has to be routed at this volume, silences what has to be silent
       applyElVolume(el);
     });
-    masters.forEach(function (g) { g.gain.value = masterLevel(g); });
+    syncLevels();
   };
+  // Elements that could not be taken in yet (the context was still waiting for the page to be touched, or no source yet) are tried again.
+  setInterval(function () { media.forEach(function (e) { if (e.__tbSrc === undefined && !e.srcObject && !e.paused) applyLocalMute(e); }); }, 1500);
   setInterval(function () { if (wantsRoute() || media.some(function (e) { return e.__tbVol !== undefined && elScale(e) !== 1; })) T.volumeSweep(); }, 1000);
   var lmTimer = 0;
   function relayToFrames(msg) {
@@ -1403,7 +1427,10 @@
         + ', counted ' + (elAudible(el) ? 'yes' : 'no'));
     });
     if (els.length > 6) lines.push('  ... ' + (els.length - 6) + ' more');
-    return (tap.on ? 'recording tap on' : 'recording tap off') + ', page audio contexts ' + liveCtxs.length
+    var viaBus = els.filter(function (e) { return e.__tbSrc || e.__tbStream; }).length;
+    return 'page volume ' + Math.round(cfg.volume * 100) + '%' + (quiet() ? ' (silent)' : '') + ', one gain for everything taken in: '
+      + (bus ? bus.gain.value.toFixed(2) : 'not made') + ', ' + viaBus + ' of ' + els.length + ' media elements go through it, the rest are scaled where they play\n  '
+      + (tap.on ? 'recording tap on' : 'recording tap off') + ', page audio contexts ' + liveCtxs.length
       + '\n  heard by elements/calls ' + (loud.A ? Math.round((now - loud.A) / 1000) + ' s ago' : 'never')
       + ', by page audio ' + (loud.B ? Math.round((now - loud.B) / 1000) + ' s ago' : 'never')
       + ', call tracks ' + remoteTracks().length + '\n' + (lines.join('\n') || '  no media elements');
@@ -1420,6 +1447,6 @@
     });
   };
   T.state = function () {
-    return { masters: masters.map(function (g) { return g.gain.value; }), volume: cfg.volume, muted: cfg.muted, aec: cfg.aec, zoom: cfg.zoom, micGain: cfg.micGain, virtual: vm.on, routed: routed.length, ctx: ctx ? ctx.state : null, tracks: tracks.length };
+    return { bus: bus ? bus.gain.value : null, masters: masters.map(function (g) { return g.gain.value; }), volume: cfg.volume, muted: cfg.muted, aec: cfg.aec, zoom: cfg.zoom, micGain: cfg.micGain, virtual: vm.on, routed: routed.length, ctx: ctx ? ctx.state : null, tracks: tracks.length };
   };
 })();

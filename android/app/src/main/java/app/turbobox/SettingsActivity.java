@@ -155,7 +155,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
             java.util.List<String> names = new java.util.ArrayList<>();
             names.add("Play and pause the page");
             for (Workflow w : flows) names.add("Run: " + w.name);
-            new AlertDialog.Builder(this).setTitle("When the headphone button is pressed")
+            new DimBuilder(this).setTitle("When the headphone button is pressed")
                     .setItems(names.toArray(new String[0]), (d, which) -> {
                         Prefs.setHeadphoneWorkflow(this, which == 0 ? "" : flows.get(which - 1).id);
                         SessionService.ensure(this);
@@ -250,7 +250,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
                     ids.add("workflow:" + w.id);
                     names.add("Run the workflow: " + w.name);
                 }
-                new AlertDialog.Builder(this).setTitle("Button " + (slot + 1))
+                new DimBuilder(this).setTitle("Button " + (slot + 1))
                         .setItems(names.toArray(new String[0]), (d, which) -> {
                             PipButtons.set(this, slot, ids.get(which));
                             render();
@@ -294,7 +294,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         if (pendingRotation < 0) pendingRotation = Prefs.rotation(this);
         TextView rot = Ui.text(this, "Rotation: " + rotations[pendingRotation] + "  \u203A", 15f, Ui.GREEN, "sans-serif-medium");
         rot.setPadding(0, Ui.dp(this, 10), 0, Ui.dp(this, 6));
-        rot.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("Rotation of the page screen")
+        rot.setOnClickListener(v -> new DimBuilder(this).setTitle("Rotation of the page screen")
                 .setSingleChoiceItems(rotations, pendingRotation, (d, which) -> {
                     pendingRotation = which;   // kept until Update is pressed
                     d.dismiss();
@@ -365,14 +365,24 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         tr.addView(Ui.hint(this, "Turns what the page says into text while it records, and saves it as a WebVTT subtitle file next to the "
                 + "recording (Recordings > Share captions). It uses Android's speech recognition and needs Android 13 or newer. "
                 + "Times are approximate, and a recognizer that beeps when it starts may beep."), Ui.lp(this, 4, 8));
-        Switch next = Ui.toggle(this);
-        next.setText("Transcribe the next recording");
-        next.setTextColor(Ui.TEXT);
-        next.setChecked(Prefs.transcribeNext(this));
-        next.setOnCheckedChangeListener((b, on) -> Prefs.setTranscribeNext(this, on));
-        tr.addView(next, Ui.lp(this, 0, 4));
-        tr.addView(Ui.hint(this, "One time only: it switches itself off when that recording starts. A workflow can also use the "
-                + "step \"transcribe on\"."), Ui.lp(this, 0, 6));
+        Switch capsOff = Ui.toggle(this);
+        capsOff.setText("Turn off captions while recording");
+        capsOff.setTextColor(Ui.TEXT);
+        capsOff.setChecked(Prefs.captionsOff(this));
+        capsOff.setOnCheckedChangeListener((b, on) -> Prefs.setCaptionsOff(this, on));
+        tr.addView(capsOff, Ui.lp(this, 0, 4));
+        tr.addView(Ui.hint(this, "Off by default: every recording gets captions. Applies to recordings that start afterwards."), Ui.lp(this, 0, 6));
+        String[] speeds = {"As spoken (most exact)", "Twice as fast", "Three times as fast"};
+        int[] speedVals = {1, 2, 3};
+        int curSpeed = Math.max(1, Math.min(3, Prefs.transcribeSpeed(this)));
+        tr.addView(choiceRow("Captioning a finished recording", speeds[curSpeed - 1], () -> new DimBuilder(this)
+                .setTitle("Captioning a finished recording")
+                .setSingleChoiceItems(speeds, curSpeed - 1, (d, which) -> {
+                    Prefs.setTranscribeSpeed(this, speedVals[which]);
+                    d.dismiss();
+                    recreate();
+                }).show()));
+        tr.addView(Ui.hint(this, "Recordings > Transcribe feeds the sound to the recogniser faster than it was spoken. Faster is quicker but can miss a word where a phrase starts."), Ui.lp(this, 0, 6));
         tr.addView(choiceRow("Speech language", languageName(Prefs.transcribeLang(this)), this::chooseLanguage));
         body.addView(tr, Ui.lp(this, 12, 0));
 
@@ -432,7 +442,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
             items[i] = minutesText(BUFFER_MINUTES[i]);
             if (BUFFER_MINUTES[i] == Prefs.bufferMinutes(this)) checked = i;
         }
-        new AlertDialog.Builder(this).setTitle("Record up to")
+        new DimBuilder(this).setTitle("Record up to")
                 .setSingleChoiceItems(items, checked, (d, which) -> {
                     Prefs.setBufferMinutes(this, BUFFER_MINUTES[which]);
                     d.dismiss();
@@ -442,7 +452,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
 
     private void chooseAtLimit() {
         String[] items = {"Keep recording, drop the oldest (a rolling window)", "Stop recording"};
-        new AlertDialog.Builder(this).setTitle("When the limit is reached")
+        new DimBuilder(this).setTitle("When the limit is reached")
                 .setSingleChoiceItems(items, Prefs.bufferStopAtLimit(this) ? 1 : 0, (d, which) -> {
                     Prefs.setBufferStopAtLimit(this, which == 1);
                     d.dismiss();
@@ -457,7 +467,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
             items[i] = BufferRecorder.widthLabel(BufferRecorder.WIDTHS[i]);
             if (BufferRecorder.WIDTHS[i] == BufferRecorder.width(this)) checked = i;
         }
-        new AlertDialog.Builder(this).setTitle("Resolution")
+        new DimBuilder(this).setTitle("Resolution")
                 .setSingleChoiceItems(items, checked, (d, which) -> {
                     Prefs.setBufferWidth(this, BufferRecorder.WIDTHS[which]);
                     d.dismiss();
@@ -472,7 +482,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
             items[i] = BufferRecorder.fpsLabel(BufferRecorder.FPS[i]);
             if (BufferRecorder.FPS[i] == BufferRecorder.fps(this)) checked = i;
         }
-        new AlertDialog.Builder(this).setTitle("Frame rate")
+        new DimBuilder(this).setTitle("Frame rate")
                 .setSingleChoiceItems(items, checked, (d, which) -> {
                     Prefs.setBufferFps(this, BufferRecorder.FPS[which]);
                     d.dismiss();
@@ -493,7 +503,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
             if (LANGUAGES[i][0].equals(Prefs.transcribeLang(this))) checked = i;
         }
         items[LANGUAGES.length] = "Another language tag...";
-        new AlertDialog.Builder(this).setTitle("Speech language")
+        new DimBuilder(this).setTitle("Speech language")
                 .setSingleChoiceItems(items, checked, (d, which) -> {
                     d.dismiss();
                     if (which < LANGUAGES.length) {
@@ -504,7 +514,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
                     EditText tag = new EditText(this);
                     tag.setHint("e.g. sv-SE");
                     tag.setSingleLine(true);
-                    new AlertDialog.Builder(this).setTitle("Language tag").setView(tag)
+                    new DimBuilder(this).setTitle("Language tag").setView(tag)
                             .setPositiveButton("Save", (dd, w) -> {
                                 Prefs.setTranscribeLang(this, tag.getText().toString().trim());
                                 render();
@@ -519,7 +529,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
             items[i] = String.format(Locale.US, "%d recordings", KEEP_RUNS[i]);
             if (KEEP_RUNS[i] == Prefs.keepRuns(this)) checked = i;
         }
-        new AlertDialog.Builder(this).setTitle("Recordings kept")
+        new DimBuilder(this).setTitle("Recordings kept")
                 .setSingleChoiceItems(items, checked, (d, which) -> {
                     Prefs.setKeepRuns(this, KEEP_RUNS[which]);
                     d.dismiss();

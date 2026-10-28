@@ -56,7 +56,7 @@ public class SiteDataActivity extends Activity {
             row.addView(Ui.hint(this, storeName(s.store) + " - " + (s.cookies == 0 ? "no cookies" : s.cookies == 1 ? "1 cookie" : s.cookies + " cookies")
                     + ", plus any stored page data"), Ui.lp(this, 2, 6));
             TextView clear = Ui.pill(this, "Clear this site's data", Ui.RED);
-            clear.setOnClickListener(v -> new AlertDialog.Builder(this)
+            clear.setOnClickListener(v -> new DimBuilder(this)
                     .setTitle("Clear " + s.host + "?")
                     .setMessage("Its cookies and stored data are removed from this app, so you will be signed out of it.")
                     .setPositiveButton("Clear", (d, w) -> {
@@ -68,7 +68,7 @@ public class SiteDataActivity extends Activity {
             body.addView(row, Ui.lp(this, 8, 0));
         }
         TextView all = Ui.pill(this, "Clear everything", Ui.RED);
-        all.setOnClickListener(v -> new AlertDialog.Builder(this)
+        all.setOnClickListener(v -> new DimBuilder(this)
                 .setTitle("Clear all site data?")
                 .setMessage("Every cookie and all stored page data in every profile are removed. You will be signed out of everything.")
                 .setPositiveButton("Clear all", (d, w) -> {

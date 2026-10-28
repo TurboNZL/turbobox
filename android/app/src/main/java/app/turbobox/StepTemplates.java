@@ -138,8 +138,6 @@ final class StepTemplates {
                 new Field(FieldType.TEXT, "What is starting?", "Optional", "")));
         ALL.add(new Template(rec, "Step away", "Freeze and silence the page here; it keeps recording.", false, v -> "step away"));
         ALL.add(new Template(rec, "Step back", "Show and hear the page again.", false, v -> "step back"));
-        ALL.add(new Template(rec, "Live captions on", "Speech to text while it records.", false, v -> "transcribe on"));
-        ALL.add(new Template(rec, "Live captions off", "Stop the captions.", false, v -> "transcribe off"));
 
         String end = "Finishing";
         ALL.add(new Template(end, "Hang up (close the page)", "Close the page now, or after a wait.", false,

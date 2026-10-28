@@ -132,9 +132,9 @@ final class Session {
     private boolean callMeter;
     private String script;            // assets/session.js, read once
     private long hangupAt;            // SystemClock.elapsedRealtime() deadline, 0 = no timer
+    private Runnable hangupDone;      // what to tell when the timer ran out and closed the page
     private long notifiedMinutes = -1;
     private BufferRecorder recorder;
-    private boolean transcribePending;   // captions were asked for before the recording started
     private Window frameWindow;       // the visible activity's window, the recorder's picture source
     long awayAtWall;                  // when "Step away" was tapped (wall clock), 0 = not away
     boolean catchingUp;               // "Back" was tapped and the missed part is being replayed: still frozen
@@ -238,7 +238,12 @@ final class Session {
 
     /** The zoom in force right now (the Mini window can have its own). */
     float effectiveZoom() {
-        return zoom;
+        return sizeLockOn() ? pin.wfZoom : zoom;
+    }
+
+    /** The virtual screen width in force: the page's own, or the workflow recording size while that is locked. */
+    int effectivePageWidth() {
+        return sizeLockOn() ? pin.wfPageWidth : pageWidth;
     }
 
     /** The forced shape in force right now (an index into Pin.ASPECTS; the Mini window can have its own). */
@@ -247,7 +252,65 @@ final class Session {
     }
 
     int effectiveAspect(boolean mini) {
-        return aspect;
+        return sizeLockOn() ? pin.wfAspect : aspect;
+    }
+
+    // ---- size lock for workflow recordings -------------------------------------------------------------
+
+    private boolean wfLock;          // a workflow is using the page (or its recording is still running)
+    private boolean wfRunnerDone;    // the workflow's steps have all run; the lock stays while the recording or the timer goes on
+
+    /** The page has a workflow recording size and a workflow is using it right now. */
+    boolean sizeLockOn() {
+        return wfLock && pin != null && pin.wfSize;
+    }
+
+    /** A workflow starts working on the page: its recording size (if the page has one) takes over until the workflow's recording ends. */
+    void setWorkflowLock(boolean on) {
+        wfRunnerDone = false;
+        if (on == wfLock) return;
+        wfLock = on;
+        applyLock();
+    }
+
+    /** The workflow's steps are done: the size stays while its recording or its hang-up timer is still going. */
+    void releaseWorkflowLock() {
+        wfRunnerDone = true;
+        if (wfLock && !isRecording() && getRemainingMs() < 0) {
+            wfLock = false;
+            applyLock();
+        }
+    }
+
+    /** A setting of the workflow recording size changed: apply it if it is in force. */
+    void refreshLock() {
+        if (wfLock) applyLock();
+    }
+
+    /** Pixel size of the page's private display: the phone's screen in portrait, or the locked recording shape. */
+    int[] displaySize() {
+        android.util.DisplayMetrics dm = app.getResources().getDisplayMetrics();
+        int lo = Math.min(dm.widthPixels, dm.heightPixels), hi = Math.max(dm.widthPixels, dm.heightPixels);
+        float ratio = Pin.ASPECTS[effectiveAspect()];
+        if (!sizeLockOn() || ratio <= 0f) return new int[]{lo, hi};
+        return ratio >= 1f ? new int[]{hi, Math.round(hi / ratio)} : new int[]{Math.round(hi * ratio), hi};
+    }
+
+    /** Gives the page the geometry that is in force now (normal or workflow recording size) and tells everything that depends on it. */
+    private void applyLock() {
+        if (app == null) return;
+        js("__turbobox.setPageWidth(" + effectivePageWidth() + ")");
+        js(String.format(Locale.US, "__turbobox.setZoom(%.3f)", effectiveZoom()));
+        updateShape();
+        OffscreenHost h = pdisplay;
+        if (h != null) {
+            viewCssWidth = Math.round(effectivePageWidth() / effectiveZoom());
+            int[] sz = displaySize();
+            h.setLocked(sizeLockOn());
+            h.resize(sz[0], sz[1], 0);
+        }
+        refit();
+        for (Listener l : listeners) l.onAspect(this);
     }
 
     /** The Mini window opened or closed: the page takes that mode's zoom and shape. */
@@ -412,7 +475,10 @@ final class Session {
             // A real-time deadline, not a tick count, so a late tick cannot drift it.
             long left = hangupAt - SystemClock.elapsedRealtime();
             if (left <= 0) {
+                Runnable done = hangupDone;
+                hangupDone = null;
                 close("hang-up timer reached");
+                if (done != null) done.run();
                 return;
             }
             for (Listener l : listeners) l.onTimer(Session.this, left);
@@ -432,8 +498,14 @@ final class Session {
 
     /** Hang up after {@code delayMs}; 0 or less turns the timer off. */
     void arm(long delayMs) {
+        arm(delayMs, null);
+    }
+
+    /** Like {@link #arm(long)}; {@code whenDone} runs after the page was closed because the timer ran out (not when it is closed any other way). */
+    void arm(long delayMs, Runnable whenDone) {
         main.removeCallbacks(tick);
         notifiedMinutes = -1;
+        hangupDone = delayMs > 0 ? whenDone : null;
         if (delayMs <= 0 || !active) {
             hangupAt = 0;
             for (Listener l : listeners) l.onTimer(this, -1);
@@ -632,14 +704,13 @@ final class Session {
             pin.pageWidth = pageWidth;
             PinStore.put(app, pin);
         }
-        js("__turbobox.setPageWidth(" + pageWidth + ")");
-
+        js("__turbobox.setPageWidth(" + effectivePageWidth() + ")");   // while a workflow's recording size is locked, that one stays
     }
 
     /** Page zoom, 0.5..3: lays the page out again at 1280 / zoom CSS pixels wide (not a magnifier). */
     void setZoom(float value) {
         zoom = Math.max(0.5f, Math.min(3f, value));
-        if (!miniMode || zoomMini <= 0) js(String.format(Locale.US, "__turbobox.setZoom(%.3f)", zoom));
+        js(String.format(Locale.US, "__turbobox.setZoom(%.3f)", effectiveZoom()));
     }
 
     /**
@@ -882,6 +953,8 @@ final class Session {
         locked = false;
         main.removeCallbacks(tick);
         hangupAt = 0;
+        hangupDone = null;
+        wfLock = false;
         muted = false;
         vmic.setMuted(false);
         main.removeCallbacks(muteCheck);
@@ -1007,11 +1080,12 @@ final class Session {
         if (pdisplay != null) return;
         leaveHost();
         android.util.DisplayMetrics dm = app.getResources().getDisplayMetrics();
-        int w = Math.min(dm.widthPixels, dm.heightPixels), h = Math.max(dm.widthPixels, dm.heightPixels);
-        OffscreenHost host = new OffscreenHost(app, "page" + slot, webView, w, h, dm.densityDpi);
+        int[] size = displaySize();
+        OffscreenHost host = new OffscreenHost(app, "page" + slot, webView, size[0], size[1], dm.densityDpi);
         if (host.start()) {
             pdisplay = host;
-            viewCssWidth = Math.round(pageWidth / zoom);
+            host.setLocked(sizeLockOn());
+            viewCssWidth = Math.round(effectivePageWidth() / effectiveZoom());
             js("__turbobox.configure({privateDisplay:true})");
         } else {
             notice("The private display could not be made (" + host.error() + "); this page is shown the normal way.");
@@ -1104,28 +1178,13 @@ final class Session {
         recorder.setSource(frameWindow, webView);
         recorder.setPrivate(pdisplay);
         js("__turbobox.setTap(true)");
-        if (transcribePending || Prefs.transcribeNext(app)) {
-            transcribePending = false;
-            Prefs.setTranscribeNext(app, false);   // the one-time switch in Settings
-            startTranscription();
-        }
+        if (!Prefs.captionsOff(app) && Transcriber.unavailableReason(app) == null) startTranscription();   // captions come with every recording
         for (Listener l : listeners) l.onRecording(this, true, "");
         SessionService.refresh();
     }
 
     boolean isTranscribing() {
         return recorder != null && recorder.isTranscribing();
-    }
-
-    /** Live captions (speech to text, saved as WebVTT) for the recording; asked for before it starts, they begin with it. */
-    void setTranscribing(boolean on) {
-        if (on) {
-            if (isRecording()) startTranscription(); else transcribePending = true;
-        } else {
-            transcribePending = false;
-            if (recorder != null) recorder.stopTranscribing();
-        }
-        for (Listener l : listeners) l.onRecording(this, isRecording(), "");
     }
 
     private void startTranscription() {
@@ -1142,6 +1201,10 @@ final class Session {
         r.stop();
         for (Listener l : listeners) l.onRecording(this, false, "");
         SessionService.refresh();
+        if (wfRunnerDone && wfLock && getRemainingMs() < 0) {
+            wfLock = false;   // the workflow is over and so is its recording: the page goes back to its own size
+            applyLock();
+        }
         // The recorder was hosting the page with no screen; its own clean-up is already queued, so host it after that.
         if (frameWindow == null) main.post(this::hostWithoutScreen);
     }
@@ -1149,16 +1212,19 @@ final class Session {
     // ---- stepping away -----------------------------------------------------------------------------
 
     /**
-     * Step away: make sure the page is recording, mark the moment, and freeze and silence the live page on this phone
-     * (the recording goes on). False when it could not start recording.
+     * Pause and record: freeze and silence the live page on this phone, then make sure the page is recording and mark the
+     * moment. The two are independent afterwards. False when it could not start recording.
      */
     boolean stepAway() {
-        if (!active || awayAtWall != 0) return active;
+        if (!active) return false;
+        if (awayAtWall != 0 && frozen && isRecording()) return true;
+        // Exactly "pause, then record": the pause is its own state (the Pause button shows it, and letting it go does not touch the
+        // recording); the moment is only remembered so the replay of what was missed can start there.
+        if (awayAtWall == 0) awayAtWall = System.currentTimeMillis();
+        setFrozen(true);
         if (!isRecording()) startRecording();
         if (!isRecording()) return false;
-        mark("Stepped away");
-        awayAtWall = System.currentTimeMillis();
-        setFrozen(true);
+        mark("Paused");
         return true;
     }
 
@@ -1258,6 +1324,13 @@ final class Session {
                 pageLoaded = !"about:blank".equals(url);
                 view.evaluateJavascript(pageScript(), null);
                 hideAds(view, url);
+                // A page opened with no screen (a workflow) may have measured itself before it had a size: tell it the size it has now.
+                main.postDelayed(() -> {
+                    if (webView != null && active && webView.getWidth() > 0) {
+                        js("__turbobox.setViewPx(" + webView.getWidth() + ")");
+                        js("__turbobox.refit()");
+                    }
+                }, 600);
             }
 
             @Override
@@ -1348,7 +1421,7 @@ final class Session {
     private String pageScript() {
         try {
             JSONObject settings = new JSONObject()
-                    .put("muted", silenced()).put("volume", volume).put("aec", aec).put("virtualDevices", Prefs.virtualDevices(app)).put("privateDisplay", pdisplay != null).put("shape", Pin.ASPECTS[effectiveAspect()]).put("pageWidth", pageWidth).put("cursorMode", cursorMode).put("zoom", effectiveZoom())
+                    .put("muted", silenced()).put("volume", volume).put("aec", aec).put("virtualDevices", Prefs.virtualDevices(app)).put("privateDisplay", pdisplay != null).put("shape", Pin.ASPECTS[effectiveAspect()]).put("pageWidth", effectivePageWidth()).put("cursorMode", cursorMode).put("zoom", effectiveZoom())
                     .put("micGain", micGain).put("micLabel", micLabel())
                     .put("tap", isRecording()).put("micAllowed", micAllowed).put("cameraAllowed", cameraAllowed).put("localMute", frozen)
                     .put("keepVisible", Prefs.keepPlaying(app)).put("desktop", !mobile);
