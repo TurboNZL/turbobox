@@ -84,7 +84,6 @@ public class SessionActivity extends Activity implements Session.Listener {
     private IconButton splitButton;
     private IconButton muteButton;
     private IconButton recButton;
-    private IconButton ccButton;
     private IconButton awayButton;
     private IconButton timerButton;
     private final java.util.Map<String, IconButton> barItems = new java.util.HashMap<>();
@@ -220,7 +219,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         }
         String[] names = new String[Sessions.PERMANENT];
         for (int i = 0; i < names.length; i++) names[i] = "Replace " + Sessions.tag(Sessions.get(i)) + Sessions.get(i).title();
-        new AlertDialog.Builder(this)
+        new DimBuilder(this)
                 .setTitle("Both pages are in use")
                 .setItems(names, (d, which) -> {
                     Sessions.get(which).close("replaced by " + pin.name);
@@ -403,7 +402,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         EditText name = new EditText(this);
         name.setHint("Name (Lecture and notes, Four up, ...)");
         name.setSingleLine(true);
-        new AlertDialog.Builder(this).setTitle("Save this arrangement").setView(name)
+        new DimBuilder(this).setTitle("Save this arrangement").setView(name)
                 .setPositiveButton("Save", (d, w) -> {
                     String n = name.getText().toString().trim();
                     if (n.isEmpty()) {
@@ -444,7 +443,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         TextView back = Ui.pill(this, "Send back", 0);
         back.setOnClickListener(v -> moveSelected(-1));
         editShape = Ui.pill(this, "Shape", 0);
-        editShape.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("Mini window shape")
+        editShape.setOnClickListener(v -> new DimBuilder(this).setTitle("Mini window shape")
                 .setSingleChoiceItems(MiniLayout.SHAPE_LABELS, Prefs.miniShape(this), (d, which) -> {
                     Prefs.setMiniShape(this, which);
                     d.dismiss();
@@ -545,7 +544,7 @@ public class SessionActivity extends Activity implements Session.Listener {
 
     private void layoutMenu() {
         String[] items = {"Arrange the pages here (live)", "Use a saved layout..."};
-        new AlertDialog.Builder(this).setTitle("Layout").setItems(items, (d, which) -> {
+        new DimBuilder(this).setTitle("Layout").setItems(items, (d, which) -> {
             if (which == 0) startEdit(false, null);
             else chooseSavedLayout();
         }).show();
@@ -562,7 +561,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         }
         String[] names = new String[usable.size()];
         for (int i = 0; i < names.length; i++) names[i] = usable.get(i).name + "  (" + usable.get(i).count + " pages" + (usable.get(i).mini ? ", Mini window" : "") + ")";
-        new AlertDialog.Builder(this).setTitle("Use a layout").setItems(names, (d, which) -> applyLayout(usable.get(which))).show();
+        new DimBuilder(this).setTitle("Use a layout").setItems(names, (d, which) -> applyLayout(usable.get(which))).show();
     }
 
     private void start(int slot, Pin pin) {
@@ -1023,9 +1022,6 @@ public class SessionActivity extends Activity implements Session.Listener {
             return true;
         });
         barItems.put("record", recButton);
-        ccButton = new IconButton(this, IconButton.Icon.CAPTIONS, "Live captions");
-        ccButton.setOnClickListener(v -> toggleCaptions());
-        barItems.put("captions", ccButton);
         muteButton = new IconButton(this, IconButton.Icon.MIC, "Mute or unmute your microphone");
         muteButton.setOnClickListener(v -> {
             Session s = front();
@@ -1095,6 +1091,9 @@ public class SessionActivity extends Activity implements Session.Listener {
         chromeBox.addView(strip, ml);
 
         root.addView(chromeBox, new LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT));
+        chromeBox.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (b - t != ob - ot) chromeBox.post(this::applyBarOverlay);   // the bar's height changed: keep the page under it the same
+        });
         paneHolder = new LinearLayout(this);
         paneHolder.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
             if (inPip || editing || r - l < 50 || b - t < 50) return;
@@ -1393,6 +1392,9 @@ public class SessionActivity extends Activity implements Session.Listener {
                 s.setFrameWindow(getWindow());                      // leaves the private display if it was on one
             } else {
                 s.setFrameWindowQuietly(getWindow());
+                // Nobody looks at this page now: its display goes back to drawing into its own reader. A display left pointing at a
+                // picture view that is no longer on screen has no one taking its frames, and the page's video stops.
+                if (mirrors[i] != null) mirrors[i].release();
                 s.hostWithoutScreen();
             }
             if (i != focus) s.setCallMeter(false);
@@ -1480,7 +1482,26 @@ public class SessionActivity extends Activity implements Session.Listener {
         hotkeyScroll.setVisibility(hotkeyRow.getChildCount() == 0 ? View.GONE : View.VISIBLE);
     }
 
+    /**
+     * A page can ask for the bar to float over it (Page settings): the page area then starts at the top of the screen, and the bar
+     * is drawn on top with a slightly see-through background, so the page keeps the size it has without the bar.
+     */
+    void applyBarOverlay() {
+        if (chromeBox == null || paneStage == null) return;
+        Session f = front();
+        boolean overlay = f != null && f.pin() != null && f.pin().barOverlay && chromeBox.getVisibility() == View.VISIBLE && !inPip;
+        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) paneStage.getLayoutParams();
+        int want = overlay ? -chromeBox.getHeight() : 0;
+        if (lp.topMargin != want) {
+            lp.topMargin = want;
+            paneStage.setLayoutParams(lp);
+        }
+        chromeBox.setElevation(overlay ? Ui.dp(this, 12) : 0f);
+        chromeBox.setBackgroundColor(overlay ? Ui.withAlpha(Ui.BG, 0.82f) : Color.TRANSPARENT);
+    }
+
     private void updateControls() {
+        applyBarOverlay();
         updateHotkeys();
         IconButton rotateBtn = barItems.get("rotate");
         if (rotateBtn != null) {
@@ -1509,11 +1530,10 @@ public class SessionActivity extends Activity implements Session.Listener {
         onTimer(f, f.getRemainingMs());
         recButton.setIcon(f.isRecording() ? IconButton.Icon.STOP : IconButton.Icon.RECORD);
         Ui.tint(this, recButton, f.isRecording() ? Ui.RED : 0);
-        Ui.tint(this, ccButton, f.isTranscribing() ? Ui.GREEN : 0);
         boolean away = f.awayAtWall != 0;
         boolean paused = f.isFrozen();
-        pauseButton.setIcon(paused && !away ? IconButton.Icon.PLAY : IconButton.Icon.PAUSE);
-        Ui.tint(this, pauseButton, paused && !away ? Ui.AMBER : 0);
+        pauseButton.setIcon(paused ? IconButton.Icon.PLAY : IconButton.Icon.PAUSE);
+        Ui.tint(this, pauseButton, paused ? Ui.AMBER : 0);
         awayButton.setIcon(away ? IconButton.Icon.PLAY : IconButton.Icon.BOTH);
         Ui.tint(this, awayButton, away ? Ui.GREEN : 0);
         awayButton.setContentDescription(away ? "Back: play what you missed" : "Pause and record: catch up on what you missed when you come back");
@@ -1533,6 +1553,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         dismissFloat();
         boolean hidden = Prefs.barHidden(this) && !inPip && !isFinishing();
         chromeBox.setVisibility(inPip || hidden ? View.GONE : View.VISIBLE);
+        applyBarOverlay();
         if (!hidden) return;
         View decor = getWindow().getDecorView();
         if (decor.getWidth() < 8) {
@@ -1726,7 +1747,7 @@ public class SessionActivity extends Activity implements Session.Listener {
             s.close("you closed the page");
             return;
         }
-        new AlertDialog.Builder(this)
+        new DimBuilder(this)
                 .setTitle("Close " + s.title() + "?")
                 .setPositiveButton("Close page", (d, w) -> s.close("you closed the page"))
                 .setNegativeButton("Keep it open", null)
@@ -1768,33 +1789,13 @@ public class SessionActivity extends Activity implements Session.Listener {
         updateControls();
     }
 
-    /** Live captions on or off for the page in front; turning them on starts the recording they are saved with. */
-    private void toggleCaptions() {
-        Session s = front();
-        if (s == null) return;
-        if (s.isTranscribing()) {
-            s.setTranscribing(false);
-            Toast.makeText(this, "Live captions off. What was captured is saved with the recording.", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        String why = Transcriber.unavailableReason(this);
-        if (why != null) {
-            Toast.makeText(this, why, Toast.LENGTH_LONG).show();
-            return;
-        }
-        if (!s.isRecording()) s.startRecording();
-        if (!s.isRecording()) return;
-        s.setTranscribing(true);
-        Toast.makeText(this, "Live captions on. They are saved with the recording (Recordings > Captions).", Toast.LENGTH_LONG).show();
-    }
-
     /** Pause: the page is frozen and silenced on this phone (nothing is recorded because of it); tapping again lets it go. */
     private void pauseOrResume() {
         Session s = front();
         if (s == null) return;
         if (s.awayAtWall != 0) {
-            stepAwayOrBack();   // paused together with recording: this is the Back that plays what was missed
-            return;
+            s.awayAtWall = 0;   // letting go of the pause leaves the recording alone; "Back" on the other button is the one that replays
+            s.catchingUp = false;
         }
         s.setFrozen(!s.isFrozen());
         updateControls();
@@ -1826,14 +1827,12 @@ public class SessionActivity extends Activity implements Session.Listener {
             }
             return;
         }
-        boolean cc = s.isTranscribing();
-        new AlertDialog.Builder(this)
+        new DimBuilder(this)
                 .setTitle("Recording " + s.title())
-                .setItems(new String[]{"Add a mark", "Play the recording", cc ? "Stop live captions" : "Start live captions (speech to text)", "Stop recording"},
+                .setItems(new String[]{"Add a mark", "Play the recording", "Stop recording"},
                         (d, which) -> {
                             if (which == 0) markDialog(s);
                             else if (which == 1) playRecording(s);
-                            else if (which == 2) s.setTranscribing(!cc);
                             else s.stopRecording();
                         })
                 .show();
@@ -1843,7 +1842,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         EditText input = new EditText(this);
         input.setHint("What is starting?");
         input.setSingleLine(true);
-        new AlertDialog.Builder(this)
+        new DimBuilder(this)
                 .setTitle("Add a mark")
                 .setView(input)
                 .setPositiveButton("Add", (d, w) -> s.mark(input.getText().toString().trim().isEmpty() ? "Mark" : input.getText().toString().trim()))
@@ -1866,7 +1865,7 @@ public class SessionActivity extends Activity implements Session.Listener {
         List<String> labels = new ArrayList<>();
         for (int minutes : TIMER_MINUTES) labels.add(timerLabel(minutes));
         labels.add("At a set time...");
-        new AlertDialog.Builder(this)
+        new DimBuilder(this)
                 .setTitle("Hang up timer - " + s.title())
                 .setItems(labels.toArray(new String[0]), (d, which) -> {
                     if (which < TIMER_MINUTES.length) s.arm(TIMER_MINUTES[which] * 60_000L);

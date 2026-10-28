@@ -139,6 +139,6 @@ final class PinPad {
             w.setGravity(Gravity.CENTER);
             w.setDimAmount(0.6f);
         }
-        d.show();
+        d.show(); Dimmer.apply(act, d.getWindow());
     }
 }

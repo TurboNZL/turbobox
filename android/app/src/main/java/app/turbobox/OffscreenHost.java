@@ -97,6 +97,16 @@ final class OffscreenHost {
         }
     }
 
+    private boolean locked;   // the size is fixed by the page's workflow recording size: the window never resizes it
+
+    void setLocked(boolean on) {
+        locked = on;
+    }
+
+    boolean isLocked() {
+        return locked;
+    }
+
     int width() {
         return width;
     }

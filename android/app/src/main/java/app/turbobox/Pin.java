@@ -32,6 +32,11 @@ final class Pin {
     float zoomMini;               // zoom in the Mini window; 0 = the same as the normal one
     int aspectMini = -1;          // forced shape in the Mini window: -1 = the same as the normal one, else an index into ASPECTS (0 = fill)
     int aspect;                   // forced shape of the page's area: index into ASPECTS, 0 = fill the space
+    boolean barOverlay;           // the top bar floats over this page instead of pushing it down
+    boolean wfSize;               // while a workflow records this page it has its own fixed size (below), whatever happens on screen
+    int wfPageWidth = 1280;       // that size: the virtual screen width in CSS pixels
+    float wfZoom = 1f;            // ... the zoom
+    int wfAspect = 1;             // ... and the shape of the picture (index into ASPECTS; 0 = the phone's own portrait screen)
 
     /** Shapes a page can be forced into: label, width, height. The first means "no forced shape". */
     static final String[] ASPECT_LABELS = {"Off (fill the space)", "16:9 (video)", "4:3", "21:9 (ultrawide)", "1:1 (square)", "9:16 (portrait video)", "3:2"};
@@ -51,7 +56,7 @@ final class Pin {
         try {
             return new JSONObject().put("id", id).put("name", name).put("url", url)
                     .put("zoom", zoom).put("volume", volume).put("recordMode", recordMode)
-                    .put("allowMic", allowMic).put("allowCamera", allowCamera).put("aspect", aspect).put("zoomMini", zoomMini).put("aspectMini", aspectMini).put("mobile", mobile).put("pageWidth", pageWidth).put("confirmClose", confirmClose).put("noAdblock", noAdblock).put("shrinkOnType", shrinkOnType).put("cursorMode", cursorMode).put("allowDrm", allowDrm).put("profile", profileId);
+                    .put("allowMic", allowMic).put("allowCamera", allowCamera).put("aspect", aspect).put("zoomMini", zoomMini).put("aspectMini", aspectMini).put("mobile", mobile).put("pageWidth", pageWidth).put("confirmClose", confirmClose).put("noAdblock", noAdblock).put("shrinkOnType", shrinkOnType).put("cursorMode", cursorMode).put("allowDrm", allowDrm).put("profile", profileId).put("barOverlay", barOverlay).put("wfSize", wfSize).put("wfPageWidth", wfPageWidth).put("wfZoom", wfZoom).put("wfAspect", wfAspect);
         } catch (JSONException e) {
             throw new IllegalStateException(e);
         }
@@ -67,6 +72,11 @@ final class Pin {
         p.allowCamera = o.optBoolean("allowCamera", false);
         p.mobile = o.optBoolean("mobile", false);
         p.pageWidth = Math.max(800, Math.min(3840, o.optInt("pageWidth", 1280)));
+        p.barOverlay = o.optBoolean("barOverlay", false);
+        p.wfSize = o.optBoolean("wfSize", false);
+        p.wfPageWidth = Math.max(800, Math.min(3840, o.optInt("wfPageWidth", p.pageWidth)));
+        p.wfZoom = Math.max(0.5f, Math.min(3f, (float) o.optDouble("wfZoom", p.zoom)));
+        p.wfAspect = Math.max(0, Math.min(ASPECTS.length - 1, o.optInt("wfAspect", 1)));
         p.shrinkOnType = o.optBoolean("shrinkOnType", true);
         p.confirmClose = o.optBoolean("confirmClose", false);
         p.noAdblock = o.optBoolean("noAdblock", false);

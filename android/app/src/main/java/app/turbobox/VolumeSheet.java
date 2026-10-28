@@ -30,6 +30,7 @@ final class VolumeSheet {
                     if (!fromUser) return;
                     Prefs.setBrightness(act, v);
                     if (act instanceof SessionActivity) ((SessionActivity) act).refreshBrightness();
+                    Dimmer.refresh(act);
                 }, Ui::pct), Ui.lp(act, 12, 0));
 
         LinearLayout mic = Ui.section(act, col, IconButton.Icon.MIC, "Your microphone", PinSheet.PINK);

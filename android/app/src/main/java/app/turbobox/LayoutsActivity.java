@@ -78,7 +78,7 @@ public class LayoutsActivity extends Activity {
         card.addView(Ui.text(this, "How things start", 17f, Ui.TEXT, "sans-serif-medium"));
         String[] splitChoices = {"The layout last used with this many pages", "Stacked", "Grid (left to right, then down)"};
         card.addView(choiceRow("A new split starts as", splitChoices[Math.max(0, Math.min(2, Prefs.splitDefault(this)))], () ->
-                new AlertDialog.Builder(this).setTitle("A new split starts as")
+                new DimBuilder(this).setTitle("A new split starts as")
                         .setSingleChoiceItems(splitChoices, Prefs.splitDefault(this), (d, which) -> {
                             Prefs.setSplitDefault(this, which);
                             d.dismiss();
@@ -127,7 +127,7 @@ public class LayoutsActivity extends Activity {
         edit.setOnClickListener(v -> arrange(l.mini, l, true));
         row.addView(edit, Ui.weight(this, 8));
         TextView del = Ui.pill(this, "Delete", Ui.RED);
-        del.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("Delete " + (l.name.isEmpty() ? "this layout" : l.name) + "?")
+        del.setOnClickListener(v -> new DimBuilder(this).setTitle("Delete " + (l.name.isEmpty() ? "this layout" : l.name) + "?")
                 .setPositiveButton("Delete", (d, w) -> {
                     LayoutStore.remove(this, l.id);
                     render();
@@ -142,7 +142,7 @@ public class LayoutsActivity extends Activity {
         name.setSingleLine(true);
         name.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         name.setText(l.name);
-        new AlertDialog.Builder(this).setTitle("Rename layout").setView(name)
+        new DimBuilder(this).setTitle("Rename layout").setView(name)
                 .setPositiveButton("Save", (d, w) -> {
                     String n = name.getText().toString().trim();
                     if (n.isEmpty()) return;

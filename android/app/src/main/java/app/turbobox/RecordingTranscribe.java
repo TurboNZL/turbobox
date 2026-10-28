@@ -14,7 +14,7 @@ import java.util.List;
 
 /**
  * Captions for a recording that has been made already: its sound is decoded piece by piece and fed to the speech recogniser at the
- * speed it was spoken (the recogniser works in real time, so it takes about as long as the recording), and the words are saved as
+ * speed set in Settings (real time is the most exact; faster takes a third of the time and can miss a word at the start of a phrase), and the words are saved as
  * {@code transcript.vtt} next to it. Android 13 or newer.
  */
 final class RecordingTranscribe {
@@ -58,6 +58,7 @@ final class RecordingTranscribe {
         // The recogniser reads from the main thread's looper, so it is created here; the audio is fed from a thread of its own.
         transcriber = new Transcriber(app, vtt, System.currentTimeMillis() - Math.max(0, first), "" + Prefs.transcribeLang(app),
                 text -> main.post(() -> progress.update(text, false)));
+        transcriber.useMediaClock(Math.max(0, first));   // the sound is fed faster than it was spoken, so times come from how much was fed
         if (!transcriber.start()) {
             progress.update("Could not start the speech recogniser.", true);
             return;
@@ -74,7 +75,7 @@ final class RecordingTranscribe {
                 done += s.durationMs;
             }
             try {
-                Thread.sleep(2500);   // the last phrase is still being recognised
+                Thread.sleep(4000);   // the last phrase is still being recognised
             } catch (InterruptedException ignored) {
                 // Stopping anyway.
             }
@@ -89,7 +90,7 @@ final class RecordingTranscribe {
         void at(long ms);
     }
 
-    /** Decodes the audio of one segment to 24 kHz mono PCM and feeds it in real time. */
+    /** Decodes the audio of one segment to 24 kHz mono PCM and feeds it at the chosen speed. */
     private void decode(File file, Tick tick) {
         MediaExtractor ex = new MediaExtractor();
         MediaCodec codec = null;
@@ -116,6 +117,7 @@ final class RecordingTranscribe {
             int rate = fmt.containsKey(MediaFormat.KEY_SAMPLE_RATE) ? fmt.getInteger(MediaFormat.KEY_SAMPLE_RATE) : RATE;
             int channels = fmt.containsKey(MediaFormat.KEY_CHANNEL_COUNT) ? fmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT) : 1;
             long fed = 0;
+            final int speed = Math.max(1, Prefs.transcribeSpeed(app));
             long t0 = System.nanoTime();
             while (!outputDone && !stopped) {
                 if (!inputDone) {
@@ -140,10 +142,10 @@ final class RecordingTranscribe {
                     ob.clear();
                     byte[] conv = convert(pcm, rate, channels);
                     fed += conv.length / 2;
-                    transcriber.feed(conv);
+                    transcriber.feedBlocking(conv);
                     tick.at(fed * 1000L / RATE);
-                    // At the speed it was spoken: never ahead of the clock.
-                    long due = t0 + fed * 1_000_000_000L / RATE;
+                    // Not ahead of the chosen speed (the recogniser's pipe also holds the feed back when it falls behind).
+                    long due = t0 + fed * 1_000_000_000L / RATE / speed;
                     long wait = (due - System.nanoTime()) / 1_000_000L;
                     if (wait > 0) Thread.sleep(wait);
                     codec.releaseOutputBuffer(out, false);

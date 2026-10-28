@@ -241,6 +241,24 @@ check('page volume scales the master gain, not what the page reads from its elem
 await page.evaluate(() => { window.__na.volume = 0.8; });
 const pv2 = await page.evaluate(() => window.__na.volume);
 check('what the page sets on its element reads back unchanged', pv2 === 0.8, pv2);
+// a media file is taken into the page bus whatever the volume, and the one gain on the bus is the page volume
+await page.evaluate(async () => {
+  const sr = 8000, n = sr, buf = new ArrayBuffer(44 + n * 2), dv = new DataView(buf);
+  const w = (o, t) => { for (let i = 0; i < t.length; i++) dv.setUint8(o + i, t.charCodeAt(i)); };
+  w(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, sr, true); dv.setUint32(28, sr * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); w(36, 'data'); dv.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) dv.setInt16(44 + i * 2, Math.round(Math.sin(i / 8) * 8000), true);
+  const el = document.createElement('audio'); el.id = 'filea'; el.loop = true; el.src = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })); document.body.appendChild(el);
+  window.__turbobox.setVolume(0.5);
+  try { await el.play(); } catch (e) { /* autoplay rules */ }
+});
+await page.waitForTimeout(2000);
+const fb = await page.evaluate(() => { const e = document.getElementById('filea'); return { bus: window.__turbobox.state().bus, routed: window.__turbobox.isSilenced(e), page: e.volume }; });
+check('a media file goes through the page bus and the bus gain is the volume', fb.routed === true && Math.abs(fb.bus - 0.5) < 0.01 && fb.page === 1, fb);
+await page.evaluate(() => window.__turbobox.setVolume(1.5));
+const fb2 = await page.evaluate(() => window.__turbobox.state().bus);
+check('above 100% the same gain turns it up', Math.abs(fb2 - 1.5) < 0.01, fb2);
+await page.evaluate(() => { document.getElementById('filea').remove(); });
 await page.evaluate(() => window.__turbobox.setVolume(1));
 await page.waitForTimeout(200);
 await page.evaluate(() => { window.__osc.stop(); window.__na.pause(); });

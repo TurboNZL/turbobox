@@ -36,6 +36,10 @@ final class Transcriber {
 
     private static final int RATE = 24000;
     private static final int MAX_FAILURES = 6;
+    /** A phrase that goes on this long (a lecture with no pauses) is cut here, so lines keep coming. */
+    private static final long MAX_PHRASE_MS = 9000;
+    /** Nothing at all from the recogniser for this long: start it again. */
+    private static final long STALL_MS = 20000;
 
     private final Context app;
     private final File vttFile;
@@ -53,6 +57,16 @@ final class Transcriber {
     private int failures;
     private long lastFailureAt;
     private int cues;
+    private String partial = "";
+    private long phraseStartedAt;     // wall clock, first partial result of the current phrase
+    private long stoppingAt;          // wall clock, when we asked the recogniser to finish the phrase
+    private long lastActivityAt = System.currentTimeMillis();
+    private int stalls;
+    private boolean permissionNoticed;
+    /** For a recording that already exists: times come from how much sound has been fed, not from the clock. */
+    private boolean mediaClock;
+    private long mediaOffsetMs;
+    private volatile long writtenBytes;
 
     Transcriber(Context app, File vttFile, long originWallMs, String language, Listener listener) {
         this.app = app.getApplicationContext();
@@ -60,6 +74,16 @@ final class Transcriber {
         this.originWallMs = originWallMs;
         this.language = language;
         this.listener = listener;
+    }
+
+    /** Times from the amount of sound fed (starting at {@code offsetMs}) instead of the wall clock; the sound may be fed faster than it was spoken. */
+    void useMediaClock(long offsetMs) {
+        mediaClock = true;
+        mediaOffsetMs = offsetMs;
+    }
+
+    private long nowMs() {
+        return mediaClock ? mediaOffsetMs + writtenBytes / 2 * 1000L / RATE : System.currentTimeMillis() - originWallMs;
     }
 
     boolean isRunning() {
@@ -85,8 +109,7 @@ final class Transcriber {
                     o.write(Vtt.HEADER.getBytes("UTF-8"));
                 }
             }
-            recognizer = SpeechRecognizer.createSpeechRecognizer(app);
-            recognizer.setRecognitionListener(new Callbacks());
+            makeRecognizer();
         } catch (IOException | RuntimeException e) {
             listener.onNotice("Could not start transcription: " + e.getMessage());
             return false;
@@ -94,14 +117,67 @@ final class Transcriber {
         running = true;
         writer = new Thread(this::pump, "transcribe-pipe");
         writer.start();
+        lastActivityAt = System.currentTimeMillis();
         beginSession();
+        main.postDelayed(watchdog, 1000);
         return true;
     }
+
+    private void makeRecognizer() {
+        SpeechRecognizer old = recognizer;
+        if (old != null) {
+            try {
+                old.destroy();
+            } catch (RuntimeException ignored) {
+                // Already gone.
+            }
+        }
+        MicLog.add("speech recogniser created");
+        recognizer = SpeechRecognizer.createSpeechRecognizer(app);
+        recognizer.setRecognitionListener(new Callbacks());
+    }
+
+    /**
+     * Keeps the lines coming: a phrase that never ends is cut, a recogniser that was asked to finish and never answered is
+     * given up on, and one that has said nothing for a long time (the service was killed, the app was in the background) is started again.
+     */
+    private final Runnable watchdog = new Runnable() {
+        @Override
+        public void run() {
+            if (!running) return;
+            long now = System.currentTimeMillis();
+            try {
+                if (recognizer != null) {
+                    if (stoppingAt > 0 && now - stoppingAt > 3000) {
+                        addCue(partial);
+                        partial = "";
+                        stoppingAt = 0;
+                        recognizer.cancel();
+                        beginSession();
+                    } else if (stoppingAt == 0 && !partial.isEmpty() && phraseStartedAt > 0 && now - phraseStartedAt > MAX_PHRASE_MS) {
+                        stoppingAt = now;
+                        recognizer.stopListening();
+                    } else if (stoppingAt == 0 && now - lastActivityAt > STALL_MS) {
+                        stalls++;
+                        lastActivityAt = now;
+                        if (stalls % 3 == 0) makeRecognizer();
+                        else recognizer.cancel();
+                        beginSession();
+                    }
+                }
+            } catch (RuntimeException e) {
+                fail("Transcription problem: " + e.getMessage());
+            }
+            main.postDelayed(this, 1000);
+        }
+    };
 
     void stop() {
         if (!running) return;
         running = false;
         main.removeCallbacksAndMessages(null);
+        addCue(partial);   // what was being said when it stopped
+        partial = "";
         closePipe();
         try {
             if (recognizer != null) {
@@ -118,6 +194,13 @@ final class Transcriber {
     /** 24 kHz mono 16-bit PCM from the page. */
     void feed(byte[] pcm) {
         if (running) queue.offer(pcm);
+    }
+
+    /** For a finished recording: waits for room instead of dropping, so the sound can be fed faster than it was spoken. */
+    void feedBlocking(byte[] pcm) throws InterruptedException {
+        while (running && !queue.offer(pcm, 200, TimeUnit.MILLISECONDS)) {
+            // The recogniser is slower than the feed: wait.
+        }
     }
 
     // ---- one recognition session ---------------------------------------------------------------
@@ -139,6 +222,11 @@ final class Transcriber {
                     .putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, RATE);
             if (!language.isEmpty()) i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, language);
             speechStartMs = -1;
+            partial = "";
+            phraseStartedAt = 0;
+            stoppingAt = 0;
+            lastActivityAt = System.currentTimeMillis();
+            MicLog.add("speech recogniser listening (captions)");
             recognizer.startListening(i);
         } catch (IOException | RuntimeException e) {
             fail("Transcription problem: " + e.getMessage());
@@ -188,6 +276,7 @@ final class Transcriber {
                 }
                 try {
                     o.write(chunk);
+                    writtenBytes += chunk.length;
                     break;
                 } catch (IOException e) {
                     // The recognizer closed its end: a new session will open a new pipe. Keep the chunk for it.
@@ -205,17 +294,20 @@ final class Transcriber {
         long now = System.currentTimeMillis();
         failures = now - lastFailureAt < 60_000 ? failures + 1 : 1;
         lastFailureAt = now;
-        if (failures >= MAX_FAILURES) {
-            listener.onNotice(text + " Transcription stopped.");
-            stop();
-        } else {
-            main.postDelayed(this::beginSession, 1000);
+        if (failures == MAX_FAILURES) listener.onNotice(text + " Still trying.");
+        // Never gives up for good: a recogniser that fails in the background often works again a little later.
+        long delay = Math.min(15_000, 1000L << Math.min(failures, 4));
+        try {
+            if (failures >= 3) makeRecognizer();
+        } catch (RuntimeException e) {
+            // Tried again on the next round.
         }
+        main.postDelayed(this::beginSession, delay);
     }
 
     private void addCue(String text) {
         if (text == null || text.trim().isEmpty()) return;
-        long now = System.currentTimeMillis() - originWallMs;
+        long now = nowMs();
         long start = speechStartMs >= 0 ? speechStartMs : Math.max(0, now - 2000);
         speechStartMs = -1;
         failures = 0;
@@ -228,19 +320,20 @@ final class Transcriber {
     }
 
     private final class Callbacks implements RecognitionListener {
-        private String partial = "";
-
         @Override
         public void onBeginningOfSpeech() {
-            speechStartMs = System.currentTimeMillis() - originWallMs;
+            lastActivityAt = System.currentTimeMillis();
+            speechStartMs = nowMs();
         }
 
         @Override
         public void onPartialResults(Bundle b) {
             ArrayList<String> l = b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-            if (l != null && !l.isEmpty()) {
+            lastActivityAt = System.currentTimeMillis();
+            if (l != null && !l.isEmpty() && !l.get(0).isEmpty()) {
                 partial = l.get(0);
-                if (speechStartMs < 0) speechStartMs = System.currentTimeMillis() - originWallMs;
+                if (speechStartMs < 0) speechStartMs = nowMs();
+                if (phraseStartedAt == 0) phraseStartedAt = lastActivityAt;
             }
         }
 
@@ -249,20 +342,35 @@ final class Transcriber {
             ArrayList<String> l = b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
             addCue(l != null && !l.isEmpty() ? l.get(0) : partial);
             partial = "";
-            main.post(Transcriber.this::beginSession);
+            stalls = 0;
+            main.postDelayed(Transcriber.this::beginSession, 150);   // not inside the callback: the recogniser is still finishing
         }
 
         @Override
         public void onError(int error) {
+            lastActivityAt = System.currentTimeMillis();
             // Silence and "heard nothing" are normal between phrases; keep what was heard, then listen again.
             if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
                 addCue(partial);
                 partial = "";
-                main.post(Transcriber.this::beginSession);
+                main.postDelayed(Transcriber.this::beginSession, 150);
+            } else if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
+                addCue(partial);
+                partial = "";
+                try {
+                    if (recognizer != null) recognizer.cancel();
+                } catch (RuntimeException ignored) {
+                    // Started again below.
+                }
+                main.postDelayed(Transcriber.this::beginSession, 600);
             } else if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
-                listener.onNotice("Transcription needs the microphone permission (Android settings > Apps > TurboBox).");
-                stop();
+                if (!permissionNoticed) {
+                    permissionNoticed = true;
+                    listener.onNotice("Transcription needs the microphone permission (Android settings > Apps > TurboBox), or the app must be in front. It keeps trying.");
+                }
+                main.postDelayed(Transcriber.this::beginSession, 15_000);
             } else {
+                addCue(partial);
                 partial = "";
                 fail("Speech recognition error " + error + ".");
             }

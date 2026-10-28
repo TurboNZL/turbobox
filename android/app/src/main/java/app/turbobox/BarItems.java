@@ -8,8 +8,8 @@ import java.util.List;
 
 /** Which buttons the page screen's top bar has, and in what order (Settings > Top bar). No Android classes besides Context for the settings. */
 final class BarItems {
-    static final String[] ALL = {"pause", "both", "record", "captions", "mute", "timer", "mini", "layout", "lock", "rotate", "volume", "hide", "settings", "close"};
-    static final String[] NAMES = {"Pause", "Pause and record", "Record", "Live captions", "Microphone mute", "Timer", "Mini window", "Arrange pages",
+    static final String[] ALL = {"pause", "both", "record", "mute", "timer", "mini", "layout", "lock", "rotate", "volume", "hide", "settings", "close"};
+    static final String[] NAMES = {"Pause", "Pause and record", "Record", "Microphone mute", "Timer", "Mini window", "Arrange pages",
             "Lock the page", "Force rotation", "Volumes", "Hide the bar", "Page settings", "Close the page"};
 
     private BarItems() {

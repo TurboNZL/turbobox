@@ -176,7 +176,7 @@ public class MainActivity extends Activity {
         if (profile.hasPassword()) items.add("Remove the code");
         if (profile.hasPassword() && !Profiles.isLocked(this, profile.id)) items.add("Lock now");
         if (!profile.id.equals(Profiles.DEFAULT)) items.add("Remove, with its pages and sign-ins");
-        new AlertDialog.Builder(this).setTitle(profile.name)
+        new DimBuilder(this).setTitle(profile.name)
                 .setItems(items.toArray(new String[0]), (d, which) -> {
                     String chosen = items.get(which);
                     if (chosen.equals("Rename")) {
@@ -194,7 +194,7 @@ public class MainActivity extends Activity {
                         Shortcuts.refresh(this);
                         render();
                     } else {
-                        new AlertDialog.Builder(this).setTitle("Remove " + profile.name + "?")
+                        new DimBuilder(this).setTitle("Remove " + profile.name + "?")
                                 .setMessage("Its pinned pages, signed-in sessions and settings are deleted.")
                                 .setPositiveButton("Remove", (dd, w) -> {
                                     Profiles.remove(this, profile.id);
@@ -226,7 +226,7 @@ public class MainActivity extends Activity {
         name.setSingleLine(true);
         name.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         if (existing != null) name.setText(existing.name);
-        new AlertDialog.Builder(this).setTitle(existing == null ? "New profile" : "Rename profile").setView(name)
+        new DimBuilder(this).setTitle(existing == null ? "New profile" : "Rename profile").setView(name)
                 .setPositiveButton("Save", (d, w) -> {
                     String n = name.getText().toString().trim();
                     if (n.isEmpty()) return;
@@ -409,7 +409,7 @@ public class MainActivity extends Activity {
         form.addView(Ui.hint(this, "Incognito keeps this page's sign-ins away from your pinned pages. With deleting on it also leaves no history and is not recorded. "
                 + "Turn deleting off to stay signed in to that site next time (it keeps its own cookies for it). Without Incognito the page shares cookies with everything else."), Ui.lp(this, 2, 0));
         form.addView(mobile, Ui.lp(this, 10, 0));
-        AlertDialog d = new AlertDialog.Builder(this)
+        AlertDialog d = new DimBuilder(this)
                 .setTitle("Open a page")
                 .setView(form)
                 .setPositiveButton("Open", null)
@@ -428,7 +428,7 @@ public class MainActivity extends Activity {
                     .putExtra(SessionActivity.EXTRA_PROFILE, Profiles.filter(this).isEmpty() ? Profiles.DEFAULT : Profiles.filter(this))
                     .putExtra(SessionActivity.EXTRA_MOBILE, mobile.isChecked()));
         }));
-        d.show();
+        d.show(); Dimmer.apply(this, d.getWindow());
     }
 
     private void renderShortcuts() {
@@ -467,7 +467,7 @@ public class MainActivity extends Activity {
         items.add("Page settings");
         items.add("Add an icon to the home screen");
         items.add("Remove");
-        new AlertDialog.Builder(this)
+        new DimBuilder(this)
                 .setTitle(pin.name)
                 .setItems(items.toArray(new String[0]), (d, which) -> {
                     if (which == 0) {
@@ -479,7 +479,7 @@ public class MainActivity extends Activity {
                             Toast.makeText(this, "This launcher cannot add icons. Long-press the TurboBox icon instead: your first pages are there.", Toast.LENGTH_LONG).show();
                         }
                     } else {
-                        new AlertDialog.Builder(this)
+                        new DimBuilder(this)
                                 .setTitle("Remove " + pin.name + "?")
                                 .setMessage("Workflows that use it will stop working until you pick another page.")
                                 .setPositiveButton("Remove", (dd, w) -> {
@@ -532,14 +532,14 @@ public class MainActivity extends Activity {
             which.setOnClickListener(v -> {
                 String[] names = new String[profiles.size()];
                 for (int i = 0; i < names.length; i++) names[i] = profiles.get(i).name;
-                new AlertDialog.Builder(this).setTitle("Profile").setItems(names, (dd, i) -> {
+                new DimBuilder(this).setTitle("Profile").setItems(names, (dd, i) -> {
                     profile[0] = profiles.get(i).id;
                     which.setText("Profile: " + profiles.get(i).name);
                 }).show();
             });
             form.addView(which, Ui.lp(this, 8, 0));
         }
-        AlertDialog d = new AlertDialog.Builder(this)
+        AlertDialog d = new DimBuilder(this)
                 .setTitle(existing == null ? "Pin a page" : "Edit " + existing.name)
                 .setView(form)
                 .setPositiveButton("Save", null)
@@ -568,6 +568,6 @@ public class MainActivity extends Activity {
             d.dismiss();
             render();
         }));
-        d.show();
+        d.show(); Dimmer.apply(this, d.getWindow());
     }
 }

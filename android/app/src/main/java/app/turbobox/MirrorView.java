@@ -73,6 +73,10 @@ final class MirrorView extends ViewGroup {
         int w = getWidth(), ht = getHeight();
         if (h == null || w <= 0 || ht <= 0) return;
         android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        if (h.isLocked()) {
+            requestLayout();   // a workflow recording size: the display keeps its shape, the picture is only fitted into the pane
+            return;
+        }
         if (Prefs.displayFollows(getContext())) {
             h.resize(w, ht, 0);
         } else {

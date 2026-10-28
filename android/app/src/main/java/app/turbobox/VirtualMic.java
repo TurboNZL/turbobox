@@ -99,6 +99,7 @@ final class VirtualMic {
                 }
             }
             record.startRecording();
+            MicLog.add("page microphone opened (the page asked for it)");
             if (device != null) {
                 AudioDeviceInfo routed = record.getRoutedDevice();
                 if (routed != null && (routed.getType() != device.getType()
@@ -129,6 +130,7 @@ final class VirtualMic {
             fail(gen, listener, "microphone error: " + e.getMessage());
         } finally {
             if (gen == generation) running = false;
+            if (record != null) MicLog.add("page microphone closed");
             if (aec != null) aec.release();
             if (ns != null) ns.release();
             if (record != null) {

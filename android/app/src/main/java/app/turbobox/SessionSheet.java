@@ -194,7 +194,7 @@ final class SessionSheet implements Session.Listener {
         });
         dialog = d;
         session.addListener(this);
-        d.show();
+        d.show(); Dimmer.apply(act, d.getWindow());
         startMicTest();
     }
 

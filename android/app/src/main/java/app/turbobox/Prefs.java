@@ -135,9 +135,12 @@ final class Prefs {
     static void setKeepRuns(Context c, int v) { ps(c).edit().putInt("keepRuns", v).apply(); }
 
     // ---- transcription (speech to text, saved as WebVTT next to a recording) ----
-    /** One-shot: transcribe the next recording that starts, then switch off. */
-    static boolean transcribeNext(Context c) { return ps(c).getBoolean("transcribeNext", false); }
-    static void setTranscribeNext(Context c, boolean v) { ps(c).edit().putBoolean("transcribeNext", v).apply(); }
+    /** How fast a finished recording is fed to the recogniser: 1 = as spoken, 3 = three times faster. */
+    static int transcribeSpeed(Context c) { return ps(c).getInt("transcribeSpeed", 3); }
+    static void setTranscribeSpeed(Context c, int v) { ps(c).edit().putInt("transcribeSpeed", v).apply(); }
+    /** Live captions are made for every recording unless this is on. */
+    static boolean captionsOff(Context c) { return ps(c).getBoolean("captionsOff", false); }
+    static void setCaptionsOff(Context c, boolean v) { ps(c).edit().putBoolean("captionsOff", v).apply(); }
     /** BCP-47 language tag, "" = the phone's language. */
     static String transcribeLang(Context c) { return ps(c).getString("transcribeLang", ""); }
     static void setTranscribeLang(Context c, String v) { ps(c).edit().putString("transcribeLang", v).apply(); }

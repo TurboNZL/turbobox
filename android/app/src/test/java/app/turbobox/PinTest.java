@@ -21,6 +21,37 @@ public class PinTest {
     }
 
     @Test
+    public void workflowSizeAndBarSettingsRoundTrip() {
+        Pin p = Pin.create("Lecture", "https://video.example.com/live");
+        assertTrue(!p.wfSize && !p.barOverlay);
+        p.wfSize = true;
+        p.wfPageWidth = 1920;
+        p.wfZoom = 1.25f;
+        p.wfAspect = 2;
+        p.barOverlay = true;
+        Pin q = Pin.fromJson(p.toJson());
+        assertTrue(q.wfSize && q.barOverlay);
+        assertEquals(1920, q.wfPageWidth);
+        assertEquals(1.25f, q.wfZoom, 0.001f);
+        assertEquals(2, q.wfAspect);
+    }
+
+    @Test
+    public void anOldPinStartsWithItsOwnSizeAsTheWorkflowSize() {
+        Pin p = Pin.create("Old", "https://a.example.com");
+        p.pageWidth = 1600;
+        p.zoom = 1.5f;
+        org.json.JSONObject o = p.toJson();
+        o.remove("wfPageWidth");
+        o.remove("wfZoom");
+        o.remove("wfAspect");
+        Pin q = Pin.fromJson(o);
+        assertEquals(1600, q.wfPageWidth);
+        assertEquals(1.5f, q.wfZoom, 0.001f);
+        assertEquals(1, q.wfAspect);
+    }
+
+    @Test
     public void roundTripsThroughJson() {
         Pin p = Pin.create("Stream", "https://video.example.com/live");
         p.zoom = 1.5f;

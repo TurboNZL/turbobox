@@ -171,7 +171,7 @@ public class WorkflowEditActivity extends Activity {
         body.addView(actions, Ui.lp(this, 4, 0));
         if (!isNew) {
             TextView delete = Ui.pill(this, "Delete this workflow", Ui.RED);
-            delete.setOnClickListener(v -> new AlertDialog.Builder(this)
+            delete.setOnClickListener(v -> new DimBuilder(this)
                     .setTitle("Delete " + (wf.name.isEmpty() ? "this workflow" : wf.name) + "?")
                     .setPositiveButton("Delete", (d, w) -> {
                         WorkflowRunner.stop(wf.id);
@@ -435,7 +435,7 @@ public class WorkflowEditActivity extends Activity {
                 final String[] picked = {names.contains(f.def) ? f.def : names.get(0)};
                 TextView value = Ui.text(this, picked[0] + "  \u203A", 17f, Ui.GREEN, "sans-serif-medium");
                 value.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 8));
-                value.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle(f.label)
+                value.setOnClickListener(v -> new DimBuilder(this).setTitle(f.label)
                         .setItems(names.toArray(new String[0]), (dd, which) -> {
                             picked[0] = names.get(which);
                             value.setText(picked[0] + "  \u203A");
@@ -449,7 +449,7 @@ public class WorkflowEditActivity extends Activity {
                 final String[] picked = {f.def};
                 TextView value = Ui.text(this, f.def + "  ›", 17f, Ui.GREEN, "sans-serif-medium");
                 value.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 8));
-                value.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle(f.label)
+                value.setOnClickListener(v -> new DimBuilder(this).setTitle(f.label)
                         .setItems(f.options, (dd, which) -> {
                             picked[0] = f.options[which];
                             value.setText(picked[0] + "  ›");
@@ -571,7 +571,7 @@ public class WorkflowEditActivity extends Activity {
             EditText raw = new EditText(this);
             raw.setText(lines.get(at));
             raw.setTextColor(Ui.TEXT);
-            new AlertDialog.Builder(this).setTitle("Change this step").setView(raw)
+            new DimBuilder(this).setTitle("Change this step").setView(raw)
                     .setPositiveButton("Save", (d, w) -> {
                         String t = raw.getText().toString().trim();
                         if (!t.isEmpty()) lines.set(at, t);
