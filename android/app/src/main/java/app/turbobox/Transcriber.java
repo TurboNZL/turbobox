@@ -132,6 +132,7 @@ final class Transcriber {
                 // Already gone.
             }
         }
+        MicLog.add("speech recogniser created");
         recognizer = SpeechRecognizer.createSpeechRecognizer(app);
         recognizer.setRecognitionListener(new Callbacks());
     }
@@ -225,6 +226,7 @@ final class Transcriber {
             phraseStartedAt = 0;
             stoppingAt = 0;
             lastActivityAt = System.currentTimeMillis();
+            MicLog.add("speech recogniser listening (captions)");
             recognizer.startListening(i);
         } catch (IOException | RuntimeException e) {
             fail("Transcription problem: " + e.getMessage());

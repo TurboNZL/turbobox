@@ -365,6 +365,8 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         tr.addView(Ui.hint(this, "Turns what the page says into text while it records, and saves it as a WebVTT subtitle file next to the "
                 + "recording (Recordings > Share captions). It uses Android's speech recognition and needs Android 13 or newer. "
                 + "Times are approximate, and a recognizer that beeps when it starts may beep."), Ui.lp(this, 4, 8));
+        tr.addView(choiceRow("Microphone log", "Show when the app opened a microphone", () -> new DimBuilder(this)
+                .setTitle("Microphone log").setMessage(MicLog.text()).setPositiveButton("OK", null).show()));
         Switch capsOff = Ui.toggle(this);
         capsOff.setText("Turn off captions while recording");
         capsOff.setTextColor(Ui.TEXT);
