@@ -10,7 +10,7 @@ It is built on the [TurboNZL/turboengine](https://github.com/TurboNZL/turboengin
   first four are also in the app icon's long-press menu.
 - **Up to four running at once**: tabs, or **Split** to see the ones you choose. A small floating window (Mini) keeps a page up while you use
   another app.
-- **Everything Tether's web session did**: desktop browser emulation and page zoom, the phone's own microphone chosen by you (a Bluetooth
+- **Page emulation and sound control**: desktop browser emulation and page zoom, the phone's own microphone chosen by you (a Bluetooth
   headset stays in its high-quality mode), a mute the page cannot undo, page volume (0-200%), microphone volume (0-300%) with a
   record-and-play-back test, a hang-up timer (a delay or a clock time), a foreground service with the screen off.
 - **Recording buffer**: records what the page shows and plays into short pieces in the cache (resolution and frame rate chosen separately; a length limit that rolls or stops).
