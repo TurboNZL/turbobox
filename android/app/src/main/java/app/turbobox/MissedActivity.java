@@ -453,78 +453,75 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
         }, "export-captions").start();
     }
 
-    // ---- cutting with a chat AI, part by part (a 2 or 4 hour recording is far too long for one chat) ----
-
-    private static File answersFile(BufferStore.Run r) {
-        return new File(r.dir, "cut_answers.json");
-    }
-
-    /** Saved answers by part number: the ranges (ms from the run's start), possibly none. */
-    private static java.util.Map<Integer, List<long[]>> loadAnswers(BufferStore.Run r) {
-        java.util.Map<Integer, List<long[]>> m = new java.util.HashMap<>();
-        File f = answersFile(r);
-        if (!f.exists()) return m;
-        try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
-            byte[] b = new byte[(int) f.length()];
-            int off = 0;
-            for (int n; off < b.length && (n = in.read(b, off, b.length - off)) > 0; ) off += n;
-            org.json.JSONObject o = new org.json.JSONObject(new String(b, 0, off, "UTF-8"));
-            java.util.Iterator<String> keys = o.keys();
-            while (keys.hasNext()) {
-                String k = keys.next();
-                org.json.JSONArray arr = o.getJSONArray(k);
-                List<long[]> l = new java.util.ArrayList<>();
-                for (int i = 0; i < arr.length(); i++) l.add(new long[]{arr.getJSONArray(i).getLong(0), arr.getJSONArray(i).getLong(1)});
-                m.put(Integer.parseInt(k), l);
-            }
-        } catch (IOException | org.json.JSONException | NumberFormatException e) {
-            // Start over.
-        }
-        return m;
-    }
-
-    private static void saveAnswers(BufferStore.Run r, java.util.Map<Integer, List<long[]>> m) {
-        try {
-            org.json.JSONObject o = new org.json.JSONObject();
-            for (java.util.Map.Entry<Integer, List<long[]>> e : m.entrySet()) {
-                org.json.JSONArray arr = new org.json.JSONArray();
-                for (long[] x : e.getValue()) arr.put(new org.json.JSONArray().put(x[0]).put(x[1]));
-                o.put("" + e.getKey(), arr);
-            }
-            try (java.io.FileOutputStream out = new java.io.FileOutputStream(answersFile(r))) {
-                out.write(o.toString().getBytes("UTF-8"));
-            }
-        } catch (IOException | org.json.JSONException ignored) {
-            // The answers just are not remembered.
-        }
-    }
+    // ---- cutting with an AI ----
 
     /**
-     * Cutting with a chat AI. The captions are split into parts small enough for a free chat (a 4 hour recording is about 8). For each part:
-     * Copy, paste it into an AI chat, copy the AI's reply, Paste answer. Answers are remembered, so it can be done over several sittings.
-     * A part with no answer is kept whole; "Cut" writes one video from everything kept.
+     * Cut with AI. "Cut automatically" asks Gemini (with the key and account chosen in Settings) and saves its answers; otherwise, or as a
+     * fallback, the captions are split into parts small enough for a free chat: Copy, paste into any AI chat, copy its reply, Paste answer.
+     * Answers are remembered by time, so both ways mix. A stretch with no answer is kept whole. Cut writes one video from everything kept.
      */
     private void showCutDialog(BufferStore.Run r) {
         final List<Vtt.Cue> cues = loadCues(r);
         final long total = runLengthMs(r);
-        final List<CutSheet.Part> parts = CutSheet.parts(r.name, total, cues, watchedSpans(r), CutSheet.DEFAULT_PART_WORDS);
-        final java.util.Map<Integer, List<long[]>> answers = loadAnswers(r);
+        final List<long[]> watched = watchedSpans(r);
+        final List<CutSheet.Part> parts = CutSheet.parts(r.name, total, cues, watched, CutSheet.DEFAULT_PART_WORDS);
+        final List<CutAnswers.Window> answers = CutAnswersStore.load(r);
         final LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         int pad = Ui.dp(this, 20);
         col.setPadding(pad, Ui.dp(this, 8), pad, 0);
+        final TextView[] statusView = new TextView[1];
+        final boolean[] busy = new boolean[1];
         final Runnable[] render = new Runnable[1];
         render[0] = () -> {
             col.removeAllViews();
-            col.addView(Ui.hint(this, (parts.size() > 1
-                    ? "This recording is long, so it is split into " + parts.size() + " parts that each fit a free AI chat (each can go in a new chat). "
-                    : "") + "For each part: Copy, paste it into an AI chat, copy the AI's reply, then Paste answer. "
-                    + "A part you skip is kept whole. Your answers are remembered."), Ui.lp(this, 0, 6));
+            AiKeys.Key key = AiKeys.current(this);
+            if (key != null && AiKeys.allowSend(this)) {
+                TextView auto = Ui.pill(this, busy[0] ? "Gemini is working..." : "Cut automatically with Gemini (" + key.label + ")", Ui.GREEN);
+                auto.setOnClickListener(v -> {
+                    if (busy[0]) return;
+                    if (cues.isEmpty()) {
+                        Toast.makeText(this, "This recording has no captions to send.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    busy[0] = true;
+                    render[0].run();
+                    List<CutSheet.Part> big = CutSheet.parts(r.name, total, cues, watched, AiCutter.GEMINI_PART_WORDS);
+                    AiCutter.run(this, r, big, answers, new AiCutter.Listener() {
+                        @Override
+                        public void progress(String text) {
+                            runOnUiThread(() -> {
+                                if (statusView[0] != null) statusView[0].setText(text);
+                            });
+                        }
+
+                        @Override
+                        public void done(String problem) {
+                            runOnUiThread(() -> {
+                                busy[0] = false;
+                                if (problem != null) Toast.makeText(MissedActivity.this, problem, Toast.LENGTH_LONG).show();
+                                render[0].run();
+                            });
+                        }
+                    });
+                });
+                col.addView(auto, Ui.lp(this, 0, 4));
+                TextView st = Ui.hint(this, busy[0] ? "Sending the captions..." : "Only the caption text is sent, never the video. Check the summary below, then tap Cut.");
+                statusView[0] = st;
+                col.addView(st, Ui.lp(this, 0, 8));
+            } else {
+                col.addView(Ui.hint(this, "To cut automatically, add a Gemini key and allow sending captions in Settings > AI for cutting. Or do it by hand below."), Ui.lp(this, 0, 8));
+            }
+            List<long[]> keep = CutAnswers.finalKeep(answers, total);
+            col.addView(Ui.text(this, "Keeps " + CutSheet.clock(CutAnswers.totalMs(keep)) + " of " + CutSheet.clock(total)
+                    + " (cuts " + CutSheet.clock(Math.max(0, total - CutAnswers.totalMs(keep))) + ")", 16f, Ui.GREEN, "sans-serif-medium"), Ui.lp(this, 0, 8));
+            col.addView(Ui.hint(this, (parts.size() > 1 ? "By hand, this recording is split into " + parts.size() + " parts that each fit a free AI chat. " : "By hand: ")
+                    + "Copy a part, paste it into an AI chat, copy the AI's reply, then Paste answer. A stretch with no answer is kept whole. Answers are remembered."), Ui.lp(this, 0, 6));
             for (CutSheet.Part part : parts) {
                 LinearLayout row = new LinearLayout(this);
                 row.setGravity(Gravity.CENTER_VERTICAL);
-                List<long[]> got = answers.get(part.index);
-                String state = got == null ? "not answered (kept whole)" : got.isEmpty() ? "answered: cut all" : "answered: " + got.size() + " parts kept";
+                CutAnswers.Window got = CutAnswers.covering(answers, part.startMs, part.endMs);
+                String state = got == null ? "not answered (kept whole)" : got.keep.isEmpty() ? "answered: cut all" : "answered: " + got.keep.size() + " parts kept";
                 TextView label = Ui.text(this, (parts.size() > 1 ? "Part " + (part.index + 1) + "  " : "Sheet  ") + CutSheet.clock(part.startMs) + " - "
                         + CutSheet.clock(part.endMs) + "\n" + state, 14f, got == null ? Ui.TEXT : Ui.GREEN, "sans-serif");
                 row.addView(label, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -548,17 +545,21 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
                         Toast.makeText(this, "No time ranges for this part on the clipboard. Copy the AI's whole reply, then tap Paste answer.", Toast.LENGTH_LONG).show();
                         return;
                     }
-                    answers.put(part.index, ranges);
-                    saveAnswers(r, answers);
+                    synchronized (answers) {
+                        CutAnswers.add(answers, new CutAnswers.Window(part.startMs, part.endMs, ranges));
+                        CutAnswersStore.save(r, answers);
+                    }
                     render[0].run();
                 });
                 row.addView(paste, Ui.weight(this, 6));
                 col.addView(row, Ui.lp(this, 8, 0));
             }
-            TextView clear = Ui.pill(this, "Forget my answers", 0);
+            TextView clear = Ui.pill(this, "Forget the answers", 0);
             clear.setOnClickListener(v -> {
-                answers.clear();
-                saveAnswers(r, answers);
+                synchronized (answers) {
+                    answers.clear();
+                    CutAnswersStore.save(r, answers);
+                }
                 render[0].run();
             });
             col.addView(clear, Ui.lp(this, 12, 0));
@@ -567,15 +568,7 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
         android.widget.ScrollView sv = new android.widget.ScrollView(this);
         sv.addView(col);
         new DimBuilder(this).setTitle("Cut with AI").setView(sv)
-                .setPositiveButton("Cut", (d, w) -> {
-                    List<long[]> keep = new java.util.ArrayList<>();
-                    for (CutSheet.Part part : parts) {
-                        List<long[]> got = answers.get(part.index);
-                        if (got == null) keep.add(new long[]{part.startMs, part.endMs});
-                        else keep.addAll(got);
-                    }
-                    cutRun(r, CutSheet.merge(keep));
-                })
+                .setPositiveButton("Cut", (d, w) -> cutRun(r, CutAnswers.finalKeep(answers, total)))
                 .setNegativeButton("Close", null).show();
     }
 
