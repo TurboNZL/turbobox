@@ -24,6 +24,13 @@ final class RecordingTranscribe {
 
     private static final int RATE = 24000;
 
+    private static final java.util.concurrent.atomic.AtomicInteger RUNNING = new java.util.concurrent.atomic.AtomicInteger();
+
+    /** Is a finished recording being captioned? Keeps the service (and so the process) up while it is. */
+    static boolean busy() {
+        return RUNNING.get() > 0;
+    }
+
     private final Context app;
     private final BufferStore.Run run;
     private final Progress progress;
@@ -63,6 +70,8 @@ final class RecordingTranscribe {
             progress.update("Could not start the speech recogniser.", true);
             return;
         }
+        RUNNING.incrementAndGet();
+        SessionService.ensure(app);
         new Thread(() -> {
             long total = BufferStore.totalMs(segs), done = 0;
             for (BufferStore.Segment s : segs) {
@@ -80,6 +89,8 @@ final class RecordingTranscribe {
                 // Stopping anyway.
             }
             main.post(() -> {
+                RUNNING.decrementAndGet();
+                SessionService.ensure(app);
                 transcriber.stop();
                 progress.update(stopped ? "Stopped. What was heard so far is saved." : "Done. The captions are saved with the recording.", true);
             });

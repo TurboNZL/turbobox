@@ -262,7 +262,7 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
                 .setCancelable(false).create();
         dlg.show(); Dimmer.apply(this, dlg.getWindow());
         job[0] = new RecordingTranscribe(this, r, (text, finished) -> {
-            status.setText(text + (finished ? "" : "\n\nIt is quicker than the recording, depending on the speed set in Settings. You can leave this screen on."));
+            status.setText(text + (finished ? "" : "\n\nThis keeps going in the background, so you can leave. The captions are saved with the recording when it finishes."));
             if (finished) {
                 dlg.getButton(AlertDialog.BUTTON_NEGATIVE).setText("Close");
                 dlg.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(x -> {
