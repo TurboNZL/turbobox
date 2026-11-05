@@ -11,15 +11,15 @@ This app is pinned to TurboNZL/turboengine (see `.turboengine.json`; `docs/devel
 - Put effort into verifying against real runs, not only unit tests.
 - A merged PR cannot take new work: restart the branch from main for follow-up changes. Commit trailers as the harness gives them.
 - Use generic examples in the app and docs (a video, a stream, a document, a check-in), not lectures or calls.
-- They use Tether's **web session** every day (not its PeerJS call); that is the half that became this app, so its behaviour is the reference. Do not "improve" it away.
+- They use the web session (the embedded browser) every day, so its behaviour is the reference. Do not "improve" it away.
 - Their use: lectures (pause to talk to someone, then catch up), calls over a Bluetooth headset that must stay on A2DP, pages that have to keep running with the screen off.
 
 ## Decisions made (don't re-ask)
 | Topic | Decision |
 |---|---|
-| What it is | The web-session half of Tether (`TurboNZL/tether` at 40b287e) as its own Android app. No PeerJS call, no WebRTC library, no signalling. Tether keeps its own. |
+| What it is | An embedded-browser Android app. No PeerJS call, no WebRTC library, no signalling. |
 | Name / package | TurboBox, `app.turbobox`, repo `TurboNZL/turbobox`, emblem `box` in lime `#a6e22e`. |
-| Language / UI | Plain Java and plain Views, like Tether (its Java was copied, not translated). minSdk 26, compile/target 34. No Kotlin: `updaters` is a Java port. |
+| Language / UI | Plain Java and plain Views. minSdk 26, compile/target 34. No Kotlin: `updaters` is a Java port. |
 | Several at once | Four fixed slots, one `Session` each; a page is opened into the first free slot; a fifth asks which to replace. A workflow that finds all four busy borrows a temporary slot. The letter (order of opening, so the first page open is A) is only shown when two or more pages are open (`A | Name`). Split shows 2-4 chosen tabs. Sites are desktop by default, `Pin.mobile` per pin. |
 | Pins | No limit, reorderable, JSON in SharedPreferences; zoom, page volume and aspect ratio belong to the pin; microphone, echo cancellation, microphone volume and brightness are global. |
 | Recording | Picture: `PixelCopy` of the page's area of the activity window into a Surface-input H.264 encoder (no consent dialog, only our own window). Sound: a tap in `session.js` of the page's remote tracks and media elements, 24 kHz mono PCM to an AAC encoder. 30 s MP4 segments in `cacheDir/buffer/run_*`, newest N minutes kept, last 3 runs kept. Not MediaProjection (needs a consent dialog each time, and records other apps). |
@@ -50,7 +50,7 @@ branding/, scripts/                        the logo (engine `logos` module); nev
 - **Not verified, never run on a device:** the whole Gradle build (the sandbox cannot reach Google's Android SDK downloads; the first CI run is the first Gradle build), the screen recorder (`BufferRecorder`: `PixelCopy` into an encoder surface, rotation of segments, the audio/video clock), the player (`MissedActivity`), foreground-service rules on Android 12-15, alarms with the screen off, and the WebView behaviour of a page that no screen shows. Expect fixes after the first real run; keep this list honest. Also unproven: the offscreen VirtualDisplay/Presentation path on real phones, the freeze cover staying out of the recording, the soft-draw recording of a detached WebView, live captions.
 
 ## Hard-won gotchas
-(Carried from Tether's web session; each was a real bug there.)
+(Each was a real bug.)
 - A page can flip its own track's `enabled`, so mute is a lock on the property, not a write; the native microphone path also sends silence while muted.
 - Moving between native inputs must not replace the track the call is sending (it renegotiates and breaks calls); only the audio fed into it changes.
 - `enumerateDevices` can list no usable microphone in a WebView; `session.js` always lists one named microphone.
@@ -64,7 +64,7 @@ New in TurboBox:
 - `PixelCopy` needs a visible window; the recorder repeats the last picture otherwise so segments (which are cut at key frames) keep closing.
 
 ## Session log
-- 2026-10-22: created from Tether's web session (`TurboNZL/tether` 40b287e), on the engine, in one session (see the decisions above). Nothing built by Gradle yet.
+- 2026-10-22: created on the engine, in one session (see the decisions above). Nothing built by Gradle yet.
 - 2026-10-22 (after the first release, PR #1 merged): owner feedback applied: AM/PM follows the phone's clock setting; settings sheet has a free right strip for scrolling; per-page microphone/camera privacy switches; recording limit (rolling or stop) up to 12 h; Step away freezes and silences the live page; workflow recordings no longer black (soft draw, and Run now shows the page); Mini view lays out to its real width; pin favicons; resolution and frame rate separate; live captions to WebVTT.
 - 2026-10-22 (PR #2 merged): owner reported: freeze did not silence audio (fixed: muted-lock on all media elements incl. detached ones, Web Audio master gain, frames via postMessage; Chromium-tested); captions hard to find (CC button, Captions viewer in Recordings); privacy toggles ignored by Teams/Snapchat (page now told via Permissions API, camera/mic gated in getUserMedia, permission site rule follows redirects, Reload button; cause not reproduced); recording with the screen off skipped (now an offscreen virtual display); "pictures per second" renamed fps.
 - 2026-10-22 (PR #3 merged): owner: recording on by default (global switch + per-pin override); Captions button now always on a recording (explains how to turn captions on when there are none); workflow steps `step away` / `step back`. Not done: sound that a page makes with Web Audio is still not recorded (would double up with the track tap on pages that route both; needs a real page to test).

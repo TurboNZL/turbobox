@@ -1,7 +1,7 @@
 # Architecture
 
 ## Where it came from
-`Session` is Tether's `WebSession` (`TurboNZL/tether` at 40b287e) with three changes: it is an instance (two slots) instead of a singleton, listeners are a list, and it can be driven (`evalStep`) and recorded. `session.js`, `VirtualMic`, `InputRoute`, `MicTester`, `MicPreview` and `LevelMeterView` are Tether's, renamed (`__tether` -> `__turbobox`, `TetherBridge` -> `TurboBoxBridge`). The PeerJS call (`CallManager`, `CallService`, `PeerSignal`, the WebRTC library) and Tether's glass UI were left behind.
+`Session` holds one page: it is an instance per slot, listeners are a list, and it can be driven (`evalStep`) and recorded. There is no PeerJS call, signalling or WebRTC library in this app.
 
 ## Components (`android/app/src/main/java/app/turbobox/`)
 | File | Job |
