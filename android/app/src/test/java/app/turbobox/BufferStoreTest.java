@@ -120,4 +120,29 @@ public class BufferStoreTest {
         assertFalse(stray.exists());
         assertTrue(writing.exists());
     }
+
+    @Test
+    public void watchingIsRecordedAndClosed() {
+        BufferStore.Run run = BufferStore.newRun(root, 0, "Stream", 1000);
+        BufferStore.beginWatch(run, 5000);
+        assertEquals(0, BufferStore.watching(run).get(0)[1]);
+        BufferStore.endWatch(run, 9000);
+        BufferStore.beginWatch(run, 12000);
+        assertEquals(2, BufferStore.watching(run).size());
+        assertEquals(9000, BufferStore.watching(run).get(0)[1]);
+        assertEquals(0, BufferStore.watching(run).get(1)[1]);
+    }
+
+    @Test
+    public void pruneKeepsProtectedRuns() {
+        BufferStore.Run a = BufferStore.newRun(root, 0, "A", 1000);
+        BufferStore.Run b = BufferStore.newRun(root, 1, "B", 2000);
+        BufferStore.Run c = BufferStore.newRun(root, 2, "C", 3000);
+        java.util.Set<java.io.File> live = new java.util.HashSet<>();
+        live.add(a.dir);
+        BufferStore.prune(root, 1, c.dir, live);
+        assertTrue(a.dir.exists());
+        assertTrue(c.dir.exists());
+        assertFalse(b.dir.exists());
+    }
 }

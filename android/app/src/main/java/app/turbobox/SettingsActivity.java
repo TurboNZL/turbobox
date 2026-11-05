@@ -359,6 +359,29 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         sites.addView(openSites);
         body.addView(sites, Ui.lp(this, 12, 0));
 
+        // Privacy: this install never touches the microphone / camera
+        LinearLayout pv = Ui.card(this);
+        pv.addView(Ui.text(this, "Privacy", 17f, Ui.TEXT, "sans-serif-medium"));
+        pv.addView(Ui.hint(this, "For an install where the microphone or camera must never be used (a work profile, say). The app does not ask "
+                + "for the permission, pages are refused, and everything else keeps working. Captions need no microphone permission."), Ui.lp(this, 4, 8));
+        Switch nm = Ui.toggle(this);
+        nm.setText("Never use the microphone");
+        nm.setChecked(Prefs.noMic(this));
+        nm.setOnCheckedChangeListener((b, on) -> {
+            Prefs.setNoMic(this, on);
+            Sessions.privacyChanged();
+        });
+        pv.addView(nm, Ui.lp(this, 0, 4));
+        Switch nc = Ui.toggle(this);
+        nc.setText("Never use the camera");
+        nc.setChecked(Prefs.noCamera(this));
+        nc.setOnCheckedChangeListener((b, on) -> {
+            Prefs.setNoCamera(this, on);
+            Sessions.privacyChanged();
+        });
+        pv.addView(nc, Ui.lp(this, 8, 4));
+        body.addView(pv, Ui.lp(this, 12, 0));
+
         // Transcription
         LinearLayout tr = Ui.card(this);
         tr.addView(Ui.text(this, "Live transcription", 17f, Ui.TEXT, "sans-serif-medium"));

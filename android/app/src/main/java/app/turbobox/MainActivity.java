@@ -66,7 +66,7 @@ public class MainActivity extends Activity {
 
     private void askPermissions() {
         List<String> needed = new ArrayList<>();
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+        if (!Prefs.noMic(this) && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             needed.add(Manifest.permission.RECORD_AUDIO);
         }
         if (Build.VERSION.SDK_INT >= 33
@@ -79,7 +79,7 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         if (requestCode != REQUEST_PERMISSIONS) return;
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+        if (!Prefs.noMic(this) && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             Toast.makeText(this, "Without the microphone permission pages cannot hear you (allow it in Android "
                     + "settings > Apps > TurboBox). Pages that only play still work.", Toast.LENGTH_LONG).show();
         }
@@ -255,6 +255,14 @@ public class MainActivity extends Activity {
             show.setPadding(Ui.dp(this, 14), Ui.dp(this, 8), Ui.dp(this, 14), Ui.dp(this, 8));
             show.setOnClickListener(v -> startActivity(new Intent(this, SessionActivity.class).putExtra(SessionActivity.EXTRA_SLOT, s.slot)));
             row.addView(show);
+            if (s.isRecording()) {
+                TextView watch = Ui.pill(this, "Watch", 0);
+                watch.setPadding(Ui.dp(this, 14), Ui.dp(this, 8), Ui.dp(this, 14), Ui.dp(this, 8));
+                watch.setOnClickListener(v -> startActivity(new Intent(this, LiveActivity.class).putExtra(LiveActivity.EXTRA_SLOT, s.slot)));
+                LinearLayout.LayoutParams wp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                wp.leftMargin = Ui.dp(this, 8);
+                row.addView(watch, wp);
+            }
             TextView close = Ui.pill(this, "Close", Ui.RED);
             close.setPadding(Ui.dp(this, 14), Ui.dp(this, 8), Ui.dp(this, 14), Ui.dp(this, 8));
             close.setOnClickListener(v -> {

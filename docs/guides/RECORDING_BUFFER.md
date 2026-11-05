@@ -42,3 +42,10 @@ TurboBox can turn what the page says into text while it records and save it as a
 For a recording that exists already, **Recordings** > your recording > **Transcribe** makes the captions now. It feeds the sound to the recogniser faster than it was spoken (Settings > Live transcription > *Captioning a finished recording*: as spoken is the most exact, three times as fast takes a third of the time but can miss a word where a phrase starts). It needs Android 13 or newer, like live captions.
 
 While you replay a recording its captions show under the picture. **Recordings** (home screen) > your recording > **Captions** shows the text with times and has *Share .vtt file* to send it anywhere (the times are from the start of the recording). Set the language in Settings (the phone's language by default). Be realistic: it is speech recognition on a lecture, so names and jargon will be wrong sometimes; times are approximate; a recognizer that beeps when it starts may beep.
+
+## Captions, cutting and watching live
+- **Export captions** (Recordings) saves the captions as `.vtt`, as plain text with times, and as a sheet for an AI, into Downloads/TurboBox.
+- **Cut with AI**: copy the sheet, paste it into any chat AI (a free plan is enough), paste its answer (the parts to keep, like `0:00 - 4:35`, one per line) back, and TurboBox writes one video with only those parts. A part can start up to 2 seconds early.
+- **Watch** (Running list, Recordings, or the notification) shows what the recording sees right now and the words being captioned, without opening the page or the player. While you watch, the recording notes it, and the AI sheet marks those stretches so they can be cut if they do not matter.
+- **Settings > Privacy** can turn the microphone and camera off for the whole app. Captions do not need the microphone permission.
+

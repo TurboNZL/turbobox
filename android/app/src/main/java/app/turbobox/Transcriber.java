@@ -62,7 +62,9 @@ final class Transcriber {
     private long stoppingAt;          // wall clock, when we asked the recogniser to finish the phrase
     private long lastActivityAt = System.currentTimeMillis();
     private int stalls;
+    private volatile String liveText = "";   // what is being said now, for the live view
     private boolean permissionNoticed;
+    private boolean preferOnDevice;
     /** For a recording that already exists: times come from how much sound has been fed, not from the clock. */
     private boolean mediaClock;
     private long mediaOffsetMs;
@@ -95,6 +97,10 @@ final class Transcriber {
         if (Build.VERSION.SDK_INT < 33) return "Live transcription needs Android 13 or newer.";
         if (!SpeechRecognizer.isRecognitionAvailable(c)) return "This phone has no speech recognition service (install or enable Google's speech services).";
         return null;
+    }
+
+    String lastText() {
+        return liveText;
     }
 
     boolean start() {
@@ -133,7 +139,18 @@ final class Transcriber {
             }
         }
         MicLog.add("speech recogniser created");
-        recognizer = SpeechRecognizer.createSpeechRecognizer(app);
+        // The sound is handed over as a pipe, so no microphone is needed. The phone's on-device recogniser asks nothing of the
+        // app's permissions, so it is preferred whenever the microphone permission is not granted (or was refused once).
+        boolean noPermission = app.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED;
+        recognizer = null;
+        if ((noPermission || preferOnDevice) && Build.VERSION.SDK_INT >= 33) {
+            try {
+                if (SpeechRecognizer.isOnDeviceRecognitionAvailable(app)) recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(app);
+            } catch (RuntimeException ignored) {
+                // Fall back to the normal recogniser.
+            }
+        }
+        if (recognizer == null) recognizer = SpeechRecognizer.createSpeechRecognizer(app);
         recognizer.setRecognitionListener(new Callbacks());
     }
 
@@ -311,6 +328,7 @@ final class Transcriber {
         long start = speechStartMs >= 0 ? speechStartMs : Math.max(0, now - 2000);
         speechStartMs = -1;
         failures = 0;
+        liveText = text.trim();
         try (FileOutputStream o = new FileOutputStream(vttFile, true)) {
             o.write(Vtt.format(new Vtt.Cue(start, now, text.trim())).getBytes("UTF-8"));
             cues++;
@@ -332,6 +350,7 @@ final class Transcriber {
             lastActivityAt = System.currentTimeMillis();
             if (l != null && !l.isEmpty() && !l.get(0).isEmpty()) {
                 partial = l.get(0);
+                liveText = partial;
                 if (speechStartMs < 0) speechStartMs = nowMs();
                 if (phraseStartedAt == 0) phraseStartedAt = lastActivityAt;
             }
@@ -364,9 +383,16 @@ final class Transcriber {
                 }
                 main.postDelayed(Transcriber.this::beginSession, 600);
             } else if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+                if (!preferOnDevice && Build.VERSION.SDK_INT >= 33) {
+                    // The shared recogniser wanted the microphone permission after all: use the phone's own, which does not.
+                    preferOnDevice = true;
+                    makeRecognizer();
+                    main.postDelayed(Transcriber.this::beginSession, 300);
+                    return;
+                }
                 if (!permissionNoticed) {
                     permissionNoticed = true;
-                    listener.onNotice("Transcription needs the microphone permission (Android settings > Apps > TurboBox), or the app must be in front. It keeps trying.");
+                    listener.onNotice("This phone's speech recognition insists on the microphone permission (Android settings > Apps > TurboBox), or an on-device speech pack is missing. It keeps trying.");
                 }
                 main.postDelayed(Transcriber.this::beginSession, 15_000);
             } else {

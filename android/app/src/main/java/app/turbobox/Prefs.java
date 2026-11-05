@@ -18,6 +18,13 @@ final class Prefs {
         return sp(c);
     }
 
+    // ---- this install never uses the microphone / camera (a work profile, say) ----
+    /** No microphone at all: pages are refused it, it is never asked for, and nothing in the app needs it to work. */
+    static boolean noMic(Context c) { return sp(c).getBoolean("noMic", false); }
+    static void setNoMic(Context c, boolean v) { sp(c).edit().putBoolean("noMic", v).apply(); }
+    static boolean noCamera(Context c) { return sp(c).getBoolean("noCamera", false); }
+    static void setNoCamera(Context c, boolean v) { sp(c).edit().putBoolean("noCamera", v).apply(); }
+
     // ---- microphone (the same keys' meaning as in Tether's web session) ----
     static String micKey(Context c) { return ps(c).getString("mic", ""); }
     static void setMicKey(Context c, String v) { ps(c).edit().putString("mic", v).apply(); }

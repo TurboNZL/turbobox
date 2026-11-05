@@ -58,6 +58,11 @@ final class Sessions {
         return -1;
     }
 
+    /** The app-wide microphone / camera switches changed. */
+    static void privacyChanged() {
+        for (Session s : SLOTS) s.refreshPrivacy();
+    }
+
     /** Is every open page muted (and is there one)? */
     static boolean allMuted() {
         List<Session> list = active();

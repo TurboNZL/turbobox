@@ -34,12 +34,12 @@ final class PinSheet {
     static void build(Activity act, LinearLayout col, Pin pin, Runnable close) {
         // ---- Privacy
         LinearLayout priv = Ui.section(act, col, IconButton.Icon.LOCK, "Privacy", PINK);
-        priv.addView(Ui.switchRow(act, "Microphone", "Off refuses the page, like pressing Block", pin.allowMic, PINK, (b, on) -> {
+        priv.addView(Ui.switchRow(act, "Microphone", Prefs.noMic(act) ? "Blocked for the whole app (Settings > Privacy)" : "Off refuses the page, like pressing Block", pin.allowMic, PINK, (b, on) -> {
             change(act, pin, p -> p.allowMic = on);
             Session s = Sessions.forPin(pin.id);
             if (s != null) s.setMicAllowed(on);
         }), Ui.lp(act, 0, 4));
-        priv.addView(Ui.switchRow(act, "Camera", "Off until you allow it here and in Android", pin.allowCamera, PINK, (b, on) -> {
+        priv.addView(Ui.switchRow(act, "Camera", Prefs.noCamera(act) ? "Blocked for the whole app (Settings > Privacy)" : "Off until you allow it here and in Android", pin.allowCamera, PINK, (b, on) -> {
             change(act, pin, p -> p.allowCamera = on);
             Session s = Sessions.forPin(pin.id);
             if (s != null) s.setCameraAllowed(on);

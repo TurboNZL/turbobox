@@ -84,6 +84,19 @@ final class BufferRecorder {
     private static final long SILENCE_AFTER_US = 100_000;
     private static final long MAX_AHEAD_US = 1_000_000;
 
+    /** Run folders that a recorder is still writing, including the moment after stop() while the last piece is finished. */
+    private static final java.util.Set<File> LIVE = java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<File, Boolean>());
+
+    /** Is some recorder still writing (or finishing) a recording? The service stays up and the runs are not pruned meanwhile. */
+    static boolean busy() {
+        return !LIVE.isEmpty();
+    }
+
+    static boolean isLiveDir(File dir) {
+        return dir != null && LIVE.contains(dir);
+    }
+
+    private volatile int recoveries;
     private final Context app;
     private final int slot;
     private final String name;
@@ -112,14 +125,14 @@ final class BufferRecorder {
 
     private MediaCodec venc;
     private MediaCodec aenc;
-    private Surface surface;
+    private volatile Surface surface;
 
     private volatile Window window;
     private volatile View view;
     private final Bitmap[] bitmaps = new Bitmap[2];
     private int nextBitmap;
     private boolean copying;
-    private Bitmap lastGood;           // only touched on the frame thread
+    private volatile Bitmap lastGood;  // written on the frame thread
     private final Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
 
     // encode loop state (worker thread only)
@@ -207,31 +220,48 @@ final class BufferRecorder {
         });
     }
 
+    private void buildCodecs() throws IOException {
+        MediaFormat vf = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height);
+        vf.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
+        vf.setInteger(MediaFormat.KEY_BIT_RATE, bitrate);
+        vf.setInteger(MediaFormat.KEY_FRAME_RATE, fps);
+        vf.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2);
+        venc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
+        venc.configure(vf, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+        surface = venc.createInputSurface();
+        venc.start();
+
+        MediaFormat af = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, AUDIO_RATE, 1);
+        af.setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC);
+        af.setInteger(MediaFormat.KEY_BIT_RATE, 48_000);
+        af.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384);
+        aenc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC);
+        aenc.configure(af, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+        aenc.start();
+    }
+
+    /**
+     * Android takes a hardware encoder away when another app (or this one's player) needs the chip, which throws in the middle of the loop.
+     * The recording used to end there; now the piece being written is closed and the encoders are made again.
+     */
+    private void recoverCodecs() throws IOException {
+        finishSegment();
+        releaseCodecs();
+        videoFormat = null;
+        audioFormat = null;
+        buildCodecs();
+        listener.onNotice("The phone took the recorder's video encoder away for a moment (probably another video was opened). Recording went on.");
+    }
+
     /** Starts recording. False (see {@link #lastError}) when the phone could not open its encoders. */
     boolean start() {
         File root = root(app);
         root.mkdirs();
         run = BufferStore.newRun(root, slot, name, System.currentTimeMillis());
-        BufferStore.prune(root, Prefs.keepRuns(app), run.dir);
+        BufferStore.prune(root, Prefs.keepRuns(app), run.dir, LIVE);
         BufferStore.removeStrays(root, 5 * 60_000L, System.currentTimeMillis());
         try {
-            MediaFormat vf = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height);
-            vf.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
-            vf.setInteger(MediaFormat.KEY_BIT_RATE, bitrate);
-            vf.setInteger(MediaFormat.KEY_FRAME_RATE, fps);
-            vf.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2);
-            venc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
-            venc.configure(vf, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
-            surface = venc.createInputSurface();
-            venc.start();
-
-            MediaFormat af = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, AUDIO_RATE, 1);
-            af.setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC);
-            af.setInteger(MediaFormat.KEY_BIT_RATE, 48_000);
-            af.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384);
-            aenc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC);
-            aenc.configure(af, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
-            aenc.start();
+            buildCodecs();
         } catch (IOException | RuntimeException e) {
             lastError = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
             releaseCodecs();
@@ -239,6 +269,7 @@ final class BufferRecorder {
             run = null;
             return false;
         }
+        LIVE.add(run.dir);
         running = true;
         frameThread = new HandlerThread("buffer-frames");
         frameThread.start();
@@ -278,6 +309,38 @@ final class BufferRecorder {
         Transcriber t = transcriber;
         transcriber = null;
         if (t != null) t.stop();
+    }
+
+    /** A copy of the newest picture the recorder has (what the recording shows right now), or null. Any thread. */
+    Bitmap snapshot() {
+        Bitmap b = lastGood;
+        if (b == null || b.isRecycled()) return null;
+        try {
+            return b.copy(Bitmap.Config.ARGB_8888, false);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** The words being captioned right now, or "". */
+    String liveCaption() {
+        Transcriber t = transcriber;
+        return t == null ? "" : t.lastText();
+    }
+
+    /** Someone is looking at the live recording: noted in the run (and as marks) so a cut can drop that stretch. */
+    void watchStarted() {
+        if (run == null) return;
+        long now = System.currentTimeMillis();
+        BufferStore.beginWatch(run, now);
+        BufferStore.addMark(run, now, "Watching live");
+    }
+
+    void watchEnded() {
+        if (run == null) return;
+        long now = System.currentTimeMillis();
+        BufferStore.endWatch(run, now);
+        BufferStore.addMark(run, now, "Stopped watching");
     }
 
     /** A bookmark at this moment. */
@@ -465,16 +528,22 @@ final class BufferRecorder {
         MediaCodec.BufferInfo ai = new MediaCodec.BufferInfo();
         try {
             while (running) {
-                feedAudio();
-                boolean busy = drainVideo(vi);
-                busy |= drainAudio(ai);
-                if (videoFormat != null && audioFormat != null && mux == null) requestSyncFrame();
-                if (!busy) {
-                    try {
-                        Thread.sleep(8);
-                    } catch (InterruptedException e) {
-                        break;
+                try {
+                    feedAudio();
+                    boolean busy = drainVideo(vi);
+                    busy |= drainAudio(ai);
+                    if (videoFormat != null && audioFormat != null && mux == null) requestSyncFrame();
+                    if (!busy) {
+                        try {
+                            Thread.sleep(8);
+                        } catch (InterruptedException e) {
+                            break;
+                        }
                     }
+                } catch (IllegalStateException e) {
+                    // A reclaimed or failed codec (MediaCodec.CodecException is one). Start them again a few times before giving up.
+                    if (!running || ++recoveries > 6) throw e;
+                    recoverCodecs();
                 }
             }
         } catch (IOException | RuntimeException e) {
@@ -498,6 +567,8 @@ final class BufferRecorder {
                 Thread.currentThread().interrupt();
             }
             releaseCodecs();
+            if (run != null) LIVE.remove(run.dir);
+            main.post(() -> SessionService.ensure(app));   // nothing may keep the process up any more
         }
     }
 
@@ -570,8 +641,12 @@ final class BufferRecorder {
                     buf.limit(info.offset + info.size);
                     MediaCodec.BufferInfo out = new MediaCodec.BufferInfo();
                     out.set(info.offset, info.size, info.presentationTimeUs - segBaseUs, info.flags);
-                    mux.writeSampleData(videoTrack, buf, out);
-                    lastVideoUs = info.presentationTimeUs;
+                    try {
+                        mux.writeSampleData(videoTrack, buf, out);
+                        lastVideoUs = info.presentationTimeUs;
+                    } catch (RuntimeException e) {
+                        abandonSegment();   // one bad piece is lost; the next key frame starts a new one
+                    }
                 }
             }
         } finally {
@@ -596,7 +671,11 @@ final class BufferRecorder {
                 buf.limit(info.offset + info.size);
                 MediaCodec.BufferInfo out = new MediaCodec.BufferInfo();
                 out.set(info.offset, info.size, pts, info.flags);
-                mux.writeSampleData(audioTrack, buf, out);
+                try {
+                    mux.writeSampleData(audioTrack, buf, out);
+                } catch (RuntimeException e) {
+                    abandonSegment();
+                }
             }
         } finally {
             aenc.releaseOutputBuffer(oa, false);
@@ -623,6 +702,23 @@ final class BufferRecorder {
         flushRequested = false;
     }
 
+    private void abandonSegment() {
+        MediaMuxer m = mux;
+        mux = null;
+        if (m == null) return;
+        try {
+            m.stop();
+        } catch (RuntimeException ignored) {
+            // Nothing usable was written.
+        }
+        try {
+            m.release();
+        } catch (RuntimeException ignored) {
+            // Already released.
+        }
+        if (segFile != null) segFile.delete();
+    }
+
     private void finishSegment() {
         if (mux == null) return;
         MediaMuxer m = mux;
@@ -640,6 +736,7 @@ final class BufferRecorder {
         }
         long durMs = Math.max(1, (lastVideoUs - segBaseUs) / 1000 + 1000L / fps);
         if (ok && BufferStore.finishSegment(segFile, run, segWallMs, durMs) != null) {
+            recoveries = 0;
             if (stopAtLimit) {
                 if (running && BufferStore.totalMs(BufferStore.segments(run)) >= maxMs) {
                     running = false;

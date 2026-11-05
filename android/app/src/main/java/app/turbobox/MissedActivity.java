@@ -225,6 +225,19 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
         export.setOnClickListener(v -> exportRun(r));
         row2.addView(export, Ui.weight(this, 8));
         c.addView(row2, Ui.lp(this, 8, 0));
+        LinearLayout row3 = new LinearLayout(this);
+        TextView expCaps = Ui.pill(this, "Export captions", 0);
+        expCaps.setOnClickListener(v -> exportCaptions(r, vtt));
+        row3.addView(expCaps, Ui.weight(this, 0));
+        TextView cut = Ui.pill(this, "Cut with AI", 0);
+        cut.setOnClickListener(v -> showCutDialog(r));
+        row3.addView(cut, Ui.weight(this, 8));
+        if (isLive(r)) {
+            TextView watch = Ui.pill(this, "Watch live", Ui.RED);
+            watch.setOnClickListener(v -> startActivity(new android.content.Intent(this, LiveActivity.class)));
+            row3.addView(watch, Ui.weight(this, 8));
+        }
+        c.addView(row3, Ui.lp(this, 8, 0));
         return c;
     }
 
@@ -237,10 +250,6 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
         String why = Transcriber.unavailableReason(this);
         if (why != null) {
             Toast.makeText(this, why, Toast.LENGTH_LONG).show();
-            return;
-        }
-        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, 5);
             return;
         }
         final RecordingTranscribe[] job = new RecordingTranscribe[1];
@@ -388,6 +397,141 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
                 .setPositiveButton("Open Downloads", (d, w) -> startActivity(new android.content.Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS)
                         .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)))
                 .setNegativeButton("OK", null).show();
+    }
+
+    private static String safeName(BufferStore.Run r) {
+        return r.name.isEmpty() ? "Recording" : r.name.replaceAll("[^A-Za-z0-9 _-]", "");
+    }
+
+    private static String readable(List<Vtt.Cue> cues) {
+        StringBuilder sb = new StringBuilder();
+        for (Vtt.Cue c : cues) sb.append('[').append(CutSheet.clock(c.startMs)).append("] ").append(c.text).append('\n');
+        return sb.toString();
+    }
+
+    private static long runLengthMs(BufferStore.Run r) {
+        long last = 0;
+        for (BufferStore.Segment s : BufferStore.segments(r)) last = Math.max(last, s.startWallMs + s.durationMs);
+        return last > r.startedAt ? last - r.startedAt : 0;
+    }
+
+    /** The stretches somebody watched the live recording, in ms from the run's start. */
+    private static List<long[]> watchedSpans(BufferStore.Run r) {
+        List<long[]> out = new java.util.ArrayList<>();
+        for (long[] w : BufferStore.watching(r)) out.add(new long[]{Math.max(0, w[0] - r.startedAt), w[1] > w[0] ? w[1] - r.startedAt : 0});
+        return out;
+    }
+
+    /** Saves the captions to Downloads/TurboBox: the .vtt, a plain text copy with times, and the sheet to paste into a chat AI. */
+    private void exportCaptions(BufferStore.Run r, File vtt) {
+        final List<Vtt.Cue> cues = loadCues(r);
+        if (cues.isEmpty()) {
+            Toast.makeText(this, "This recording has no captions yet. Use Transcribe to make them.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        final String folder = exportFolder(r);
+        final String base = safeName(r);
+        final String sheet = CutSheet.build(r.name, runLengthMs(r), cues, watchedSpans(r));
+        new Thread(() -> {
+            String error = null;
+            try {
+                copyTo(vtt, exportStream(folder, base + " captions.vtt", "text/vtt"));
+                try (java.io.OutputStream o = exportStream(folder, base + " captions.txt", "text/plain")) {
+                    o.write(readable(cues).getBytes("UTF-8"));
+                }
+                try (java.io.OutputStream o = exportStream(folder, base + " for AI.txt", "text/plain")) {
+                    o.write(sheet.getBytes("UTF-8"));
+                }
+            } catch (IOException | RuntimeException e) {
+                error = e.getMessage() == null ? e.toString() : e.getMessage();
+            }
+            final String err = error;
+            runOnUiThread(() -> exportDone(err, "The captions (.vtt, plain text, and a sheet to paste into an AI) were copied to Downloads/TurboBox/" + folder + "."));
+        }, "export-captions").start();
+    }
+
+    /**
+     * Cutting with a chat AI: copy the sheet, paste it into any AI chat (a free plan is enough), paste its answer back here, and the app
+     * writes one video with only the parts it said to keep.
+     */
+    private void showCutDialog(BufferStore.Run r) {
+        final List<Vtt.Cue> cues = loadCues(r);
+        final String sheet = CutSheet.build(r.name, runLengthMs(r), cues, watchedSpans(r));
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        int pad = Ui.dp(this, 20);
+        col.setPadding(pad, Ui.dp(this, 8), pad, 0);
+        col.addView(Ui.hint(this, "1. Copy the sheet (the captions with times, and the stretches you watched live) and paste it into a chat AI. "
+                + "A free plan is fine"
+                + (sheet.length() > 60_000 ? "; this one is long (" + sheet.length() / 1000 + "k characters), so for a long recording paste it in parts or ask for a shorter model answer" : "")
+                + ".\n2. Paste its answer (the parts to keep) below."), Ui.lp(this, 0, 6));
+        TextView copy = Ui.pill(this, "Copy the sheet", Ui.GREEN);
+        copy.setOnClickListener(v -> {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("TurboBox cut sheet", sheet));
+            Toast.makeText(this, "Copied (" + sheet.length() / 1000 + "k characters). Paste it into the AI chat.", Toast.LENGTH_LONG).show();
+        });
+        col.addView(copy, Ui.lp(this, 6, 0));
+        final android.widget.EditText answer = new android.widget.EditText(this);
+        answer.setHint("Paste the AI's answer, e.g. 0:00 - 4:35");
+        answer.setTextColor(Ui.TEXT);
+        answer.setHintTextColor(Ui.DIM);
+        answer.setMinLines(4);
+        answer.setGravity(Gravity.TOP);
+        col.addView(answer, Ui.lp(this, 10, 0));
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        sv.addView(col);
+        new DimBuilder(this).setTitle("Cut with AI").setView(sv)
+                .setPositiveButton("Cut", (d, w) -> cutRun(r, CutSheet.parseRanges(answer.getText().toString())))
+                .setNegativeButton("Cancel", null).show();
+    }
+
+    private void cutRun(BufferStore.Run r, List<long[]> ranges) {
+        if (ranges.isEmpty()) {
+            Toast.makeText(this, "No time ranges found in that answer. They look like 0:00 - 4:35, one per line.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        final List<BufferStore.Segment> segs = BufferStore.segments(r);
+        if (segs.isEmpty()) {
+            Toast.makeText(this, "Nothing is recorded yet.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        // The AI's times count from the start of the run; the pieces' joined timeline skips gaps, so go through the wall clock.
+        final List<long[]> keep = new java.util.ArrayList<>();
+        StringBuilder list = new StringBuilder();
+        for (long[] k : ranges) {
+            keep.add(new long[]{BufferStore.offsetOfWall(segs, r.startedAt + k[0]), BufferStore.offsetOfWall(segs, r.startedAt + k[1])});
+            list.append(CutSheet.clock(k[0])).append(" - ").append(CutSheet.clock(k[1])).append('\n');
+        }
+        final String keptText = list.toString();
+        final String folder = exportFolder(r);
+        final TextView status = Ui.text(this, "Cutting...", 15f, Ui.TEXT, "sans-serif");
+        status.setPadding(Ui.dp(this, 20), Ui.dp(this, 16), Ui.dp(this, 20), Ui.dp(this, 8));
+        final AlertDialog dlg = new DimBuilder(this).setTitle("Cutting").setView(status).setCancelable(false).create();
+        dlg.show();
+        Dimmer.apply(this, dlg.getWindow());
+        new Thread(() -> {
+            String error = null;
+            File temp = null;
+            try {
+                temp = new File(getCacheDir(), "cut_" + System.currentTimeMillis() + ".mp4");
+                SegmentJoin.cut(segs, keep, temp, (i, total) -> runOnUiThread(() -> status.setText("Piece " + i + " of " + total + "...")));
+                runOnUiThread(() -> status.setText("Copying to Downloads..."));
+                copyTo(temp, exportStream(folder, safeName(r) + " (cut).mp4", "video/mp4"));
+                try (java.io.OutputStream o = exportStream(folder, safeName(r) + " (cut) kept parts.txt", "text/plain")) {
+                    o.write(keptText.getBytes("UTF-8"));
+                }
+            } catch (IOException | RuntimeException e) {
+                error = e.getMessage() == null ? e.toString() : e.getMessage();
+            } finally {
+                if (temp != null) temp.delete();
+            }
+            final String err = error;
+            runOnUiThread(() -> {
+                dlg.dismiss();
+                exportDone(err, "The cut video was copied to Downloads/TurboBox/" + folder + ". Cuts start at the nearest key frame, up to 2 seconds early.");
+            });
+        }, "export-cut").start();
     }
 
     /** The captions of a recording as readable text, with a button that sends the .vtt file. */
