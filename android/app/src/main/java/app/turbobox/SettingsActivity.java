@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.text.format.DateFormat;
+import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -16,6 +17,7 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.util.List;
 import java.util.Locale;
 
 /** Standby, battery and alarm permissions, the recording buffer's size, and app updates. */
@@ -359,6 +361,76 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         sites.addView(openSites);
         body.addView(sites, Ui.lp(this, 12, 0));
 
+        // AI for cutting recordings
+        LinearLayout ai = Ui.card(this);
+        ai.addView(Ui.text(this, "AI for cutting", 17f, Ui.TEXT, "sans-serif-medium"));
+        ai.addView(Ui.hint(this, "Lets Cut with AI (in Recordings) ask Google's Gemini which parts to keep. Only the caption text is sent, never the "
+                + "video or the sound. On Google's free tier, what you send may be used to improve Google's products; a paid key is not. "
+                + "Off, you can still paste into any AI chat by hand."), Ui.lp(this, 4, 8));
+        Switch allow = Ui.toggle(this);
+        allow.setText("Allow sending captions to Gemini");
+        allow.setTextColor(Ui.TEXT);
+        allow.setChecked(AiKeys.allowSend(this));
+        allow.setOnCheckedChangeListener((b, on) -> AiKeys.setAllowSend(this, on));
+        ai.addView(allow, Ui.lp(this, 0, 6));
+        List<AiKeys.Key> keys = AiKeys.all(this);
+        AiKeys.Key inUse = AiKeys.current(this);
+        if (keys.isEmpty()) {
+            ai.addView(Ui.hint(this, "No Gemini key yet."), Ui.lp(this, 4, 4));
+        } else {
+            ai.addView(Ui.hint(this, "Key in use (tap another to switch). Each key belongs to the Google account it was made under."), Ui.lp(this, 4, 2));
+        }
+        for (AiKeys.Key k : keys) {
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            boolean on = inUse != null && inUse.label.equals(k.label);
+            TextView name = Ui.text(this, (on ? "●  " : "○  ") + k.label + "\n" + k.masked(), 15f, on ? Ui.GREEN : Ui.TEXT, "sans-serif");
+            name.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 8));
+            name.setOnClickListener(v -> {
+                AiKeys.use(this, k.label);
+                render();
+            });
+            row.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            TextView del = Ui.pill(this, "Remove", Ui.RED);
+            del.setOnClickListener(v -> new DimBuilder(this).setTitle("Remove this key?")
+                    .setMessage("It is only forgotten here. It keeps working in anything else that uses it.")
+                    .setPositiveButton("Remove", (d2, w2) -> {
+                        AiKeys.remove(this, k.label);
+                        render();
+                    }).setNegativeButton("Keep", null).show());
+            row.addView(del);
+            ai.addView(row);
+        }
+        TextView addKey = Ui.pill(this, "Add a Gemini key (choose the Google account)", Ui.GREEN);
+        addKey.setOnClickListener(v -> chooseGoogleAccount());
+        ai.addView(addKey, Ui.lp(this, 8, 0));
+        if (inUse != null) {
+            TextView test = Ui.pill(this, "Test the key in use", 0);
+            test.setOnClickListener(v -> testKey(inUse));
+            ai.addView(test, Ui.lp(this, 8, 0));
+        }
+        ai.addView(choiceRow("Model", AiKeys.model(this), () -> {
+            android.widget.EditText in = new android.widget.EditText(this);
+            in.setText(AiKeys.model(this));
+            in.setTextColor(Ui.TEXT);
+            in.setSingleLine(true);
+            new DimBuilder(this).setTitle("Gemini model").setMessage("A name from Google's model list. gemini-flash-latest is the default.")
+                    .setView(in).setPositiveButton("Save", (d2, w2) -> {
+                        AiKeys.setModel(this, in.getText().toString());
+                        render();
+                    }).setNegativeButton("Cancel", null).show();
+        }), Ui.lp(this, 8, 0));
+        boolean aicore = false;
+        try {
+            getPackageManager().getPackageInfo("com.google.android.aicore", 0);
+            aicore = true;
+        } catch (android.content.pm.PackageManager.NameNotFoundException ignored) {
+            // Not installed.
+        }
+        ai.addView(Ui.hint(this, "On-device AI (Android AICore): " + (aicore ? "installed on this phone." : "not found on this phone.")
+                + " Using it for cutting is not built yet; whether it works depends on the phone."), Ui.lp(this, 8, 0));
+        body.addView(ai, Ui.lp(this, 12, 0));
+
         // Privacy: this install never touches the microphone / camera
         LinearLayout pv = Ui.card(this);
         pv.addView(Ui.text(this, "Privacy", 17f, Ui.TEXT, "sans-serif-medium"));
@@ -455,6 +527,95 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
 
         body.addView(Ui.hint(this, "TurboBox is MIT licensed and built on TurboNZL/turboengine. The pinned pages, the microphone "
                 + "handling and the mute lock come from Tether's web session."), Ui.lp(this, 16, 0));
+    }
+
+    private static final int REQ_ACCOUNT = 41;
+
+    /** Picks which Google account the key is made under (Android's own account chooser), then opens that account's key page. */
+    private void chooseGoogleAccount() {
+        try {
+            Intent i = android.accounts.AccountManager.newChooseAccountIntent(null, null, new String[]{"com.google"}, null, null, null, null);
+            startActivityForResult(i, REQ_ACCOUNT);
+        } catch (RuntimeException e) {
+            askEmail();
+        }
+    }
+
+    private void askEmail() {
+        final android.widget.EditText in = new android.widget.EditText(this);
+        in.setHint("you@gmail.com");
+        in.setTextColor(Ui.TEXT);
+        in.setSingleLine(true);
+        new DimBuilder(this).setTitle("Which Google account?").setView(in)
+                .setPositiveButton("Next", (d, w) -> addKeyFor(in.getText().toString().trim()))
+                .setNegativeButton("Cancel", null).show();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_ACCOUNT || resultCode != RESULT_OK || data == null) return;
+        String name = data.getStringExtra(android.accounts.AccountManager.KEY_ACCOUNT_NAME);
+        if (name != null && !name.isEmpty()) addKeyFor(name);
+        else askEmail();
+    }
+
+    /** Opens Google's key page signed in as that account, and asks for the key to be pasted back. */
+    private void addKeyFor(final String email) {
+        if (email.isEmpty()) return;
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://aistudio.google.com/apikey?authuser=" + android.net.Uri.encode(email))));
+        } catch (RuntimeException e) {
+            Toast.makeText(this, "Open aistudio.google.com/apikey in a browser.", Toast.LENGTH_LONG).show();
+        }
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        int pad = Ui.dp(this, 20);
+        col.setPadding(pad, Ui.dp(this, 8), pad, 0);
+        col.addView(Ui.hint(this, "Google's key page opened for " + email + ". Create (or open) a key there and copy it, come back, and tap Paste. "
+                + "If a key already exists on that account for other things, you can use it or make a separate one; they share the project's free limit."), Ui.lp(this, 0, 8));
+        final android.widget.EditText key = new android.widget.EditText(this);
+        key.setHint("AIza...");
+        key.setTextColor(Ui.TEXT);
+        key.setSingleLine(true);
+        col.addView(key);
+        TextView paste = Ui.pill(this, "Paste from the clipboard", Ui.GREEN);
+        paste.setOnClickListener(v -> {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            CharSequence cs = cm.hasPrimaryClip() && cm.getPrimaryClip().getItemCount() > 0 ? cm.getPrimaryClip().getItemAt(0).coerceToText(this) : "";
+            if (AiKeys.looksLikeKey(cs == null ? "" : cs.toString())) key.setText(cs.toString().trim());
+            else Toast.makeText(this, "The clipboard does not hold a key (it starts with AIza).", Toast.LENGTH_LONG).show();
+        });
+        col.addView(paste, Ui.lp(this, 8, 0));
+        new DimBuilder(this).setTitle("Add a Gemini key").setView(col)
+                .setPositiveButton("Save", (d, w) -> {
+                    String k = key.getText().toString().trim();
+                    if (!AiKeys.looksLikeKey(k)) {
+                        Toast.makeText(this, "That does not look like a Gemini key, so it was not saved.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    AiKeys.add(this, email, k);
+                    AiKeys.setAllowSend(this, true);
+                    render();
+                    testKey(AiKeys.current(this));
+                }).setNegativeButton("Cancel", null).show();
+    }
+
+    private void testKey(final AiKeys.Key k) {
+        if (k == null) return;
+        Toast.makeText(this, "Testing...", Toast.LENGTH_SHORT).show();
+        final String model = AiKeys.model(this);
+        new Thread(() -> {
+            String result;
+            try {
+                GeminiClient.generate(k.key, model, "Reply with the single word: ok");
+                result = "The key for " + k.label + " works.";
+            } catch (java.io.IOException e) {
+                result = e.getMessage() == null ? "No answer from Gemini." : e.getMessage();
+            }
+            final String msg = result;
+            runOnUiThread(() -> Toast.makeText(this, msg, Toast.LENGTH_LONG).show());
+        }, "ai-test").start();
     }
 
     private LinearLayout choiceRow(String label, String value, Runnable onTap) {
