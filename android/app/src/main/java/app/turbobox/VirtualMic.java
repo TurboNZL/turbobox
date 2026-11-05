@@ -81,7 +81,7 @@ final class VirtualMic {
         NoiseSuppressor ns = null;
         try {
             int min = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
-            record = new AudioRecord(MediaRecorder.AudioSource.MIC, RATE, AudioFormat.CHANNEL_IN_MONO,
+            record = MicGuard.open(MediaRecorder.AudioSource.MIC, RATE, AudioFormat.CHANNEL_IN_MONO,
                     AudioFormat.ENCODING_PCM_16BIT, Math.max(min, FRAME * 4));
             if (record.getState() != AudioRecord.STATE_INITIALIZED) {
                 fail(gen, listener, "could not open the microphone");

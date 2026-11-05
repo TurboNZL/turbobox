@@ -431,7 +431,6 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
         }
         final String folder = exportFolder(r);
         final String base = safeName(r);
-        final String sheet = CutSheet.build(r.name, runLengthMs(r), cues, watchedSpans(r));
         new Thread(() -> {
             String error = null;
             try {
@@ -439,8 +438,12 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
                 try (java.io.OutputStream o = exportStream(folder, base + " captions.txt", "text/plain")) {
                     o.write(readable(cues).getBytes("UTF-8"));
                 }
-                try (java.io.OutputStream o = exportStream(folder, base + " for AI.txt", "text/plain")) {
-                    o.write(sheet.getBytes("UTF-8"));
+                List<CutSheet.Part> parts = CutSheet.parts(r.name, runLengthMs(r), cues, watchedSpans(r), CutSheet.DEFAULT_PART_WORDS);
+                for (CutSheet.Part part : parts) {
+                    String nm = parts.size() == 1 ? base + " for AI.txt" : base + " for AI part " + (part.index + 1) + " of " + parts.size() + ".txt";
+                    try (java.io.OutputStream o = exportStream(folder, nm, "text/plain")) {
+                        o.write(part.text.getBytes("UTF-8"));
+                    }
                 }
             } catch (IOException | RuntimeException e) {
                 error = e.getMessage() == null ? e.toString() : e.getMessage();
@@ -450,40 +453,130 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
         }, "export-captions").start();
     }
 
+    // ---- cutting with a chat AI, part by part (a 2 or 4 hour recording is far too long for one chat) ----
+
+    private static File answersFile(BufferStore.Run r) {
+        return new File(r.dir, "cut_answers.json");
+    }
+
+    /** Saved answers by part number: the ranges (ms from the run's start), possibly none. */
+    private static java.util.Map<Integer, List<long[]>> loadAnswers(BufferStore.Run r) {
+        java.util.Map<Integer, List<long[]>> m = new java.util.HashMap<>();
+        File f = answersFile(r);
+        if (!f.exists()) return m;
+        try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+            byte[] b = new byte[(int) f.length()];
+            int off = 0;
+            for (int n; off < b.length && (n = in.read(b, off, b.length - off)) > 0; ) off += n;
+            org.json.JSONObject o = new org.json.JSONObject(new String(b, 0, off, "UTF-8"));
+            java.util.Iterator<String> keys = o.keys();
+            while (keys.hasNext()) {
+                String k = keys.next();
+                org.json.JSONArray arr = o.getJSONArray(k);
+                List<long[]> l = new java.util.ArrayList<>();
+                for (int i = 0; i < arr.length(); i++) l.add(new long[]{arr.getJSONArray(i).getLong(0), arr.getJSONArray(i).getLong(1)});
+                m.put(Integer.parseInt(k), l);
+            }
+        } catch (IOException | org.json.JSONException | NumberFormatException e) {
+            // Start over.
+        }
+        return m;
+    }
+
+    private static void saveAnswers(BufferStore.Run r, java.util.Map<Integer, List<long[]>> m) {
+        try {
+            org.json.JSONObject o = new org.json.JSONObject();
+            for (java.util.Map.Entry<Integer, List<long[]>> e : m.entrySet()) {
+                org.json.JSONArray arr = new org.json.JSONArray();
+                for (long[] x : e.getValue()) arr.put(new org.json.JSONArray().put(x[0]).put(x[1]));
+                o.put("" + e.getKey(), arr);
+            }
+            try (java.io.FileOutputStream out = new java.io.FileOutputStream(answersFile(r))) {
+                out.write(o.toString().getBytes("UTF-8"));
+            }
+        } catch (IOException | org.json.JSONException ignored) {
+            // The answers just are not remembered.
+        }
+    }
+
     /**
-     * Cutting with a chat AI: copy the sheet, paste it into any AI chat (a free plan is enough), paste its answer back here, and the app
-     * writes one video with only the parts it said to keep.
+     * Cutting with a chat AI. The captions are split into parts small enough for a free chat (a 4 hour recording is about 8). For each part:
+     * Copy, paste it into an AI chat, copy the AI's reply, Paste answer. Answers are remembered, so it can be done over several sittings.
+     * A part with no answer is kept whole; "Cut" writes one video from everything kept.
      */
     private void showCutDialog(BufferStore.Run r) {
         final List<Vtt.Cue> cues = loadCues(r);
-        final String sheet = CutSheet.build(r.name, runLengthMs(r), cues, watchedSpans(r));
-        LinearLayout col = new LinearLayout(this);
+        final long total = runLengthMs(r);
+        final List<CutSheet.Part> parts = CutSheet.parts(r.name, total, cues, watchedSpans(r), CutSheet.DEFAULT_PART_WORDS);
+        final java.util.Map<Integer, List<long[]>> answers = loadAnswers(r);
+        final LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         int pad = Ui.dp(this, 20);
         col.setPadding(pad, Ui.dp(this, 8), pad, 0);
-        col.addView(Ui.hint(this, "1. Copy the sheet (the captions with times, and the stretches you watched live) and paste it into a chat AI. "
-                + "A free plan is fine"
-                + (sheet.length() > 60_000 ? "; this one is long (" + sheet.length() / 1000 + "k characters), so for a long recording paste it in parts or ask for a shorter model answer" : "")
-                + ".\n2. Paste its answer (the parts to keep) below."), Ui.lp(this, 0, 6));
-        TextView copy = Ui.pill(this, "Copy the sheet", Ui.GREEN);
-        copy.setOnClickListener(v -> {
-            android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            cm.setPrimaryClip(android.content.ClipData.newPlainText("TurboBox cut sheet", sheet));
-            Toast.makeText(this, "Copied (" + sheet.length() / 1000 + "k characters). Paste it into the AI chat.", Toast.LENGTH_LONG).show();
-        });
-        col.addView(copy, Ui.lp(this, 6, 0));
-        final android.widget.EditText answer = new android.widget.EditText(this);
-        answer.setHint("Paste the AI's answer, e.g. 0:00 - 4:35");
-        answer.setTextColor(Ui.TEXT);
-        answer.setHintTextColor(Ui.DIM);
-        answer.setMinLines(4);
-        answer.setGravity(Gravity.TOP);
-        col.addView(answer, Ui.lp(this, 10, 0));
+        final Runnable[] render = new Runnable[1];
+        render[0] = () -> {
+            col.removeAllViews();
+            col.addView(Ui.hint(this, (parts.size() > 1
+                    ? "This recording is long, so it is split into " + parts.size() + " parts that each fit a free AI chat (each can go in a new chat). "
+                    : "") + "For each part: Copy, paste it into an AI chat, copy the AI's reply, then Paste answer. "
+                    + "A part you skip is kept whole. Your answers are remembered."), Ui.lp(this, 0, 6));
+            for (CutSheet.Part part : parts) {
+                LinearLayout row = new LinearLayout(this);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                List<long[]> got = answers.get(part.index);
+                String state = got == null ? "not answered (kept whole)" : got.isEmpty() ? "answered: cut all" : "answered: " + got.size() + " parts kept";
+                TextView label = Ui.text(this, (parts.size() > 1 ? "Part " + (part.index + 1) + "  " : "Sheet  ") + CutSheet.clock(part.startMs) + " - "
+                        + CutSheet.clock(part.endMs) + "\n" + state, 14f, got == null ? Ui.TEXT : Ui.GREEN, "sans-serif");
+                row.addView(label, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+                TextView copy = Ui.pill(this, "Copy", 0);
+                copy.setOnClickListener(v -> {
+                    android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("TurboBox cut sheet", part.text));
+                    Toast.makeText(this, "Copied (" + part.text.length() / 1000 + "k characters). Paste it into the AI chat.", Toast.LENGTH_LONG).show();
+                });
+                row.addView(copy, Ui.weight(this, 6));
+                TextView paste = Ui.pill(this, "Paste answer", Ui.GREEN);
+                paste.setOnClickListener(v -> {
+                    android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    String text = "";
+                    if (cm.hasPrimaryClip() && cm.getPrimaryClip().getItemCount() > 0) {
+                        CharSequence cs = cm.getPrimaryClip().getItemAt(0).coerceToText(this);
+                        text = cs == null ? "" : cs.toString();
+                    }
+                    List<long[]> ranges = CutSheet.clamp(CutSheet.parseRanges(text), part.startMs, part.endMs);
+                    if (ranges.isEmpty() && !CutSheet.saysNone(text)) {
+                        Toast.makeText(this, "No time ranges for this part on the clipboard. Copy the AI's whole reply, then tap Paste answer.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    answers.put(part.index, ranges);
+                    saveAnswers(r, answers);
+                    render[0].run();
+                });
+                row.addView(paste, Ui.weight(this, 6));
+                col.addView(row, Ui.lp(this, 8, 0));
+            }
+            TextView clear = Ui.pill(this, "Forget my answers", 0);
+            clear.setOnClickListener(v -> {
+                answers.clear();
+                saveAnswers(r, answers);
+                render[0].run();
+            });
+            col.addView(clear, Ui.lp(this, 12, 0));
+        };
+        render[0].run();
         android.widget.ScrollView sv = new android.widget.ScrollView(this);
         sv.addView(col);
         new DimBuilder(this).setTitle("Cut with AI").setView(sv)
-                .setPositiveButton("Cut", (d, w) -> cutRun(r, CutSheet.parseRanges(answer.getText().toString())))
-                .setNegativeButton("Cancel", null).show();
+                .setPositiveButton("Cut", (d, w) -> {
+                    List<long[]> keep = new java.util.ArrayList<>();
+                    for (CutSheet.Part part : parts) {
+                        List<long[]> got = answers.get(part.index);
+                        if (got == null) keep.add(new long[]{part.startMs, part.endMs});
+                        else keep.addAll(got);
+                    }
+                    cutRun(r, CutSheet.merge(keep));
+                })
+                .setNegativeButton("Close", null).show();
     }
 
     private void cutRun(BufferStore.Run r, List<long[]> ranges) {

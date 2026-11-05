@@ -45,7 +45,6 @@ While you replay a recording its captions show under the picture. **Recordings**
 
 ## Captions, cutting and watching live
 - **Export captions** (Recordings) saves the captions as `.vtt`, as plain text with times, and as a sheet for an AI, into Downloads/TurboBox.
-- **Cut with AI**: copy the sheet, paste it into any chat AI (a free plan is enough), paste its answer (the parts to keep, like `0:00 - 4:35`, one per line) back, and TurboBox writes one video with only those parts. A part can start up to 2 seconds early.
+- **Cut with AI**: a long recording is split into parts that each fit a free AI chat (a 4 hour one is about 8). For each part tap Copy, paste it into an AI chat, copy the AI's reply (the stretches to keep, like `0:00 - 4:35`), then tap Paste answer. Your answers are remembered, so you can do it over several sittings; a part you skip is kept whole. Cut writes one video with only what was kept. A kept stretch can start up to 2 seconds early.
 - **Watch** (Running list, Recordings, or the notification) shows what the recording sees right now and the words being captioned, without opening the page or the player. While you watch, the recording notes it, and the AI sheet marks those stretches so they can be cut if they do not matter.
-- **Settings > Privacy** can turn the microphone and camera off for the whole app. Captions do not need the microphone permission.
-
+- **Settings > Privacy** can turn the microphone and camera off for the whole app. You can still give Android's microphone permission for captions: with the switch on, the app refuses to open any microphone, and captions are made from the recording's sound, not a microphone.

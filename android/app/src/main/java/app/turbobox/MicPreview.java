@@ -69,7 +69,7 @@ final class MicPreview {
         AudioTrack track = null;
         try {
             int min = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
-            record = new AudioRecord(MediaRecorder.AudioSource.MIC, RATE, AudioFormat.CHANNEL_IN_MONO,
+            record = MicGuard.open(MediaRecorder.AudioSource.MIC, RATE, AudioFormat.CHANNEL_IN_MONO,
                     AudioFormat.ENCODING_PCM_16BIT, Math.max(min, RATE / 2));
             if (record.getState() != AudioRecord.STATE_INITIALIZED) {
                 post(gen, l, "error", 0, "", "could not open the microphone");

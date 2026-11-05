@@ -42,4 +42,30 @@ public class CutSheetTest {
         assertTrue(s.indexOf("WATCHING from 0:30 to 0:50") > s.indexOf("hello"));
         assertTrue(s.indexOf("WATCHING from 0:30") < s.indexOf("[1:10] later"));
     }
+
+    @Test
+    public void longRecordingIsSplitIntoSelfContainedParts() {
+        List<Vtt.Cue> cues = new ArrayList<>();
+        for (int i = 0; i < 1440; i++) cues.add(new Vtt.Cue(i * 10_000L, i * 10_000L + 9000, "one two three four five six seven eight nine ten eleven twelve"));
+        long total = 1440 * 10_000L;   // 4 hours
+        List<CutSheet.Part> parts = CutSheet.parts("Lecture", total, cues, new ArrayList<long[]>(), 4500);
+        assertTrue(parts.size() >= 3);
+        assertEquals(0, parts.get(0).startMs);
+        assertEquals(total, parts.get(parts.size() - 1).endMs);
+        for (int i = 1; i < parts.size(); i++) assertEquals(parts.get(i - 1).endMs, parts.get(i).startMs);
+        for (CutSheet.Part p : parts) assertTrue(p.text.split("\\s+").length < 6500);
+        assertTrue(parts.get(1).text.contains("part 2 of " + parts.size()));
+    }
+
+    @Test
+    public void clampAndNone() {
+        List<long[]> in = new ArrayList<>();
+        in.add(new long[]{0, 100_000});
+        in.add(new long[]{300_000, 400_000});
+        List<long[]> c = CutSheet.clamp(in, 50_000, 200_000);
+        assertEquals(1, c.size());
+        assertEquals(50_000, c.get(0)[0]);
+        assertTrue(CutSheet.saysNone("NONE"));
+        assertTrue(!CutSheet.saysNone("0:10 - 0:20"));
+    }
 }

@@ -21,7 +21,10 @@ final class Prefs {
     // ---- this install never uses the microphone / camera (a work profile, say) ----
     /** No microphone at all: pages are refused it, it is never asked for, and nothing in the app needs it to work. */
     static boolean noMic(Context c) { return sp(c).getBoolean("noMic", false); }
-    static void setNoMic(Context c, boolean v) { sp(c).edit().putBoolean("noMic", v).apply(); }
+    static void setNoMic(Context c, boolean v) {
+        sp(c).edit().putBoolean("noMic", v).apply();
+        MicGuard.set(v);
+    }
     static boolean noCamera(Context c) { return sp(c).getBoolean("noCamera", false); }
     static void setNoCamera(Context c, boolean v) { sp(c).edit().putBoolean("noCamera", v).apply(); }
 
