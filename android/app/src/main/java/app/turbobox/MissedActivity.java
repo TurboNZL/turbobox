@@ -35,6 +35,15 @@ import java.util.Locale;
  * recorder to finish it first.
  */
 public class MissedActivity extends Activity implements SurfaceHolder.Callback {
+    // the recap view inside the player
+    private android.widget.ScrollView recapScroll;
+    private LinearLayout recapBox;
+    private LinearLayout moreRow;
+    private boolean recapMode;
+    private boolean recapBusy;
+    private String recapProgress = "";
+    private TextView recapStatus;
+
     static final String EXTRA_RUN = "run";
     static final String EXTRA_FROM_WALL = "fromWall";
     private static final float[] SPEEDS = {1f, 1.25f, 1.5f, 2f, 2.5f, 3f};
@@ -226,18 +235,30 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
         row2.addView(export, Ui.weight(this, 8));
         c.addView(row2, Ui.lp(this, 8, 0));
         LinearLayout row3 = new LinearLayout(this);
+        TextView recap = Ui.pill(this, DigestMaker.file(r).exists() ? "Recap" : "Make recap", Ui.GREEN);
+        recap.setOnClickListener(v -> {
+            if (BufferStore.segments(r).isEmpty()) {
+                Toast.makeText(this, "Nothing is recorded yet.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            recapMode = true;
+            showPlayer(r);
+        });
+        row3.addView(recap, Ui.weight(this, 0));
         TextView expCaps = Ui.pill(this, "Export captions", 0);
         expCaps.setOnClickListener(v -> exportCaptions(r, vtt));
-        row3.addView(expCaps, Ui.weight(this, 0));
+        row3.addView(expCaps, Ui.weight(this, 8));
         TextView cut = Ui.pill(this, "Cut with AI", 0);
         cut.setOnClickListener(v -> showCutDialog(r));
         row3.addView(cut, Ui.weight(this, 8));
+        c.addView(row3, Ui.lp(this, 8, 0));
         if (isLive(r)) {
+            LinearLayout row4 = new LinearLayout(this);
             TextView watch = Ui.pill(this, "Watch live", Ui.RED);
             watch.setOnClickListener(v -> startActivity(new android.content.Intent(this, LiveActivity.class)));
-            row3.addView(watch, Ui.weight(this, 8));
+            row4.addView(watch, Ui.weight(this, 0));
+            c.addView(row4, Ui.lp(this, 8, 0));
         }
-        c.addView(row3, Ui.lp(this, 8, 0));
         return c;
     }
 
@@ -453,6 +474,199 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
         }, "export-captions").start();
     }
 
+    // ---- the recap: a document above or below a video that always keeps its size ----
+
+    private boolean videoAtBottom() {
+        return Prefs.sp(this).getBoolean("recapVideoBottom", false);
+    }
+
+    /** Shows or hides the recap. The video stage keeps one fixed size while it is shown, so tapping around never resizes it. */
+    private void applyRecapLayout() {
+        if (player == null || stage == null) return;
+        if (recapScroll != null && recapScroll.getParent() == player) player.removeView(recapScroll);
+        if (!recapMode) {
+            stage.setLayoutParams(new LinearLayout.LayoutParams(-1, 0, 1f));
+            captionText.setVisibility(View.VISIBLE);
+            statusText.setVisibility(View.VISIBLE);
+            if (moreRow != null) moreRow.setVisibility(View.VISIBLE);
+            return;
+        }
+        int h = Math.round(getResources().getDisplayMetrics().heightPixels * 0.27f);
+        stage.setLayoutParams(new LinearLayout.LayoutParams(-1, h));
+        captionText.setVisibility(View.GONE);
+        statusText.setVisibility(View.GONE);
+        if (moreRow != null) moreRow.setVisibility(View.GONE);
+        if (recapScroll == null) {
+            recapScroll = new android.widget.ScrollView(this);
+            recapBox = new LinearLayout(this);
+            recapBox.setOrientation(LinearLayout.VERTICAL);
+            int pad = Ui.dp(this, 16);
+            recapBox.setPadding(pad, Ui.dp(this, 10), pad, Ui.dp(this, 20));
+            recapScroll.addView(recapBox);
+        }
+        // Inserting before the stage moves it down without taking it out of the window (its picture would be lost).
+        player.addView(recapScroll, videoAtBottom() ? 1 : 2, new LinearLayout.LayoutParams(-1, 0, 1f));
+        renderRecap();
+    }
+
+    private void renderRecap() {
+        if (recapBox == null || run == null) return;
+        recapBox.removeAllViews();
+        recapStatus = null;
+        final String md = DigestMaker.load(run);
+        LinearLayout bar = new LinearLayout(this);
+        TextView make = Ui.pill(this, md.isEmpty() ? "Make the recap" : "Remake", md.isEmpty() ? Ui.GREEN : 0);
+        make.setOnClickListener(v -> makeRecap());
+        bar.addView(make, Ui.weight(this, 0));
+        TextView pos = Ui.pill(this, videoAtBottom() ? "Video: bottom" : "Video: top", 0);
+        pos.setOnClickListener(v -> {
+            Prefs.sp(this).edit().putBoolean("recapVideoBottom", !videoAtBottom()).apply();
+            applyRecapLayout();
+        });
+        bar.addView(pos, Ui.weight(this, 6));
+        TextView plain = Ui.pill(this, "Player", 0);
+        plain.setOnClickListener(v -> {
+            recapMode = false;
+            applyRecapLayout();
+        });
+        bar.addView(plain, Ui.weight(this, 6));
+        recapBox.addView(bar);
+        if (recapBusy) {
+            recapStatus = Ui.text(this, recapProgress, 14f, Ui.DIM, "sans-serif");
+            recapBox.addView(recapStatus, Ui.lp(this, 10, 0));
+        }
+        if (md.isEmpty()) {
+            AiKeys.Key key = AiKeys.current(this);
+            recapBox.addView(Ui.hint(this, key != null && AiKeys.allowSend(this)
+                    ? "The recap is made from this recording's captions with " + key.describe() + ": a title, the important points to the top, chapters you can tap to jump, and the stretches worth watching as a short video. It keeps going if you leave."
+                    : "To make a recap, add a key and allow sending captions in Settings > AI for cutting and recaps (Groq, OpenRouter and Gemini all have free tiers)."), Ui.lp(this, 12, 0));
+            return;
+        }
+        String title = RecapText.title(md);
+        if (!title.isEmpty()) recapBox.addView(Ui.text(this, title, 22f, Ui.TEXT, "semibold"), Ui.lp(this, 12, 4));
+        TextView doc = Ui.text(this, "", 16f, Ui.TEXT, "sans-serif");
+        doc.setLineSpacing(0f, 1.15f);
+        doc.setText(recapSpannable(md));
+        doc.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+        doc.setHighlightColor(0x33A6E22E);
+        recapBox.addView(doc, Ui.lp(this, 6, 0));
+        LinearLayout tail = new LinearLayout(this);
+        TextView export = Ui.pill(this, "Export recap", 0);
+        export.setOnClickListener(v -> exportRecap(md));
+        tail.addView(export, Ui.weight(this, 0));
+        final List<long[]> worth = RecapText.worthWatching(md);
+        TextView shortVideo = Ui.pill(this, "Export short video", worth.isEmpty() ? 0 : Ui.GREEN);
+        shortVideo.setOnClickListener(v -> {
+            if (worth.isEmpty()) Toast.makeText(this, "The recap lists no stretches worth watching. Try Remake.", Toast.LENGTH_LONG).show();
+            else cutRun(run, worth);
+        });
+        tail.addView(shortVideo, Ui.weight(this, 8));
+        recapBox.addView(tail, Ui.lp(this, 16, 0));
+    }
+
+    private static final java.util.regex.Pattern STAMP = java.util.regex.Pattern.compile("\\[(\\d+(?::\\d{2}){1,2})\\]");
+    private static final java.util.regex.Pattern RANGE_LINE = java.util.regex.Pattern.compile("(\\d+(?::\\d{2}){1,2})\\s*(?:-->|-|\u2013|\u2014|to)\\s*(\\d+(?::\\d{2}){1,2})");
+
+    /** The recap as text with headings, and every time a tap that plays the recording from there. */
+    private CharSequence recapSpannable(String md) {
+        android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder();
+        boolean worth = false;
+        for (String raw : md.split("\n")) {
+            String line = raw.replace("**", "");
+            String t = line.trim();
+            if (t.regionMatches(true, 0, "TITLE:", 0, 6)) continue;
+            if (t.startsWith("#")) {
+                String h = t.replaceFirst("^#+\\s*", "");
+                worth = h.toLowerCase(Locale.US).startsWith("worth watching");
+                int s = sb.length();
+                sb.append('\n').append(h).append('\n');
+                sb.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), s, sb.length(), 0);
+                sb.setSpan(new android.text.style.ForegroundColorSpan(Ui.GREEN), s, sb.length(), 0);
+                sb.setSpan(new android.text.style.RelativeSizeSpan(1.15f), s, sb.length(), 0);
+                continue;
+            }
+            java.util.regex.Matcher m = (worth ? RANGE_LINE : STAMP).matcher(line);
+            int at = 0;
+            while (m.find()) {
+                sb.append(line, at, m.start());
+                int s = sb.length();
+                final String stamp = m.group(1);
+                sb.append(worth ? m.group(0) : stamp);
+                sb.setSpan(new android.text.style.ClickableSpan() {
+                    @Override
+                    public void onClick(View v) {
+                        seekRun(CutSheet.parseClock(stamp));
+                    }
+
+                    @Override
+                    public void updateDrawState(android.text.TextPaint ds) {
+                        ds.setColor(Ui.GREEN);
+                        ds.setUnderlineText(false);
+                        ds.setFakeBoldText(true);
+                    }
+                }, s, sb.length(), 0);
+                at = m.end();
+            }
+            sb.append(line.substring(at)).append('\n');
+        }
+        return sb;
+    }
+
+    /** Plays the recording from a moment given in ms from its start; the document stays where it is. */
+    private void seekRun(long msFromStart) {
+        if (run == null) return;
+        segs = BufferStore.segments(run);
+        if (segs.isEmpty()) return;
+        started = true;
+        seekTo(BufferStore.offsetOfWall(segs, run.startedAt + msFromStart), true);
+        updatePlayButton();
+    }
+
+    private void makeRecap() {
+        if (recapBusy || run == null) return;
+        if (AiKeys.current(this) == null || !AiKeys.allowSend(this)) {
+            Toast.makeText(this, "Add a key and allow sending captions in Settings > AI for cutting and recaps.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        final BufferStore.Run r = run;
+        recapBusy = true;
+        recapProgress = "Starting...";
+        renderRecap();
+        DigestMaker.run(this, r, runLengthMs(r), loadCues(r), watchedSpans(r), new DigestMaker.Listener() {
+            @Override
+            public void progress(String text) {
+                runOnUiThread(() -> {
+                    recapProgress = text;
+                    if (recapStatus != null) recapStatus.setText(text);
+                });
+            }
+
+            @Override
+            public void done(String problem) {
+                runOnUiThread(() -> {
+                    recapBusy = false;
+                    if (problem != null) Toast.makeText(MissedActivity.this, problem, Toast.LENGTH_LONG).show();
+                    if (recapMode && run != null && run.dir.equals(r.dir)) renderRecap();
+                });
+            }
+        });
+    }
+
+    private void exportRecap(final String md) {
+        final BufferStore.Run r = run;
+        final String folder = exportFolder(r);
+        new Thread(() -> {
+            String error = null;
+            try (java.io.OutputStream o = exportStream(folder, safeName(r) + " recap.md", "text/markdown")) {
+                o.write(md.getBytes("UTF-8"));
+            } catch (IOException | RuntimeException e) {
+                error = e.getMessage() == null ? e.toString() : e.getMessage();
+            }
+            final String err = error;
+            runOnUiThread(() -> exportDone(err, "The recap was copied to Downloads/TurboBox/" + folder + "."));
+        }, "export-recap").start();
+    }
+
     // ---- cutting with an AI ----
 
     /**
@@ -486,7 +700,7 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
                     }
                     busy[0] = true;
                     render[0].run();
-                    List<CutSheet.Part> big = CutSheet.parts(r.name, total, cues, watched, AiCutter.GEMINI_PART_WORDS);
+                    List<CutSheet.Part> big = CutSheet.parts(r.name, total, cues, watched, Ai.partWords(this));
                     AiCutter.run(this, r, big, answers, new AiCutter.Listener() {
                         @Override
                         public void progress(String text) {
@@ -664,6 +878,9 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
         player = new LinearLayout(this);
         player.setOrientation(LinearLayout.VERTICAL);
         player.setBackgroundColor(Ui.BG);
+        recapScroll = null;
+        recapBox = null;
+        recapStatus = null;
 
         LinearLayout head = new LinearLayout(this);
         head.setGravity(Gravity.CENTER_VERTICAL);
@@ -746,9 +963,17 @@ public class MissedActivity extends Activity implements SurfaceHolder.Callback {
         TextView latest = Ui.pill(this, "Latest", 0);
         latest.setOnClickListener(v -> jumpToLatest());
         more.addView(latest, Ui.weight(this, 6));
+        TextView recapTab = Ui.pill(this, "Recap", Ui.GREEN);
+        recapTab.setOnClickListener(v -> {
+            recapMode = true;
+            applyRecapLayout();
+        });
+        more.addView(recapTab, Ui.weight(this, 6));
+        moreRow = more;
         player.addView(more, Ui.match(ViewGroup.LayoutParams.WRAP_CONTENT));
 
         setContentView(player);
+        applyRecapLayout();
         statusText.setText(pendingFromWall != 0 ? "Getting the part you missed ready..." : "");
         ui.removeCallbacks(tick);
         ui.post(tick);

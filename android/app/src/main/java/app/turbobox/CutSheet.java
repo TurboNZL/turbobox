@@ -112,9 +112,11 @@ final class CutSheet {
         final int count;
         final long startMs;
         final long endMs;
-        final String text;
+        final String text;   // instructions for cutting + the transcript
+        final String body;   // the transcript lines alone
 
-        Part(int index, int count, long startMs, long endMs, String text) {
+        Part(int index, int count, long startMs, long endMs, String text, String body) {
+            this.body = body;
             this.index = index;
             this.count = count;
             this.startMs = startMs;
@@ -195,9 +197,11 @@ final class CutSheet {
                     return Long.compare((Long) x[0], (Long) y[0]);
                 }
             });
-            if (items.isEmpty()) sb.append("(No captions were made for this recording.)\n");
-            for (Object[] it : items) sb.append(it[1]).append('\n');
-            out.add(new Part(p, n, from, to, sb.toString()));
+            StringBuilder bd = new StringBuilder();
+            if (items.isEmpty()) bd.append("(No captions were made for this recording.)\n");
+            for (Object[] it : items) bd.append(it[1]).append('\n');
+            sb.append(bd);
+            out.add(new Part(p, n, from, to, sb.toString(), bd.toString()));
         }
         return out;
     }

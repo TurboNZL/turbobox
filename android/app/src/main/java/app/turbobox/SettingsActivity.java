@@ -361,14 +361,14 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         sites.addView(openSites);
         body.addView(sites, Ui.lp(this, 12, 0));
 
-        // AI for cutting recordings
+        // AI for cutting recordings and making recaps
         LinearLayout ai = Ui.card(this);
-        ai.addView(Ui.text(this, "AI for cutting", 17f, Ui.TEXT, "sans-serif-medium"));
-        ai.addView(Ui.hint(this, "Lets Cut with AI (in Recordings) ask Google's Gemini which parts to keep. Only the caption text is sent, never the "
-                + "video or the sound. On Google's free tier, what you send may be used to improve Google's products; a paid key is not. "
-                + "Off, you can still paste into any AI chat by hand."), Ui.lp(this, 4, 8));
+        ai.addView(Ui.text(this, "AI for cutting and recaps", 17f, Ui.TEXT, "sans-serif-medium"));
+        ai.addView(Ui.hint(this, "Lets Recordings make a recap (title, important points, chapters) and cut a short video, using a free AI service of "
+                + "your choice. Only the caption text is sent, never the video or the sound. Free tiers may log or learn from what you send (see each "
+                + "service's terms). Save more than one key and the next is tried when a service is at its limit. Off, you can still paste into any AI chat by hand."), Ui.lp(this, 4, 8));
         Switch allow = Ui.toggle(this);
-        allow.setText("Allow sending captions to Gemini");
+        allow.setText("Allow sending captions to these services");
         allow.setTextColor(Ui.TEXT);
         allow.setChecked(AiKeys.allowSend(this));
         allow.setOnCheckedChangeListener((b, on) -> AiKeys.setAllowSend(this, on));
@@ -376,15 +376,15 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         List<AiKeys.Key> keys = AiKeys.all(this);
         AiKeys.Key inUse = AiKeys.current(this);
         if (keys.isEmpty()) {
-            ai.addView(Ui.hint(this, "No Gemini key yet."), Ui.lp(this, 4, 4));
+            ai.addView(Ui.hint(this, "No key yet."), Ui.lp(this, 4, 4));
         } else {
-            ai.addView(Ui.hint(this, "Key in use (tap another to switch). Each key belongs to the Google account it was made under."), Ui.lp(this, 4, 2));
+            ai.addView(Ui.hint(this, "Key in use first (tap another to make it first)."), Ui.lp(this, 4, 2));
         }
         for (AiKeys.Key k : keys) {
             LinearLayout row = new LinearLayout(this);
             row.setGravity(Gravity.CENTER_VERTICAL);
             boolean on = inUse != null && inUse.label.equals(k.label);
-            TextView name = Ui.text(this, (on ? "●  " : "○  ") + k.label + "\n" + k.masked(), 15f, on ? Ui.GREEN : Ui.TEXT, "sans-serif");
+            TextView name = Ui.text(this, (on ? "\u25CF  " : "\u25CB  ") + k.describe() + "\n" + k.masked() + "  -  " + k.modelName(), 15f, on ? Ui.GREEN : Ui.TEXT, "sans-serif");
             name.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 8));
             name.setOnClickListener(v -> {
                 AiKeys.use(this, k.label);
@@ -401,25 +401,15 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
             row.addView(del);
             ai.addView(row);
         }
-        TextView addKey = Ui.pill(this, "Add a Gemini key (choose the Google account)", Ui.GREEN);
-        addKey.setOnClickListener(v -> chooseGoogleAccount());
+        TextView addKey = Ui.pill(this, "Add a key (Groq, OpenRouter, Gemini or another)", Ui.GREEN);
+        addKey.setOnClickListener(v -> chooseProvider());
         ai.addView(addKey, Ui.lp(this, 8, 0));
         if (inUse != null) {
-            TextView test = Ui.pill(this, "Test the key in use", 0);
+            TextView test = Ui.pill(this, "Test the first key", 0);
             test.setOnClickListener(v -> testKey(inUse));
             ai.addView(test, Ui.lp(this, 8, 0));
+            ai.addView(choiceRow("Model for the first key", inUse.modelName(), () -> chooseModel(inUse)), Ui.lp(this, 8, 0));
         }
-        ai.addView(choiceRow("Model", AiKeys.model(this), () -> {
-            android.widget.EditText in = new android.widget.EditText(this);
-            in.setText(AiKeys.model(this));
-            in.setTextColor(Ui.TEXT);
-            in.setSingleLine(true);
-            new DimBuilder(this).setTitle("Gemini model").setMessage("A name from Google's model list. gemini-flash-latest is the default.")
-                    .setView(in).setPositiveButton("Save", (d2, w2) -> {
-                        AiKeys.setModel(this, in.getText().toString());
-                        render();
-                    }).setNegativeButton("Cancel", null).show();
-        }), Ui.lp(this, 8, 0));
         boolean aicore = false;
         try {
             getPackageManager().getPackageInfo("com.google.android.aicore", 0);
@@ -427,8 +417,8 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         } catch (android.content.pm.PackageManager.NameNotFoundException ignored) {
             // Not installed.
         }
-        ai.addView(Ui.hint(this, "On-device AI (Android AICore): " + (aicore ? "installed on this phone." : "not found on this phone.")
-                + " Using it for cutting is not built yet; whether it works depends on the phone."), Ui.lp(this, 8, 0));
+        ai.addView(Ui.hint(this, "On-device AI (Android AICore): " + (aicore ? "installed in this profile." : "not found in this profile (a work profile has its own apps).")
+                + " Using it is not built yet."), Ui.lp(this, 8, 0));
         body.addView(ai, Ui.lp(this, 12, 0));
 
         // Privacy: this install never touches the microphone / camera
@@ -531,7 +521,17 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
 
     private static final int REQ_ACCOUNT = 41;
 
-    /** Picks which Google account the key is made under (Android's own account chooser), then opens that account's key page. */
+    private void chooseProvider() {
+        final String[] ids = AiProviders.IDS;
+        String[] names = new String[ids.length];
+        for (int i = 0; i < ids.length; i++) names[i] = AiProviders.name(ids[i]);
+        new DimBuilder(this).setTitle("Which service?").setItems(names, (d, which) -> {
+            if (AiProviders.GEMINI.equals(ids[which])) chooseGoogleAccount();
+            else addKeyFor(ids[which], AiProviders.name(ids[which]));
+        }).setNegativeButton("Cancel", null).show();
+    }
+
+    /** Picks which Google account a Gemini key is made under (Android's own account chooser), then opens that account's key page. */
     private void chooseGoogleAccount() {
         try {
             Intent i = android.accounts.AccountManager.newChooseAccountIntent(null, null, new String[]{"com.google"}, null, null, null, null);
@@ -547,7 +547,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         in.setTextColor(Ui.TEXT);
         in.setSingleLine(true);
         new DimBuilder(this).setTitle("Which Google account?").setView(in)
-                .setPositiveButton("Next", (d, w) -> addKeyFor(in.getText().toString().trim()))
+                .setPositiveButton("Next", (d, w) -> addKeyFor(AiProviders.GEMINI, in.getText().toString().trim()))
                 .setNegativeButton("Cancel", null).show();
     }
 
@@ -556,62 +556,133 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode != REQ_ACCOUNT || resultCode != RESULT_OK || data == null) return;
         String name = data.getStringExtra(android.accounts.AccountManager.KEY_ACCOUNT_NAME);
-        if (name != null && !name.isEmpty()) addKeyFor(name);
+        if (name != null && !name.isEmpty()) addKeyFor(AiProviders.GEMINI, name);
         else askEmail();
     }
 
-    /** Opens Google's key page signed in as that account, and asks for the key to be pasted back. */
-    private void addKeyFor(final String email) {
-        if (email.isEmpty()) return;
-        try {
-            startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://aistudio.google.com/apikey?authuser=" + android.net.Uri.encode(email))));
-        } catch (RuntimeException e) {
-            Toast.makeText(this, "Open aistudio.google.com/apikey in a browser.", Toast.LENGTH_LONG).show();
+    /** Opens the service's key page (for Gemini, signed in as the chosen account) and asks for the key to be pasted back. */
+    private void addKeyFor(final String provider, final String labelIn) {
+        if (labelIn.isEmpty()) return;
+        String page = AiProviders.keyPage(provider);
+        if (page != null) {
+            if (AiProviders.GEMINI.equals(provider)) page += "?authuser=" + android.net.Uri.encode(labelIn);
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(page)));
+            } catch (RuntimeException e) {
+                Toast.makeText(this, "Open " + page + " in a browser.", Toast.LENGTH_LONG).show();
+            }
         }
+        String label = labelIn;
+        for (int n = 2; ; n++) {
+            boolean taken = false;
+            for (AiKeys.Key k : AiKeys.all(this)) if (k.label.equals(label)) taken = true;
+            if (!taken) break;
+            label = labelIn + " " + n;
+        }
+        final String finalLabel = label;
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         int pad = Ui.dp(this, 20);
         col.setPadding(pad, Ui.dp(this, 8), pad, 0);
-        col.addView(Ui.hint(this, "Google's key page opened for " + email + ". Create (or open) a key there and copy it, come back, and tap Paste. "
-                + "If a key already exists on that account for other things, you can use it or make a separate one; they share the project's free limit."), Ui.lp(this, 0, 8));
+        col.addView(Ui.hint(this, (page != null ? "The key page opened. Make a key there, copy it, come back and tap Paste. " : "Paste the key, and the service's address. ")
+                + "If this account already has a key for other things you can use it or make a separate one; they share that account's free limit."), Ui.lp(this, 0, 8));
         final android.widget.EditText key = new android.widget.EditText(this);
-        key.setHint("AIza...");
+        key.setHint("Key");
         key.setTextColor(Ui.TEXT);
         key.setSingleLine(true);
         col.addView(key);
+        final android.widget.EditText base = new android.widget.EditText(this);
+        base.setHint("https://api.example.com/v1");
+        base.setTextColor(Ui.TEXT);
+        base.setSingleLine(true);
+        final android.widget.EditText model = new android.widget.EditText(this);
+        model.setHint("Model name");
+        model.setTextColor(Ui.TEXT);
+        model.setSingleLine(true);
+        if (AiProviders.CUSTOM.equals(provider)) {
+            col.addView(base);
+            col.addView(model);
+        }
         TextView paste = Ui.pill(this, "Paste from the clipboard", Ui.GREEN);
         paste.setOnClickListener(v -> {
             android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
             CharSequence cs = cm.hasPrimaryClip() && cm.getPrimaryClip().getItemCount() > 0 ? cm.getPrimaryClip().getItemAt(0).coerceToText(this) : "";
-            if (AiKeys.looksLikeKey(cs == null ? "" : cs.toString())) key.setText(cs.toString().trim());
-            else Toast.makeText(this, "The clipboard does not hold a key (it starts with AIza).", Toast.LENGTH_LONG).show();
+            String text = cs == null ? "" : cs.toString().trim();
+            if (AiProviders.keyLooksRight(provider, text)) key.setText(text);
+            else Toast.makeText(this, "The clipboard does not hold a key for this service.", Toast.LENGTH_LONG).show();
         });
         col.addView(paste, Ui.lp(this, 8, 0));
-        new DimBuilder(this).setTitle("Add a Gemini key").setView(col)
+        new DimBuilder(this).setTitle("Add a key: " + AiProviders.name(provider)).setView(col)
                 .setPositiveButton("Save", (d, w) -> {
                     String k = key.getText().toString().trim();
-                    if (!AiKeys.looksLikeKey(k)) {
-                        Toast.makeText(this, "That does not look like a Gemini key, so it was not saved.", Toast.LENGTH_LONG).show();
+                    if (!AiProviders.keyLooksRight(provider, k)) {
+                        Toast.makeText(this, "That does not look like a key for this service, so it was not saved.", Toast.LENGTH_LONG).show();
                         return;
                     }
-                    AiKeys.add(this, email, k);
+                    boolean custom = AiProviders.CUSTOM.equals(provider);
+                    if (custom && (base.getText().toString().trim().isEmpty() || model.getText().toString().trim().isEmpty())) {
+                        Toast.makeText(this, "The address and model name are needed for this one.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    AiKeys.add(this, new AiKeys.Key(finalLabel, k, provider, custom ? model.getText().toString().trim() : "", custom ? base.getText().toString().trim() : ""));
                     AiKeys.setAllowSend(this, true);
+                    render();
+                    AiKeys.Key saved = AiKeys.current(this);
+                    if (saved != null && !AiProviders.GEMINI.equals(provider) && !custom) chooseModel(saved);   // the live list of what this key can use
+                    else testKey(saved);
+                }).setNegativeButton("Cancel", null).show();
+    }
+
+    /** Lets the person pick a model from the service's own list (or type one for Gemini). */
+    private void chooseModel(final AiKeys.Key k) {
+        if (AiProviders.GEMINI.equals(k.provider)) {
+            final android.widget.EditText in = new android.widget.EditText(this);
+            in.setText(k.modelName());
+            in.setTextColor(Ui.TEXT);
+            in.setSingleLine(true);
+            new DimBuilder(this).setTitle("Gemini model").setView(in).setPositiveButton("Save", (d, w) -> {
+                AiKeys.setModel(this, k.label, GeminiClient.cleanModel(in.getText().toString()));
+                render();
+            }).setNegativeButton("Cancel", null).show();
+            return;
+        }
+        Toast.makeText(this, "Getting the list of models...", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            java.util.List<String> models;
+            String problem = null;
+            try {
+                models = OpenAiClient.listModels(k.base(), k.key);
+            } catch (java.io.IOException e) {
+                models = new java.util.ArrayList<>();
+                problem = e.getMessage();
+            }
+            final java.util.List<String> list = models;
+            final String why = problem;
+            runOnUiThread(() -> {
+                if (list.isEmpty()) {
+                    Toast.makeText(this, why == null ? "That service listed no models." : why, Toast.LENGTH_LONG).show();
+                    return;
+                }
+                final String[] items = list.toArray(new String[0]);
+                new DimBuilder(this).setTitle("Pick a model (free ones first)").setItems(items, (d, which) -> {
+                    AiKeys.setModel(this, k.label, items[which]);
                     render();
                     testKey(AiKeys.current(this));
                 }).setNegativeButton("Cancel", null).show();
+            });
+        }, "ai-models").start();
     }
 
     private void testKey(final AiKeys.Key k) {
         if (k == null) return;
         Toast.makeText(this, "Testing...", Toast.LENGTH_SHORT).show();
-        final String model = AiKeys.model(this);
         new Thread(() -> {
             String result;
             try {
-                GeminiClient.generate(k.key, model, "Reply with the single word: ok");
-                result = "The key for " + k.label + " works.";
+                Ai.generate(k, "Reply with the single word: ok");
+                result = k.describe() + " works with " + k.modelName() + ".";
             } catch (java.io.IOException e) {
-                result = e.getMessage() == null ? "No answer from Gemini." : e.getMessage();
+                result = e.getMessage() == null ? "No answer." : e.getMessage();
             }
             final String msg = result;
             runOnUiThread(() -> Toast.makeText(this, msg, Toast.LENGTH_LONG).show());

@@ -20,10 +20,16 @@ final class GeminiClient {
 
     static final class ApiException extends IOException {
         final int code;
+        final int retryAfterSec;   // from the Retry-After header; 0 when not given
 
         ApiException(int code, String message) {
+            this(code, message, 0);
+        }
+
+        ApiException(int code, String message, int retryAfterSec) {
             super(message);
             this.code = code;
+            this.retryAfterSec = retryAfterSec;
         }
     }
 
@@ -91,7 +97,7 @@ final class GeminiClient {
             }
             int code = c.getResponseCode();
             String text = read(code >= 400 ? c.getErrorStream() : c.getInputStream());
-            if (code >= 400) throw new ApiException(code, explain(code, text));
+            if (code >= 400) throw new ApiException(code, explain(code, text), retryAfter(c));
             return parseReply(text);
         } catch (JSONException e) {
             throw new IOException("could not build the request");
@@ -100,7 +106,17 @@ final class GeminiClient {
         }
     }
 
-    private static String read(InputStream in) throws IOException {
+    /** The Retry-After header in seconds (0 when absent or not a number). */
+    static int retryAfter(HttpURLConnection c) {
+        try {
+            String v = c.getHeaderField("Retry-After");
+            return v == null ? 0 : Math.max(0, Math.min(300, (int) Math.ceil(Double.parseDouble(v.trim()))));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    static String read(InputStream in) throws IOException {
         if (in == null) return "";
         try (InputStream i = in; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             byte[] buf = new byte[8192];

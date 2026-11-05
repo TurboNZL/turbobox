@@ -48,7 +48,7 @@ public class SessionService extends Service {
     /** Does anything need the process kept alive? */
     static boolean needed(Context c) {
         // A recording that has just been stopped is still being written: the process must not be left to the system until it is done.
-        return Sessions.anyActive() || WorkflowRunner.anyRunning() || BufferRecorder.busy() || RecordingTranscribe.busy() || Prefs.standby(c);
+        return Sessions.anyActive() || WorkflowRunner.anyRunning() || BufferRecorder.busy() || RecordingTranscribe.busy() || DigestMaker.busy() || Prefs.standby(c);
     }
 
     /** Starts the service when something needs it, stops it when nothing does, and updates the notification. */
@@ -133,7 +133,7 @@ public class SessionService extends Service {
             return;
         }
         syncMediaSession();
-        boolean busy = Sessions.anyActive() || WorkflowRunner.anyRunning() || BufferRecorder.busy() || RecordingTranscribe.busy();
+        boolean busy = Sessions.anyActive() || WorkflowRunner.anyRunning() || BufferRecorder.busy() || RecordingTranscribe.busy() || DigestMaker.busy();
         if (busy) {
             if (!wakeLock.isHeld()) wakeLock.acquire();
             if (!wifiLock.isHeld()) wifiLock.acquire();
@@ -234,8 +234,8 @@ public class SessionService extends Service {
         }
         List<String> workflows = WorkflowRunner.statusLines();
         lines.addAll(workflows);
-        boolean saving = active.isEmpty() && workflows.isEmpty() && (BufferRecorder.busy() || RecordingTranscribe.busy());
-        if (saving) lines.add(RecordingTranscribe.busy() ? "Captioning a recording" : "Saving the recording");
+        boolean saving = active.isEmpty() && workflows.isEmpty() && (BufferRecorder.busy() || RecordingTranscribe.busy() || DigestMaker.busy());
+        if (saving) lines.add(DigestMaker.busy() ? "Making a recap" : RecordingTranscribe.busy() ? "Captioning a recording" : "Saving the recording");
         boolean idle = active.isEmpty() && workflows.isEmpty() && !saving;
         if (idle) {
             Object[] next = WorkflowScheduler.soonest(this);
@@ -247,7 +247,7 @@ public class SessionService extends Service {
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
         PendingIntent open = PendingIntent.getActivity(this, 0, openIntent, PendingIntent.FLAG_IMMUTABLE);
         String title = idle ? "TurboBox standby"
-                : active.isEmpty() ? (saving ? (RecordingTranscribe.busy() ? "TurboBox - captioning" : "TurboBox - saving") : "TurboBox - workflow running")
+                : active.isEmpty() ? (saving ? (DigestMaker.busy() ? "TurboBox - recap" : RecordingTranscribe.busy() ? "TurboBox - captioning" : "TurboBox - saving") : "TurboBox - workflow running")
                 : active.size() == 1 ? "TurboBox - 1 page" : "TurboBox - " + active.size() + " pages";
         Notification.Builder b = new Notification.Builder(this, idle ? CHANNEL_STANDBY : CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_stat_box)
