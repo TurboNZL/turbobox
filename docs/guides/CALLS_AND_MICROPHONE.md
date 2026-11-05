@@ -1,6 +1,6 @@
 # Calls and the microphone
 
-This is Tether's web session, kept as it was. A page cannot see your phone's individual microphones, so TurboBox captures the one **you** choose and plays it into the page as its microphone.
+A page cannot see your phone's individual microphones, so TurboBox captures the one **you** choose and plays it into the page as its microphone.
 
 ## Privacy: what a page may use
 Settings on a page starts with two switches for **that page** (kept with its pin): **Microphone** (on by default) and **Camera** (off until you allow it). Off means the page is refused, like pressing *Block* in a browser. Turning the microphone off also cuts a call that already has it: the outgoing audio is locked silent and the capture stops. Turning the camera on asks Android for the camera permission; a page that already has the camera keeps it until it reloads. Mute is separate (a quick, temporary silence); Microphone off is "this page never gets my voice".

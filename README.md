@@ -3,16 +3,14 @@
 An Android app that keeps your web pages running in the background: pin a video, a stream or a web app, open it with one tap,
 run two at once, keep them alive with the screen off, record what you missed, and let a workflow click through them for you.
 
-It is the **web-session half of [Tether](https://github.com/TurboNZL/tether)** (the embedded browser that joins a web call and keeps the
-phone's microphone on A2DP) made into an app of its own, on the [TurboNZL/turboengine](https://github.com/TurboNZL/turboengine) base.
-Tether keeps its PeerJS call; TurboBox is only the web pages.
+It is built on the [TurboNZL/turboengine](https://github.com/TurboNZL/turboengine) base.
 
 ## What it does
 - **Pinned pages** on the home screen (up to 8), shown with the page's own icon: one tap opens the page in a session. Each page has its own microphone and camera privacy switches. Long-press for an icon on the launcher's home screen, and the
   first four are also in the app icon's long-press menu.
 - **Up to four running at once**: tabs, or **Split** to see the ones you choose. A small floating window (Mini) keeps a page up while you use
   another app.
-- **Everything Tether's web session did**: desktop browser emulation and page zoom, the phone's own microphone chosen by you (a Bluetooth
+- **Page emulation and sound control**: desktop browser emulation and page zoom, the phone's own microphone chosen by you (a Bluetooth
   headset stays in its high-quality mode), a mute the page cannot undo, page volume (0-200%), microphone volume (0-300%) with a
   record-and-play-back test, a hang-up timer (a delay or a clock time), a foreground service with the screen off.
 - **Recording buffer**: records what the page shows and plays into short pieces in the cache (resolution and frame rate chosen separately; a length limit that rolls or stops).
@@ -35,7 +33,7 @@ cd android && ./gradlew :app:testDebugUnitTest :app:assembleDebug        # JVM t
 node test/session-script.mjs                                              # the page script in Chromium (playwright + a Chromium)
 node scripts/gen-icons.mjs                                                # regenerates the logo files from branding/logo.json
 ```
-The app is plain Java and plain Views, like Tether. The pages are shown by the system WebView.
+The app is plain Java and plain Views. The pages are shown by the system WebView.
 
 ## Releases and updates
 Every merge to `main` becomes a release (`vYYYY.M.N`) with `turbobox-<version>-android.apk` attached; installed apps update themselves from it. The APK
