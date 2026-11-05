@@ -291,9 +291,8 @@ final class Session {
     int[] displaySize() {
         android.util.DisplayMetrics dm = app.getResources().getDisplayMetrics();
         int lo = Math.min(dm.widthPixels, dm.heightPixels), hi = Math.max(dm.widthPixels, dm.heightPixels);
-        float ratio = Pin.ASPECTS[effectiveAspect()];
-        if (!sizeLockOn() || ratio <= 0f) return new int[]{lo, hi};
-        return ratio >= 1f ? new int[]{hi, Math.round(hi / ratio)} : new int[]{Math.round(hi * ratio), hi};
+        // A forced shape reshapes the display itself, not just a box around a portrait one (that showed a small 9:16 page with black all around).
+        return DisplayShape.sizeFor(lo, hi, Pin.ASPECTS[effectiveAspect()]);
     }
 
     /** Gives the page the geometry that is in force now (normal or workflow recording size) and tells everything that depends on it. */
@@ -382,7 +381,20 @@ final class Session {
             PinStore.put(app, pin);
         }
         updateShape();
+        reshapeDisplay();
         for (Listener l : listeners) l.onAspect(this);
+    }
+
+    /** The forced shape changed: the page's private display takes that shape (unless a workflow lock or the follow-the-window mode decides it). */
+    private void reshapeDisplay() {
+        OffscreenHost h = pdisplay;
+        if (h == null || sizeLockOn() || Prefs.displayFollows(app)) {
+            refit();
+            return;
+        }
+        int[] sz = displaySize();
+        h.resize(sz[0], sz[1], 0);
+        refit();
     }
 
     /** Fits the page to the space it has now, from scratch (after the bar was hidden or shown, a split changed...). */
