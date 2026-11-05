@@ -601,10 +601,11 @@ final class Session {
      * Microphone privacy. Off: the page is refused the microphone, and a call that already has it is cut at once
      * (the outgoing audio is locked silent, whatever the page does, and the native capture stops).
      */
-    void setMicAllowed(boolean allowed) {
+    void setMicAllowed(boolean wanted) {
+        boolean allowed = wanted && !Prefs.noMic(app);   // the app-wide switch beats the page's
         micAllowed = allowed;
         if (pin != null) {
-            pin.allowMic = allowed;
+            pin.allowMic = wanted;
             PinStore.put(app, pin);
         }
         applyMute();
@@ -615,14 +616,33 @@ final class Session {
     }
 
     /** Camera privacy. The page is only handed the camera when this is on (and Android's camera permission is granted). */
-    void setCameraAllowed(boolean allowed) {
+    void setCameraAllowed(boolean wanted) {
+        boolean allowed = wanted && !Prefs.noCamera(app);
         cameraAllowed = allowed;
         if (pin != null) {
-            pin.allowCamera = allowed;
+            pin.allowCamera = wanted;
             PinStore.put(app, pin);
         }
         js("__turbobox.configure({cameraAllowed:" + allowed + "})");
         notice(allowed ? "The page may ask for the camera." : "Camera blocked for this page. A page that already has it keeps it until the page reloads.");
+    }
+
+    /** The app-wide "no microphone / no camera" switches changed: apply them to this open page. */
+    void refreshPrivacy() {
+        if (!active || pin == null || app == null) return;
+        boolean m = pin.allowMic && !Prefs.noMic(app);
+        boolean c = pin.allowCamera && !Prefs.noCamera(app);
+        if (m != micAllowed) {
+            micAllowed = m;
+            applyMute();
+            js("__turbobox.configure({micAllowed:" + m + "})");
+            if (!m) stopCapture();
+            else if (pageWantsMic) startCapture();
+        }
+        if (c != cameraAllowed) {
+            cameraAllowed = c;
+            js("__turbobox.configure({cameraAllowed:" + c + "})");
+        }
     }
 
     /** What the outgoing audio is locked to: muted by the user, or the microphone is blocked. */
@@ -906,8 +926,8 @@ final class Session {
             registerStartScript(webView);
         }
         volume = page.volume;
-        micAllowed = page.allowMic;
-        cameraAllowed = page.allowCamera;
+        micAllowed = page.allowMic && !Prefs.noMic(app);
+        cameraAllowed = page.allowCamera && !Prefs.noCamera(app);
         frozen = false;
         catchingUp = false;
         WebView wv = webView(context);

@@ -216,6 +216,10 @@ final class SessionSheet implements Session.Listener {
     }
 
     private void startMicTest() {
+        if (Prefs.noMic(act)) {
+            onMicTestError("the microphone is turned off for the whole app (Settings > Privacy)");
+            return;
+        }
         if (act.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             onMicTestError("microphone permission denied - allow it in Android settings > Apps > TurboBox");
             return;
@@ -260,6 +264,10 @@ final class SessionSheet implements Session.Listener {
         if (loopbackStatus == null) return;
         if (loopbackAction != null) loopbackAction.setVisibility(View.GONE);
         // The app reads the chosen input itself, so the preview works whether or not the call is muted.
+        if (Prefs.noMic(act)) {
+            onMicTestError("the microphone is turned off for the whole app (Settings > Privacy)");
+            return;
+        }
         if (act.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             onMicTestError("microphone permission denied - allow it in Android settings > Apps > TurboBox");
             return;

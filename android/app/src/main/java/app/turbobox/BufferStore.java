@@ -115,10 +115,15 @@ final class BufferStore {
 
     /** Deletes the oldest runs beyond {@code keep}, never the one that is being recorded. */
     static void prune(File root, int keep, File activeDir) {
+        prune(root, keep, activeDir, java.util.Collections.<File>emptySet());
+    }
+
+    /** As above, and never a run in {@code protectedDirs} (other recorders still writing, or finishing, theirs). */
+    static void prune(File root, int keep, File activeDir, java.util.Set<File> protectedDirs) {
         List<Run> runs = listRuns(root);
         int kept = 0;
         for (Run r : runs) {
-            boolean active = activeDir != null && r.dir.equals(activeDir);
+            boolean active = (activeDir != null && r.dir.equals(activeDir)) || protectedDirs.contains(r.dir);
             if (active || kept < keep) {
                 kept++;
                 continue;
@@ -271,6 +276,50 @@ final class BufferStore {
             // No marks yet.
         }
         return out;
+    }
+
+    // ---- watching: the stretches when someone looked at the live recording ----
+
+    static void beginWatch(Run run, long wallMs) {
+        List<long[]> w = watching(run);
+        w.add(new long[]{wallMs, 0});
+        writeWatching(run, w);
+    }
+
+    static void endWatch(Run run, long wallMs) {
+        List<long[]> w = watching(run);
+        for (int i = w.size() - 1; i >= 0; i--) {
+            if (w.get(i)[1] == 0) {
+                w.get(i)[1] = wallMs;
+                break;
+            }
+        }
+        writeWatching(run, w);
+    }
+
+    /** {from, to} wall-clock pairs; to is 0 while the viewer is still open. */
+    static List<long[]> watching(Run run) {
+        List<long[]> out = new ArrayList<>();
+        try {
+            JSONArray a = new JSONArray(readText(new File(run.dir, "watching.json")));
+            for (int i = 0; i < a.length(); i++) {
+                JSONObject o = a.getJSONObject(i);
+                out.add(new long[]{o.optLong("from"), o.optLong("to")});
+            }
+        } catch (JSONException | IOException ignored) {
+            // Nobody watched.
+        }
+        return out;
+    }
+
+    private static void writeWatching(Run run, List<long[]> w) {
+        JSONArray a = new JSONArray();
+        try {
+            for (long[] s : w) a.put(new JSONObject().put("from", s[0]).put("to", s[1]));
+            writeText(new File(run.dir, "watching.json"), a.toString());
+        } catch (JSONException | IOException ignored) {
+            // Not worth stopping the recording for.
+        }
     }
 
     // ---- small file helpers ----

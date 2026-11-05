@@ -7,5 +7,6 @@ public final class TurboBoxApp extends Application {
     public void onCreate() {
         super.onCreate();
         Dimmer.install(this);
+        MicGuard.set(Prefs.noMic(this));
     }
 }

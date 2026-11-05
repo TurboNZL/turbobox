@@ -359,6 +359,42 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         sites.addView(openSites);
         body.addView(sites, Ui.lp(this, 12, 0));
 
+        // Privacy: this install never touches the microphone / camera
+        LinearLayout pv = Ui.card(this);
+        pv.addView(Ui.text(this, "Privacy", 17f, Ui.TEXT, "sans-serif-medium"));
+        pv.addView(Ui.hint(this, "For an install where the microphone or camera must never be used (a work profile, say). The app does not ask "
+                + "for the permission by itself, pages are refused, and everything else keeps working. Every microphone the app could open "
+                + "is refused in one place, whatever Android's permission says, and the Microphone log (under Live transcription) records any attempt."), Ui.lp(this, 4, 8));
+        Switch nm = Ui.toggle(this);
+        nm.setText("Never use the microphone");
+        nm.setChecked(Prefs.noMic(this));
+        nm.setOnCheckedChangeListener((b, on) -> {
+            Prefs.setNoMic(this, on);
+            Sessions.privacyChanged();
+        });
+        pv.addView(nm, Ui.lp(this, 0, 4));
+        boolean has = checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED;
+        TextView capPerm = Ui.pill(this, has ? "Android's microphone permission: given to captions" : "Give captions Android's microphone permission", has ? 0 : Ui.GREEN);
+        capPerm.setOnClickListener(v -> {
+            if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(this, "Already given. Take it back in Android settings > Apps > TurboBox.", Toast.LENGTH_LONG).show();
+            } else {
+                requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, 7);
+            }
+        });
+        pv.addView(capPerm, Ui.lp(this, 6, 0));
+        pv.addView(Ui.hint(this, "Some phones' speech recognition refuses to work without that permission. Giving it is safe with the switch above on: "
+                + "captions are made from the recording's sound, not from a microphone, and the app cannot open one."), Ui.lp(this, 4, 0));
+        Switch nc = Ui.toggle(this);
+        nc.setText("Never use the camera");
+        nc.setChecked(Prefs.noCamera(this));
+        nc.setOnCheckedChangeListener((b, on) -> {
+            Prefs.setNoCamera(this, on);
+            Sessions.privacyChanged();
+        });
+        pv.addView(nc, Ui.lp(this, 8, 4));
+        body.addView(pv, Ui.lp(this, 12, 0));
+
         // Transcription
         LinearLayout tr = Ui.card(this);
         tr.addView(Ui.text(this, "Live transcription", 17f, Ui.TEXT, "sans-serif-medium"));

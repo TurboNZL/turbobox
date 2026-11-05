@@ -22,6 +22,97 @@ final class SegmentJoin {
     private SegmentJoin() {
     }
 
+    /**
+     * Writes only the parts of the recording inside {@code keep} (ranges in ms on the pieces' joined timeline), without re-encoding. A part can
+     * only begin on a key frame (every 2 seconds), so it starts up to 2 seconds early.
+     */
+    static void cut(List<BufferStore.Segment> segs, List<long[]> keep, File dest, Progress progress) throws IOException {
+        if (segs.isEmpty() || keep.isEmpty()) throw new IOException("nothing to keep");
+        MediaMuxer mux = null;
+        boolean started = false;
+        try {
+            int vOut = -1, aOut = -1;
+            long offsetUs = 0, segStartMs = 0;
+            ByteBuffer buf = ByteBuffer.allocate(2 * 1024 * 1024);
+            MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+            for (int i = 0; i < segs.size(); i++) {
+                long segEndMs = segStartMs + segs.get(i).durationMs;
+                progress.at(i + 1, segs.size());
+                boolean any = false;
+                for (long[] k : keep) if (k[0] < segEndMs && k[1] > segStartMs) any = true;
+                if (!any) {
+                    segStartMs = segEndMs;
+                    continue;
+                }
+                MediaExtractor ex = new MediaExtractor();
+                try {
+                    ex.setDataSource(segs.get(i).file.getAbsolutePath());
+                    int vIn = -1, aIn = -1;
+                    MediaFormat vf = null, af = null;
+                    for (int t = 0; t < ex.getTrackCount(); t++) {
+                        MediaFormat f = ex.getTrackFormat(t);
+                        String mime = f.getString(MediaFormat.KEY_MIME);
+                        if (mime == null) continue;
+                        if (mime.startsWith("video/") && vIn < 0) {
+                            vIn = t;
+                            vf = f;
+                        } else if (mime.startsWith("audio/") && aIn < 0) {
+                            aIn = t;
+                            af = f;
+                        }
+                    }
+                    if (mux == null) {
+                        mux = new MediaMuxer(dest.getAbsolutePath(), MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+                        if (vf != null) vOut = mux.addTrack(vf);
+                        if (af != null) aOut = mux.addTrack(af);
+                        mux.start();
+                        started = true;
+                    }
+                    if (vIn >= 0) ex.selectTrack(vIn);
+                    if (aIn >= 0) ex.selectTrack(aIn);
+                    for (long[] k : keep) {
+                        if (!(k[0] < segEndMs && k[1] > segStartMs)) continue;
+                        long fromUs = Math.max(0, k[0] - segStartMs) * 1000L;
+                        long toUs = Math.min(k[1], segEndMs) - segStartMs;
+                        toUs *= 1000L;
+                        ex.seekTo(fromUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
+                        long baseV = -1, endUs = 0;
+                        while (true) {
+                            buf.clear();
+                            int n = ex.readSampleData(buf, 0);
+                            if (n < 0) break;
+                            long t = ex.getSampleTime();
+                            if (t > toUs) break;
+                            boolean video = ex.getSampleTrackIndex() == vIn;
+                            int out = video ? vOut : aOut;
+                            if (video && baseV < 0) baseV = t;
+                            if (out >= 0 && baseV >= 0 && t >= baseV) {
+                                info.set(0, n, offsetUs + (t - baseV), (ex.getSampleFlags() & MediaExtractor.SAMPLE_FLAG_SYNC) != 0 ? MediaCodec.BUFFER_FLAG_KEY_FRAME : 0);
+                                mux.writeSampleData(out, buf, info);
+                                endUs = Math.max(endUs, t - baseV);
+                            }
+                            ex.advance();
+                        }
+                        offsetUs += endUs + 33_000;
+                    }
+                } finally {
+                    ex.release();
+                }
+                segStartMs = segEndMs;
+            }
+            if (!started) throw new IOException("nothing was left after the cut");
+        } finally {
+            if (mux != null) {
+                try {
+                    if (started) mux.stop();
+                } catch (RuntimeException ignored) {
+                    // Nothing was written.
+                }
+                mux.release();
+            }
+        }
+    }
+
     static void join(List<BufferStore.Segment> segs, File dest, Progress progress) throws IOException {
         if (segs.isEmpty()) throw new IOException("nothing to join");
         MediaMuxer mux = null;
