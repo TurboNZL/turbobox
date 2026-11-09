@@ -1,6 +1,10 @@
 package app.turbobox;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.Context;
+import android.content.Intent;
 import android.media.MediaCodec;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
@@ -29,6 +33,37 @@ final class RecordingTranscribe {
     /** Is a finished recording being captioned? Keeps the service (and so the process) up while it is. */
     static boolean busy() {
         return RUNNING.get() > 0;
+    }
+
+    private static final String CHANNEL = "captions";
+    private static final int NOTE_ID = 3;
+
+    /**
+     * Its own ongoing notification with a real progress bar, apart from the service's one (which also says what the pages are doing
+     * and is rewritten whenever a page changes). Posted from the job itself, so it is there whenever the job is, in or out of the app.
+     */
+    private void note(String text, int pct, boolean finished) {
+        try {
+            NotificationManager nm = app.getSystemService(NotificationManager.class);
+            if (nm == null) return;
+            nm.createNotificationChannel(new NotificationChannel(CHANNEL, "Captioning", NotificationManager.IMPORTANCE_LOW));
+            android.app.PendingIntent open = android.app.PendingIntent.getActivity(app, 7,
+                    new Intent(app, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+                    android.app.PendingIntent.FLAG_IMMUTABLE);
+            Notification.Builder b = new Notification.Builder(app, CHANNEL)
+                    .setSmallIcon(R.drawable.ic_stat_box)
+                    .setContentTitle(finished ? "TurboBox - captions" : "TurboBox - captioning a recording")
+                    .setContentText(text)
+                    .setContentIntent(open)
+                    .setOnlyAlertOnce(true)
+                    .setOngoing(!finished)
+                    .setAutoCancel(finished)
+                    .setCategory(finished ? Notification.CATEGORY_STATUS : Notification.CATEGORY_PROGRESS);
+            if (!finished) b.setProgress(100, Math.max(0, Math.min(100, pct)), pct < 0);
+            nm.notify(NOTE_ID, b.build());
+        } catch (RuntimeException ignored) {
+            // No notification permission: the job still runs, the service's own notice is all there is.
+        }
     }
 
     private final Context app;
@@ -71,15 +106,23 @@ final class RecordingTranscribe {
             return;
         }
         RUNNING.incrementAndGet();
+        note("Starting...", -1, false);
         SessionService.ensure(app);
         new Thread(() -> {
             long total = BufferStore.totalMs(segs), done = 0;
+            final int[] lastPct = {-1};
             for (BufferStore.Segment s : segs) {
                 if (stopped) break;
                 final long base = done;
                 decode(s.file, ms -> {
                     final int pct = total == 0 ? 0 : (int) Math.min(99, (base + ms) * 100 / total);
-                    main.post(() -> progress.update("Transcribing... " + pct + "%", false));
+                    main.post(() -> {
+                        progress.update("Transcribing... " + pct + "%", false);
+                        if (pct != lastPct[0]) {   // not on every audio buffer
+                            lastPct[0] = pct;
+                            note("Transcribing... " + pct + "%", pct, false);
+                        }
+                    });
                 });
                 done += s.durationMs;
             }
@@ -92,6 +135,7 @@ final class RecordingTranscribe {
                 RUNNING.decrementAndGet();
                 SessionService.ensure(app);
                 transcriber.stop();
+                note(stopped ? "Stopped. What was heard so far is saved." : "Done. The captions are saved with the recording.", 100, true);
                 progress.update(stopped ? "Stopped. What was heard so far is saved." : "Done. The captions are saved with the recording.", true);
             });
         }, "transcribe-recording").start();

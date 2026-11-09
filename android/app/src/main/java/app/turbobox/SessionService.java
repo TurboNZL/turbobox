@@ -210,7 +210,9 @@ public class SessionService extends Service {
             startForeground(NOTIFICATION_ID, n);
             return;
         }
-        boolean micOk = !Prefs.noMic(this) && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+        // Captioning a recording needs the microphone type to be heard by the speech service while the app is in the background; the
+        // app's own AudioRecords stay refused by MicGuard under "Never use the microphone", only the permission to hold the type is used.
+        boolean micOk = (!Prefs.noMic(this) || RecordingTranscribe.busy()) && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
         if (micOk) {
             try {
                 startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE

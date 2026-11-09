@@ -317,8 +317,31 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
             render();
         });
         screen.addView(rotButton, Ui.lp(this, 4, 4));
-        screen.addView(Ui.hint(this, "Pick a rotation, then press Update to use it. With nothing to update the button forces a turn: the other way, "
-                + "then held as it was, then normal again. The page screen's rotate icon does the same."), Ui.lp(this, 0, 4));
+        String[] stateWord = {"normal", "other way", "held"};
+        String ord = Prefs.forceOrder(this);
+        StringBuilder ordText = new StringBuilder();
+        for (int i = 0; i < 3; i++) ordText.append(i > 0 ? " > " : "").append(stateWord[ord.charAt(i) - '0']);
+        TextView orderButton = Ui.pill(this, "Button order: " + ordText, 0);
+        orderButton.setOnClickListener(v -> {
+            String[] perms = {"012", "021", "102", "120", "201", "210"};
+            String[] labels = new String[perms.length];
+            int sel = 0;
+            for (int k = 0; k < perms.length; k++) {
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < 3; i++) sb.append(i > 0 ? " > " : "").append(stateWord[perms[k].charAt(i) - '0']);
+                labels[k] = sb.toString();
+                if (perms[k].equals(Prefs.forceOrder(this))) sel = k;
+            }
+            new DimBuilder(this).setTitle("Order of the rotate button")
+                    .setSingleChoiceItems(labels, sel, (d, which) -> {
+                        Prefs.setForceOrder(this, perms[which]);
+                        d.dismiss();
+                        render();
+                    }).show();
+        });
+        screen.addView(orderButton, Ui.lp(this, 4, 4));
+        screen.addView(Ui.hint(this, "Pick a rotation, then press Update to use it. With nothing to update the button forces a turn, stepping through "
+                + "normal, the other way and held as it was in the order set above. The page screen's rotate icon does the same."), Ui.lp(this, 0, 4));
         screen.addView(Ui.hint(this, "Each orientation remembers its own arrangement of the pages; until you arrange one, it starts stacked or as a grid."), Ui.lp(this, 0, 6));
         screen.addView(Ui.hint(this, "Sites like YouTube pause a video when the browser says nobody can see the page. With this on, the page "
                 + "is told it is visible and is kept on a private display of its own while the screen is off, so it carries on."), Ui.lp(this, 0, 8));

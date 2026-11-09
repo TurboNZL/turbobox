@@ -708,7 +708,23 @@ final class Session {
     /** Gain on the page's audio, 0..2 (above 1 boosts it). */
     void setVolume(float gain) {
         volume = Math.max(0f, Math.min(2f, gain));
-        js(String.format(Locale.US, "__turbobox.setVolume(%.3f)", volume));
+        Sessions.refreshVolumes();   // this page's boost changes what the others get
+    }
+
+    /**
+     * What the page is actually given: its own setting, turned down when another open page is boosted above 100%, so the sum of
+     * the pages leaves the speaker with headroom (two loud pages together clip and the sound breaks). The page's own setting
+     * ({@link #volume()}) is never changed by this; the page that is boosted the most is not turned down.
+     */
+    float effectiveVolume() {
+        float top = 1f;
+        for (Session s : Sessions.active()) top = Math.max(top, s.volume);
+        return top > 1f && volume < top ? volume / top : volume;
+    }
+
+    /** Sends {@link #effectiveVolume} to the page. */
+    void pushVolume() {
+        js(String.format(Locale.US, "__turbobox.setVolume(%.3f)", effectiveVolume()));
     }
 
     boolean cursorMode() {
@@ -968,6 +984,7 @@ final class Session {
         main.post(() -> {
             if (frameWindow == null) hostWithoutScreen();
         });
+        Sessions.refreshVolumes();   // another page may now be the loudest (or this one is turned down by it)
         for (Listener l : listeners) l.onOpened(this);
     }
 
@@ -976,6 +993,31 @@ final class Session {
         if (!active || webView == null || pin == null) return;
         pageLoaded = false;
         webView.loadUrl(pin.url);
+    }
+
+    /**
+     * Leaves the page for a blank one whatever the page wants: a page can hold the navigation back with a "leave this page?" prompt
+     * (a call page does) or an in-page dialog. The page's unload handlers are removed first, the prompt is accepted if one still
+     * comes, and a page that is still there after a moment has its whole WebView thrown away.
+     */
+    private void forceBlank() {
+        final WebView wv = webView;
+        if (wv == null) return;
+        try {
+            wv.evaluateJavascript("(function(){try{window.onbeforeunload=null;window.onunload=null;window.onpagehide=null;"
+                    + "var s=function(e){e.stopImmediatePropagation();};window.addEventListener('beforeunload',s,true);"
+                    + "window.addEventListener('unload',s,true);window.addEventListener('pagehide',s,true);}catch(e){}})()", null);
+        } catch (RuntimeException ignored) {
+            // The view is going anyway.
+        }
+        wv.loadUrl("about:blank");
+        wv.clearHistory();
+        main.postDelayed(() -> {
+            if (webView == wv && !active) {
+                String u = wv.getUrl();
+                if (u == null || !u.startsWith("about:blank")) discardWebView();   // still there: throw the view away
+            }
+        }, 1500);
     }
 
     /** Ends the call on this end by closing the page; the cookies (the login) are kept. */
@@ -1002,9 +1044,9 @@ final class Session {
         stopCapture();
         InputRoute.clear(app);
         for (Session other : Sessions.all()) if (other != this) other.reapplyRoute();
+        Sessions.refreshVolumes();
         if (webView != null) {
-            webView.loadUrl("about:blank");
-            webView.clearHistory();
+            forceBlank();
             if (profileName != null && wipeProfile) main.post(this::discardWebView);   // everything an incognito page stored goes with it
         }
         for (Listener l : listeners) {
@@ -1388,6 +1430,12 @@ final class Session {
         });
         wv.setWebChromeClient(new WebChromeClient() {
             @Override
+            public boolean onJsBeforeUnload(WebView view, String url, String message, android.webkit.JsResult result) {
+                result.confirm();   // "Leave this page?" is always answered yes: closing a page must work
+                return true;
+            }
+
+            @Override
             public void onPermissionRequest(PermissionRequest request) {
                 // Only for the page that was opened (and its own subdomains), only what its privacy switches allow.
                 List<String> allowed = new ArrayList<>();
@@ -1453,7 +1501,7 @@ final class Session {
     private String pageScript() {
         try {
             JSONObject settings = new JSONObject()
-                    .put("muted", silenced()).put("volume", volume).put("aec", aec).put("virtualDevices", Prefs.virtualDevices(app)).put("privateDisplay", pdisplay != null).put("shape", Pin.ASPECTS[effectiveAspect()]).put("pageWidth", effectivePageWidth()).put("cursorMode", cursorMode).put("zoom", effectiveZoom())
+                    .put("muted", silenced()).put("volume", effectiveVolume()).put("aec", aec).put("virtualDevices", Prefs.virtualDevices(app)).put("privateDisplay", pdisplay != null).put("shape", Pin.ASPECTS[effectiveAspect()]).put("pageWidth", effectivePageWidth()).put("cursorMode", cursorMode).put("zoom", effectiveZoom())
                     .put("micGain", micGain).put("micLabel", micLabel())
                     .put("tap", isRecording()).put("micAllowed", micAllowed).put("cameraAllowed", cameraAllowed).put("localMute", frozen)
                     .put("keepVisible", Prefs.keepPlaying(app)).put("desktop", !mobile);
