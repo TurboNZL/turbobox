@@ -318,11 +318,11 @@ await page.evaluate(() => window.__turbobox.setViewPx(640));
 await page.waitForTimeout(50);
 const fitMeta = await page.evaluate(() => document.querySelector('meta[name=viewport]').content);
 const dprNow = await page.evaluate(() => window.devicePixelRatio);
-check('the viewport scale fits physical pixels / pixel ratio', fitMeta === 'width=1280, initial-scale=' + (640 / dprNow / 1280).toFixed(3), fitMeta);
+check('the viewport scale fits physical pixels / pixel ratio', fitMeta === 'width=1280, initial-scale=' + (640 / dprNow / 1280).toFixed(3) + ', minimum-scale=' + (640 / dprNow / 1280).toFixed(3), fitMeta);
 await page.evaluate(() => { window.__turbobox.configure({ dsf: 2 }); window.__turbobox.setViewPx(640); });
 await page.waitForTimeout(50);
 const fitMeta2 = await page.evaluate(() => document.querySelector('meta[name=viewport]').content);
-check('the pixel ratio the app supplies is used for the fit', fitMeta2 === 'width=1280, initial-scale=0.250', fitMeta2);
+check('the pixel ratio the app supplies is used for the fit', fitMeta2 === 'width=1280, initial-scale=0.250, minimum-scale=0.250', fitMeta2);
 await page.evaluate(() => { window.__turbobox.configure({ dsf: 1 }); window.__turbobox.setViewPx(0); });
 
 // permission signalling follows the privacy switches

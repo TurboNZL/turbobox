@@ -105,11 +105,20 @@ final class Prefs {
     /** A forced turn of the page screen: 0 none, 1 the other way from when it was pressed, 2 held the way it was. {@link #forceBase}: 1 portrait, 2 landscape. */
     static int forceRotate(Context c) { return ps(c).getInt("forceRotate", 0); }
     static int forceBase(Context c) { return ps(c).getInt("forceBase", 1); }
-    /** current -> other -> current but forced -> current. Returns the new state. */
+    /** The order the rotate button steps through its three states (0 normal, 1 the other way, 2 held), saved as e.g. "012". Always a permutation. */
+    static String forceOrder(Context c) {
+        String o = ps(c).getString("forceOrder", "012");
+        return o.length() == 3 && o.contains("0") && o.contains("1") && o.contains("2") ? o : "012";
+    }
+    static void setForceOrder(Context c, String o) { ps(c).edit().putString("forceOrder", o).apply(); }
+    /** Steps to the next state in {@link #forceOrder}. Returns the new state. */
     static int cycleForce(Context c, boolean landscapeNow) {
-        int next = (forceRotate(c) + 1) % 3;
+        String order = forceOrder(c);
+        int cur = forceRotate(c);
+        int next = order.charAt((order.indexOf((char) ('0' + cur)) + 1) % 3) - '0';
         SharedPreferences.Editor e = ps(c).edit().putInt("forceRotate", next);
-        if (next == 1) e.putInt("forceBase", landscapeNow ? 2 : 1);   // remembered so "the other way" and "held" mean what they said when pressed
+        // The orientation at the moment of leaving normal is what "the other way" and "held" are measured from.
+        if (cur == 0) e.putInt("forceBase", landscapeNow ? 2 : 1);
         e.apply();
         return next;
     }

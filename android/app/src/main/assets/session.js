@@ -111,9 +111,22 @@
     // Fit the layout width to the physical width of the view: physical pixels over the browser's own pixel ratio is the CSS width that
     // really fills it, whatever density the display was created with (it can go stale when a display is resized).
     var fit = cfg.viewPx ? cfg.viewPx / (cfg.dsf || 1) : (cfg.viewW || window.screen.width || w);
-    var want = 'width=' + w + ', initial-scale=' + (fit / w).toFixed(3);
+    // The fitted scale is also the smallest the page can be pinched to: smaller would show empty space around the page, and a layout
+    // whose scale drifted (rotation, hiding the bar) could be scrolled right off the page.
+    var sc = (fit / w).toFixed(3);
+    var want = 'width=' + w + ', initial-scale=' + sc + ', minimum-scale=' + sc;
     if (m.content !== want) m.content = want;
   }
+  // Any real size change of the view (rotation, bar hidden or shown, a split) fits the page again from scratch once things settle, so a
+  // scale left over from an earlier size cannot stay.
+  var refitTimer = 0, lastInner = window.innerWidth + 'x' + window.innerHeight;
+  window.addEventListener('resize', function () {
+    var now = window.innerWidth + 'x' + window.innerHeight;
+    if (now === lastInner) return;
+    lastInner = now;
+    clearTimeout(refitTimer);
+    refitTimer = setTimeout(function () { if (T.refit) T.refit(); }, 450);
+  });
   // The virtual screen the page believes it has (desktop mode): its width is the page size setting, its shape the phone's.
   (function () {
     if (!window.Screen) return;

@@ -35,6 +35,11 @@ final class Sessions {
         return l;
     }
 
+    /** Pushes every open page's volume to it (a page boosted above 100% turns the others down, see {@link Session#effectiveVolume}). */
+    static void refreshVolumes() {
+        for (Session s : active()) s.pushVolume();
+    }
+
     static boolean anyActive() {
         for (Session s : SLOTS) if (s.isActive()) return true;
         return false;
