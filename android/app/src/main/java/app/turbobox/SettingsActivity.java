@@ -492,14 +492,6 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
             Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show();
         });
         dbg.addView(copyCfg, Ui.lp(this, 4, 0));
-        Switch classic = Ui.toggle(this);
-        classic.setText("Pages behave like 2026.11.3");
-        classic.setTextColor(Ui.TEXT);
-        classic.setChecked(Prefs.classic(this));
-        classic.setOnCheckedChangeListener((b, on) -> Prefs.setClassic(this, on));
-        dbg.addView(classic, Ui.lp(this, 10, 4));
-        dbg.addView(Ui.hint(this, "Turns off the page-fitting, scroll, close and link changes made since that version, to find out whether one of them "
-                + "broke a site. Takes effect for pages opened afterwards."), Ui.lp(this, 0, 4));
         body.addView(dbg, Ui.lp(this, 12, 0));
 
         // Transcription

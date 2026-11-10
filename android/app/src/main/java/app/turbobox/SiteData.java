@@ -181,15 +181,46 @@ final class SiteData {
         CookieManager cm = cookiesOf(s);
         String url = "https://" + s.host + "/";
         List<String> domains = hostAndParents(s.host);
-        for (String name : cookieNames(cm.getCookie(url))) {
-            cm.setCookie(url, name + "=; Max-Age=0; Path=/");
-            for (String d : domains) cm.setCookie(url, name + "=; Max-Age=0; Path=/; Domain=" + d);
+        // A cookie set for a path (Teams' /v2/ one, say) is not in the list for "/", so each address a page of this site has
+        // used is asked as well, and the cookies are expired for every folder along it.
+        Set<String> probes = new java.util.LinkedHashSet<>();
+        probes.add(url);
+        probes.add(url + "v2/");
+        for (Pin p : PinStore.load(c)) if (s.host.equals(hostOf(p.url))) probes.add(p.url);
+        for (String probe : probes) {
+            for (String name : cookieNames(cm.getCookie(probe))) {
+                for (String path : foldersOf(probe)) {
+                    cm.setCookie(probe, name + "=; Max-Age=0; Path=" + path);
+                    for (String d : domains) cm.setCookie(probe, name + "=; Max-Age=0; Path=" + path + "; Domain=" + d);
+                }
+            }
         }
         cm.flush();
         WebStorage ws = storageOf(s);
         ws.deleteOrigin("https://" + s.host);
         ws.deleteOrigin("http://" + s.host);
         forget(c, s);
+    }
+
+    /** "/a/b/c?x" -> "/", "/a", "/a/", "/a/b", "/a/b/", "/a/b/c" (the paths a cookie of that address could have been set for). */
+    static List<String> foldersOf(String url) {
+        List<String> out = new ArrayList<>();
+        out.add("/");
+        String path;
+        try {
+            path = new java.net.URI(url).getPath();
+        } catch (java.net.URISyntaxException e) {
+            return out;
+        }
+        if (path == null) return out;
+        StringBuilder cur = new StringBuilder();
+        for (String seg : path.split("/")) {
+            if (seg.isEmpty()) continue;
+            cur.append('/').append(seg);
+            out.add(cur.toString());
+            out.add(cur + "/");
+        }
+        return out;
     }
 
     private static void forget(Context c, Site s) {

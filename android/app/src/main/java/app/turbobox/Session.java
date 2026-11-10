@@ -359,36 +359,9 @@ final class Session {
         if (active) reload();
     }
 
-    /** What desktop pages say they are (see Pin.identity); kept with the pin. The page is loaded again to take it. */
-    void setIdentity(int value) {
-        if (pin != null) {
-            pin.identity = value;
-            PinStore.put(app, pin);
-        }
-        if (webView == null) return;
-        applyMode(webView.getSettings());
-        registerStartScript(webView);
-        if (active) reload();
-    }
-
-    private boolean classic() {
-        return app != null && Prefs.classic(app);
-    }
-
-    private int identity() {
-        return mobile || pin == null ? 0 : pin.identity;
-    }
-
     private void applyMode(WebSettings st) {
-        int id = identity();
-        String major = chromeMajor(mobileUa);
-        String ua;
-        if (mobile) ua = mobileUserAgent(mobileUa);
-        else if (id == 0) ua = desktopUserAgent(mobileUa);
-        else ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + major + ".0.0.0 Safari/537.36"
-                + (id == 2 ? " Edg/" + major + ".0.0.0" : "");
-        st.setUserAgentString(ua);
-        applyClientHints(st, mobileUa, !mobile, id);
+        st.setUserAgentString(mobile ? mobileUserAgent(mobileUa) : desktopUserAgent(mobileUa));
+        applyClientHints(st, mobileUa, !mobile);
         st.setLoadWithOverviewMode(true);
     }
 
@@ -397,7 +370,7 @@ final class Session {
         if (wv == null || !WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return;
         if (startScript != null) startScript.remove();
         startScript = WebViewCompat.addDocumentStartJavaScript(wv,
-                (mobile ? "window.__tbMobile=true;\n" : "") + (identity() > 0 ? "window.__tbWin=true;\n" : "") + (classic() ? "window.__tbClassic=true;\n" : "") + sessionScript(), Collections.singleton("*"));
+                (mobile ? "window.__tbMobile=true;\n" : "") + sessionScript(), Collections.singleton("*"));
     }
 
     /** Forces the page's area into a shape (an index into {@link Pin#ASPECTS}, 0 = fill the space); kept with the pin. */
@@ -1073,12 +1046,7 @@ final class Session {
         for (Session other : Sessions.all()) if (other != this) other.reapplyRoute();
         Sessions.refreshVolumes();
         if (webView != null) {
-            if (classic()) {
-                webView.loadUrl("about:blank");
-                webView.clearHistory();
-            } else {
-                forceBlank();
-            }
+            forceBlank();
             if (profileName != null && wipeProfile) main.post(this::discardWebView);   // everything an incognito page stored goes with it
         }
         for (Listener l : listeners) {
@@ -1380,7 +1348,7 @@ final class Session {
         st.setUseWideViewPort(true);
         st.setLoadWithOverviewMode(true);
         st.setSupportZoom(true);
-        if (!classic()) wv.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);   // no stretch or pull past the end of the page
+        wv.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);   // no stretch or pull past the end of the page
         st.setBuiltInZoomControls(true);
         st.setDisplayZoomControls(false);
         CookieManager cookies = CookieManager.getInstance();
@@ -1407,20 +1375,6 @@ final class Session {
         // (the script is idempotent).
         registerStartScript(wv);
         wv.setWebViewClient(new WebViewClient() {
-            // A page that tries to open another app (Teams' meeting launcher tries msteams:, others intent: or market:) must not be
-            // replaced by the browser's "unknown scheme" error page: the attempt is dropped and the page stays, so its own
-            // "continue in the browser" choice is still there.
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
-                if (classic()) return false;
-                Uri u = request == null ? null : request.getUrl();
-                String sc = u == null || u.getScheme() == null ? "" : u.getScheme().toLowerCase(Locale.ROOT);
-                if (sc.isEmpty() || sc.equals("http") || sc.equals("https") || sc.equals("about") || sc.equals("data")
-                        || sc.equals("blob") || sc.equals("file") || sc.equals("javascript")) return false;
-                main.post(() -> notice("Not opening another app (" + sc + ":); the page stays here."));
-                return true;
-            }
-
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 currentUrl = url == null ? "" : url;
@@ -1460,6 +1414,7 @@ final class Session {
                 if (adsBlocked() && AdBlock.shouldBlock(request.getUrl().toString(), currentUrl, request.isForMainFrame(),
                         request.getRequestHeaders().get("Accept"))) {
                     blockedCount++;
+                    noteBlocked(request.getUrl().toString());
                     return new android.webkit.WebResourceResponse("text/plain", "utf-8", 200, "Blocked", Collections.<String, String>emptyMap(),
                             new java.io.ByteArrayInputStream(new byte[0]));
                 }
@@ -1467,6 +1422,13 @@ final class Session {
                     // A blocker problem must never break the page: let the request through.
                 }
                 return null;
+            }
+
+            @Override
+            public void onReceivedError(WebView view, android.webkit.WebResourceRequest request, android.webkit.WebResourceError error) {
+                if (request != null && request.isForMainFrame() && error != null) {
+                    lastError = error.getErrorCode() + " " + error.getDescription() + " at " + request.getUrl();
+                }
             }
 
             @Override
@@ -1478,7 +1440,6 @@ final class Session {
         wv.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onJsBeforeUnload(WebView view, String url, String message, android.webkit.JsResult result) {
-                if (classic()) return super.onJsBeforeUnload(view, url, message, result);
                 result.confirm();   // "Leave this page?" is always answered yes: closing a page must work
                 return true;
             }
@@ -1640,7 +1601,8 @@ final class Session {
                             + "\nmic API: " + o.optString("mediaDevices")
                             + "\ncalls open: " + o.optInt("calls")
                             + "\naudio: " + o.optString("audio")
-                            + "\nads: " + (adsBlocked() ? blockedCount + " requests blocked on this page" : "blocking is off");
+                            + "\nads: " + (adsBlocked() ? blockedCount + " requests blocked on this page" + lastBlocked() : "blocking is off")
+                            + (lastError.isEmpty() ? "" : "\nlast page error: " + lastError);
                     for (Listener l : listeners) l.onInfo(this, text);
                     break;
                 }
@@ -1682,6 +1644,24 @@ final class Session {
 
     private volatile String currentUrl = "";   // the page's address, kept here because WebView.getUrl() may only be called on the main thread
     private int blockedCount;     // requests answered with nothing on this page load, for Page info
+    private final java.util.ArrayDeque<String> blockedLog = new java.util.ArrayDeque<>();   // the newest few blocked addresses, for Page info
+    private volatile String lastError = "";   // the last main-page load failure, for Page info
+
+    private void noteBlocked(String url) {
+        String shown = url.length() > 110 ? url.substring(0, 110) + "..." : url;
+        synchronized (blockedLog) {
+            blockedLog.addLast(shown);
+            while (blockedLog.size() > 25) blockedLog.removeFirst();
+        }
+    }
+
+    private String lastBlocked() {
+        synchronized (blockedLog) {
+            StringBuilder sb = new StringBuilder();
+            for (String u : blockedLog) sb.append("\n  blocked: ").append(u);
+            return sb.toString();
+        }
+    }
 
     /** Ad blocking applies to this page: the app switch is on and this page has not been exempted. */
     private boolean adsBlocked() {
@@ -1700,13 +1680,7 @@ final class Session {
         return (mobile == null ? "" : mobile).replace("; wv)", ")").replace("Version/4.0 ", "");
     }
 
-    private static String chromeMajor(String ua) {
-        Matcher m = Pattern.compile("Chrome/(\\d+)").matcher(ua == null ? "" : ua);
-        return m.find() ? m.group(1) : "120";
-    }
-
-    private static void applyClientHints(WebSettings st, String mobileUa, boolean desktop, int identity) {
-        boolean win = identity > 0, edge = identity == 2;
+    private static void applyClientHints(WebSettings st, String mobileUa, boolean desktop) {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) return;
         Matcher m = Pattern.compile("Chrome/(\\d+)").matcher(mobileUa == null ? "" : mobileUa);
         String major = m.find() ? m.group(1) : "120";
@@ -1716,15 +1690,13 @@ final class Session {
                 .setBrand("Chromium").setMajorVersion(major).setFullVersion(full).build());
         brands.add(new UserAgentMetadata.BrandVersion.Builder()
                 .setBrand("Google Chrome").setMajorVersion(major).setFullVersion(full).build());
-        if (edge) brands.add(new UserAgentMetadata.BrandVersion.Builder()
-                .setBrand("Microsoft Edge").setMajorVersion(major).setFullVersion(full).build());
         brands.add(new UserAgentMetadata.BrandVersion.Builder()
                 .setBrand("Not_A Brand").setMajorVersion("24").setFullVersion("24.0.0.0").build());
         UserAgentMetadata md = new UserAgentMetadata.Builder()
                 .setBrandVersionList(brands)
                 .setFullVersion(full)
-                .setPlatform(desktop ? (win ? "Windows" : "Linux") : "Android")
-                .setPlatformVersion(desktop ? (win ? "10.0.0" : "6.5.0") : "14.0.0")
+                .setPlatform(desktop ? "Linux" : "Android")
+                .setPlatformVersion(desktop ? "6.5.0" : "14.0.0")
                 .setArchitecture(desktop ? "x86" : "")
                 .setBitness(desktop ? 64 : 0)
                 .setModel("")

@@ -29,9 +29,8 @@ public class PinTest {
         p.wfZoom = 1.25f;
         p.wfAspect = 2;
         p.barOverlay = true;
-        p.identity = 2;
         Pin q = Pin.fromJson(p.toJson());
-        assertTrue(q.wfSize && q.barOverlay && q.identity == 2);
+        assertTrue(q.wfSize && q.barOverlay);
         assertEquals(1920, q.wfPageWidth);
         assertEquals(1.25f, q.wfZoom, 0.001f);
         assertEquals(2, q.wfAspect);
