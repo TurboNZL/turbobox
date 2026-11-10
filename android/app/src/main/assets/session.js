@@ -18,7 +18,7 @@
 (function () {
   if (window.__turbobox) return;
   var T = window.__turbobox = {};
-  var cfg = { dsf: window.devicePixelRatio || 1, shape: 0, virtualDevices: true, pageWidth: 1280, muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, cameraAllowed: false, localMute: false, keepVisible: true, desktop: !window.__tbMobile };
+  var cfg = { dsf: window.devicePixelRatio || 1, shape: 0, virtualDevices: true, pageWidth: 1280, muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, cameraAllowed: false, localMute: false, keepVisible: true, desktop: !window.__tbMobile, win: !!window.__tbWin };
   var tracks = [], pcs = [];
 
   function post(type, data) {
@@ -30,10 +30,10 @@
     // Only while the page is asked for as a desktop (the default); a page opened in mobile mode keeps the phone's own values.
     if (cfg.desktop) {
       var navProto = Object.getPrototypeOf(navigator);
-      Object.defineProperty(navProto, 'platform', { get: function () { return 'Linux x86_64'; }, configurable: true });
+      Object.defineProperty(navProto, 'platform', { get: function () { return cfg.win ? 'Win32' : 'Linux x86_64'; }, configurable: true });
       if (window.NavigatorUAData) {
         Object.defineProperty(window.NavigatorUAData.prototype, 'mobile', { get: function () { return false; }, configurable: true });
-        Object.defineProperty(window.NavigatorUAData.prototype, 'platform', { get: function () { return 'Linux'; }, configurable: true });
+        Object.defineProperty(window.NavigatorUAData.prototype, 'platform', { get: function () { return cfg.win ? 'Windows' : 'Linux'; }, configurable: true });
       }
     }
   } catch (e) { /* best effort */ }
