@@ -231,17 +231,47 @@ final class SiteData {
         write(c, list);
     }
 
-    /** Every cookie and all page storage in every store. */
+    /**
+     * Everything one store holds, for every site in it: all cookies, all page storage (local storage, IndexedDB, caches, service
+     * workers), the HTTP cache, form data and history. Android cannot list what a site left behind, so wiping the whole store is
+     * the only way to be sure of it. Must run on the main thread (a WebView clears the cache).
+     */
+    static void deleteStore(Context c, String store) {
+        Site probe = new Site("", store);
+        CookieManager cm = cookiesOf(probe);
+        cm.removeAllCookies(null);
+        cm.flush();
+        storageOf(probe).deleteAllData();
+        try {
+            android.webkit.WebView w = new android.webkit.WebView(c.getApplicationContext());
+            try {
+                if (!store.isEmpty() && WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+                    ProfileStore.getInstance().getOrCreateProfile(store);
+                    androidx.webkit.WebViewCompat.setProfile(w, store);
+                }
+            } catch (RuntimeException ignored) {
+                // The store's own cache is then left; the cookies and storage above are gone.
+            }
+            w.clearCache(true);
+            w.clearFormData();
+            w.clearHistory();
+            w.destroy();
+        } catch (RuntimeException ignored) {
+            // No WebView to clear the cache with.
+        }
+        List<Site> list = saved(c);
+        for (int i = list.size() - 1; i >= 0; i--) if (list.get(i).store.equals(store)) list.remove(i);
+        write(c, list);
+        ensureLoaded(c);
+        KNOWN.removeIf(k -> k.startsWith(store + "|"));
+    }
+
+    /** Every store: see {@link #deleteStore}. */
     static void deleteAll(Context c) {
         Set<String> stores = new HashSet<>();
         for (Site s : list(c)) stores.add(s.store);
         stores.add("");
-        for (String store : stores) {
-            Site probe = new Site("", store);
-            cookiesOf(probe).removeAllCookies(null);
-            cookiesOf(probe).flush();
-            storageOf(probe).deleteAllData();
-        }
+        for (String store : stores) deleteStore(c, store);
         KNOWN.clear();
         write(c, new ArrayList<>());
     }
