@@ -137,6 +137,30 @@
       try { Object.defineProperty(Screen.prototype, a[0], { get: a[1], configurable: true, enumerable: true }); } catch (e) { /* kept */ }
     });
   })();
+  // The page cannot be pulled past its own ends: no bounce or chaining to the document (Shorts-style feeds scroll an inner
+  // element), and a document scroll that ended up beyond the content is put back.
+  (function () {
+    function style() {
+      if (!document.head || document.getElementById('__tbNoOver')) return;
+      var st = document.createElement('style');
+      st.id = '__tbNoOver';
+      st.textContent = 'html,body{overscroll-behavior:none !important}';
+      document.head.appendChild(st);
+    }
+    style();
+    document.addEventListener('DOMContentLoaded', style);
+    var pending = 0;
+    window.addEventListener('scroll', function () {
+      if (pending) return;
+      pending = setTimeout(function () {
+        pending = 0;
+        var se = document.scrollingElement || document.documentElement;
+        var maxX = Math.max(0, se.scrollWidth - window.innerWidth), maxY = Math.max(0, se.scrollHeight - window.innerHeight);
+        var x = Math.min(Math.max(0, se.scrollLeft), maxX), y = Math.min(Math.max(0, se.scrollTop), maxY);
+        if (Math.abs(x - se.scrollLeft) > 1 || Math.abs(y - se.scrollTop) > 1) window.scrollTo(x, y);
+      }, 120);
+    }, { passive: true });
+  })();
   viewport();
   window.addEventListener('orientationchange', function () { setTimeout(viewport, 300); });
   T.setPageWidth = function (w) { cfg.pageWidth = Math.max(800, Math.min(3840, Math.round(+w) || 1280)); viewport(); };

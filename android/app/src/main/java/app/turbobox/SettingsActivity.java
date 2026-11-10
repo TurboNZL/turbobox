@@ -480,6 +480,20 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         pv.addView(nc, Ui.lp(this, 8, 4));
         body.addView(pv, Ui.lp(this, 12, 0));
 
+        // Debug: the global settings as text
+        LinearLayout dbg = Ui.card(this);
+        dbg.addView(Ui.text(this, "Debugging", 17f, Ui.TEXT, "sans-serif-medium"));
+        dbg.addView(Ui.hint(this, "Copies the app version, phone, WebView version, the user agent pages are sent and every global setting as "
+                + "text. Keys, PIN codes and the pinned pages are left out."), Ui.lp(this, 4, 8));
+        TextView copyCfg = Ui.pill(this, "Copy my settings", Ui.GREEN);
+        copyCfg.setOnClickListener(v -> {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("TurboBox settings", ConfigDump.build(this)));
+            Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show();
+        });
+        dbg.addView(copyCfg, Ui.lp(this, 4, 0));
+        body.addView(dbg, Ui.lp(this, 12, 0));
+
         // Transcription
         LinearLayout tr = Ui.card(this);
         tr.addView(Ui.text(this, "Live transcription", 17f, Ui.TEXT, "sans-serif-medium"));
