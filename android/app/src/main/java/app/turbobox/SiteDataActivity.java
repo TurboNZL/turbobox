@@ -42,7 +42,8 @@ public class SiteDataActivity extends Activity {
     private void render() {
         body.removeAllViews();
         body.addView(Ui.hint(this, "Sign-ins and what sites keep in this app's browser. Android cannot list them itself, so this is every "
-                + "site a page has been on since this list began, plus your pinned pages. Clearing a site signs you out of it; "
+                + "site a page has been on since this list began, plus your pinned pages. Clearing a site is best effort (a site can keep "
+                + "cookies this app cannot see); clearing everything in a profile is complete. Clearing a site signs you out of it; "
                 + "sign-ins shared with a parent domain (like youtube.com) sign out its other pages too. Reload a page that is open."),
                 Ui.lp(this, 6, 8));
         List<SiteData.Site> sites = SiteData.list(this);
@@ -65,6 +66,17 @@ public class SiteDataActivity extends Activity {
                         render();
                     }).setNegativeButton("Cancel", null).show());
             row.addView(clear);
+            TextView wipe = Ui.pill(this, "Clear everything in " + storeName(s.store), Ui.RED);
+            wipe.setOnClickListener(v -> new DimBuilder(this)
+                    .setTitle("Clear everything in " + storeName(s.store) + "?")
+                    .setMessage("Every cookie and all stored data (including service workers and the cache) of every site in this profile is "
+                            + "removed, so you will be signed out of all of them. Close and reopen its pages afterwards.")
+                    .setPositiveButton("Clear", (d, w) -> {
+                        SiteData.deleteStore(this, s.store);
+                        Toast.makeText(this, storeName(s.store) + " cleared", Toast.LENGTH_SHORT).show();
+                        render();
+                    }).setNegativeButton("Cancel", null).show());
+            row.addView(wipe, Ui.lp(this, 6, 0));
             body.addView(row, Ui.lp(this, 8, 0));
         }
         TextView all = Ui.pill(this, "Clear everything", Ui.RED);
