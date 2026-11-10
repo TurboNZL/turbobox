@@ -92,6 +92,11 @@ final class PinSheet {
             Session s = Sessions.forPin(pin.id);
             if (s != null) s.setMobile(on);
         }), Ui.lp(act, 0, 4));
+        look.addView(Ui.switchRow(act, "Say it is Microsoft Edge", "For a site that turns Chrome away (a Teams meeting page, say). Desktop layout only; reloads the page", pin.edgeIdentity, BLUE, (b, on) -> {
+            change(act, pin, p -> p.edgeIdentity = on);
+            Session s = Sessions.forPin(pin.id);
+            if (s != null) s.setEdgeIdentity(on);
+        }), Ui.lp(act, 0, 4));
         look.addView(Ui.switchRow(act, "Cursor mode", "One finger moves a pointer, a tap clicks, two fingers scroll", pin.cursorMode, BLUE, (b, on) -> {
             change(act, pin, p -> p.cursorMode = on);
             Session s = Sessions.forPin(pin.id);
