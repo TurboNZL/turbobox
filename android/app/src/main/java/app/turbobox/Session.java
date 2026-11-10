@@ -359,26 +359,32 @@ final class Session {
         if (active) reload();
     }
 
-    /** Desktop pages call themselves Microsoft Edge (kept with the pin). The page is loaded again to take it. */
-    void setEdgeIdentity(boolean value) {
+    /** What desktop pages say they are (see Pin.identity); kept with the pin. The page is loaded again to take it. */
+    void setIdentity(int value) {
         if (pin != null) {
-            pin.edgeIdentity = value;
+            pin.identity = value;
             PinStore.put(app, pin);
         }
         if (webView == null) return;
         applyMode(webView.getSettings());
+        registerStartScript(webView);
         if (active) reload();
     }
 
-    private boolean edge() {
-        return !mobile && pin != null && pin.edgeIdentity;
+    private int identity() {
+        return mobile || pin == null ? 0 : pin.identity;
     }
 
     private void applyMode(WebSettings st) {
-        String ua = mobile ? mobileUserAgent(mobileUa) : desktopUserAgent(mobileUa);
-        if (edge()) ua = ua + " Edg/" + chromeMajor(mobileUa) + ".0.0.0";
+        int id = identity();
+        String major = chromeMajor(mobileUa);
+        String ua;
+        if (mobile) ua = mobileUserAgent(mobileUa);
+        else if (id == 0) ua = desktopUserAgent(mobileUa);
+        else ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + major + ".0.0.0 Safari/537.36"
+                + (id == 2 ? " Edg/" + major + ".0.0.0" : "");
         st.setUserAgentString(ua);
-        applyClientHints(st, mobileUa, !mobile, edge());
+        applyClientHints(st, mobileUa, !mobile, id);
         st.setLoadWithOverviewMode(true);
     }
 
@@ -387,7 +393,7 @@ final class Session {
         if (wv == null || !WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return;
         if (startScript != null) startScript.remove();
         startScript = WebViewCompat.addDocumentStartJavaScript(wv,
-                (mobile ? "window.__tbMobile=true;\n" : "") + sessionScript(), Collections.singleton("*"));
+                (mobile ? "window.__tbMobile=true;\n" : "") + (identity() > 0 ? "window.__tbWin=true;\n" : "") + sessionScript(), Collections.singleton("*"));
     }
 
     /** Forces the page's area into a shape (an index into {@link Pin#ASPECTS}, 0 = fill the space); kept with the pin. */
@@ -1688,7 +1694,8 @@ final class Session {
         return m.find() ? m.group(1) : "120";
     }
 
-    private static void applyClientHints(WebSettings st, String mobileUa, boolean desktop, boolean edge) {
+    private static void applyClientHints(WebSettings st, String mobileUa, boolean desktop, int identity) {
+        boolean win = identity > 0, edge = identity == 2;
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) return;
         Matcher m = Pattern.compile("Chrome/(\\d+)").matcher(mobileUa == null ? "" : mobileUa);
         String major = m.find() ? m.group(1) : "120";
@@ -1705,8 +1712,8 @@ final class Session {
         UserAgentMetadata md = new UserAgentMetadata.Builder()
                 .setBrandVersionList(brands)
                 .setFullVersion(full)
-                .setPlatform(desktop ? "Linux" : "Android")
-                .setPlatformVersion(desktop ? "6.5.0" : "14.0.0")
+                .setPlatform(desktop ? (win ? "Windows" : "Linux") : "Android")
+                .setPlatformVersion(desktop ? (win ? "10.0.0" : "6.5.0") : "14.0.0")
                 .setArchitecture(desktop ? "x86" : "")
                 .setBitness(desktop ? 64 : 0)
                 .setModel("")
