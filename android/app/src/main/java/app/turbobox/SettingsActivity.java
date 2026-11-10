@@ -492,6 +492,31 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
             Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show();
         });
         dbg.addView(copyCfg, Ui.lp(this, 4, 0));
+        TextView probe = Ui.pill(this, "Test a site with each browser identity", 0);
+        probe.setOnClickListener(v -> {
+            final EditText address = new EditText(this);
+            address.setText("https://teams.cloud.microsoft/");
+            address.setSingleLine(true);
+            new DimBuilder(this).setTitle("Which address?")
+                    .setMessage("It is loaded once as each browser identity in a clean temporary profile (about two minutes). The result shows which "
+                            + "ones the site accepts.")
+                    .setView(address)
+                    .setPositiveButton("Test", (d, w) -> {
+                        String u = Pin.normalizeUrl(address.getText().toString());
+                        if (u == null) {
+                            Toast.makeText(this, "That is not an address", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        Toast.makeText(this, "Testing - stay in the app", Toast.LENGTH_LONG).show();
+                        SiteProbe.run(this, u, report -> new DimBuilder(this).setTitle("Result for " + u).setMessage(report)
+                                .setPositiveButton("Copy", (d2, w2) -> {
+                                    android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                                    cm.setPrimaryClip(android.content.ClipData.newPlainText("Site test", "Result for " + u + "\n" + report));
+                                    Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show();
+                                }).setNegativeButton("Close", null).show());
+                    }).setNegativeButton("Cancel", null).show();
+        });
+        dbg.addView(probe, Ui.lp(this, 8, 0));
         Switch nw = Ui.toggle(this);
         nw.setText("Follow links that open a new window");
         nw.setTextColor(Ui.TEXT);

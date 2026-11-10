@@ -375,22 +375,24 @@ final class Session {
         return mobile || pin == null ? 0 : pin.identity;
     }
 
-    private static String chromeMajor(String ua) {
+    static String chromeMajor(String ua) {
         Matcher m = Pattern.compile("Chrome/(\\d+)").matcher(ua == null ? "" : ua);
         return m.find() ? m.group(1) : "120";
     }
 
-    private void applyMode(WebSettings st) {
-        int id = identity();
+    /** The user agent a page is sent: the phone's own (mobile) or one of the desktop identities (see Pin.identity). */
+    static String uaString(boolean mobile, int id, String mobileUa) {
         String major = chromeMajor(mobileUa);
-        String ua;
-        if (mobile) ua = mobileUserAgent(mobileUa);
-        else if (id == 0) ua = desktopUserAgent(mobileUa);
-        else if (id == 3) ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + major + ".0.0.0 Safari/537.36";
-        else ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + major + ".0.0.0 Safari/537.36"
+        if (mobile) return mobileUserAgent(mobileUa);
+        if (id == 0) return desktopUserAgent(mobileUa);
+        if (id == 3) return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + major + ".0.0.0 Safari/537.36";
+        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + major + ".0.0.0 Safari/537.36"
                 + (id == 2 ? " Edg/" + major + ".0.0.0" : "");
-        st.setUserAgentString(ua);
-        applyClientHints(st, mobileUa, !mobile, id);
+    }
+
+    private void applyMode(WebSettings st) {
+        st.setUserAgentString(uaString(mobile, identity(), mobileUa));
+        applyClientHints(st, mobileUa, !mobile, identity());
         st.setLoadWithOverviewMode(true);
     }
 
@@ -1797,7 +1799,7 @@ final class Session {
         return (mobile == null ? "" : mobile).replace("; wv)", ")").replace("Version/4.0 ", "");
     }
 
-    private static void applyClientHints(WebSettings st, String mobileUa, boolean desktop, int identity) {
+    static void applyClientHints(WebSettings st, String mobileUa, boolean desktop, int identity) {
         boolean win = identity == 1 || identity == 2, mac = identity == 3, edge = identity == 2;
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) return;
         Matcher m = Pattern.compile("Chrome/(\\d+)").matcher(mobileUa == null ? "" : mobileUa);
