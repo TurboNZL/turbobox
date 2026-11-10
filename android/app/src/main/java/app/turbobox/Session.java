@@ -1431,7 +1431,16 @@ final class Session {
                     noteNav("go " + request.getUrl() + (request.isRedirect() ? " (redirect)" : "") + (request.hasGesture() ? " (tap)" : "")
                             + " " + request.getMethod());
                 }
-                return false;   // every address, including other schemes, is left to the browser as before
+                // A page that tries to open another app (Teams' meeting launcher tries msteams://, others intent: or market:) must
+                // not be replaced by WebView's "unknown scheme" error page: the attempt is dropped and the page stays, so its own
+                // "continue on this browser" choice is still there.
+                Uri u = request == null ? null : request.getUrl();
+                String sc = u == null || u.getScheme() == null ? "" : u.getScheme().toLowerCase(Locale.ROOT);
+                if (sc.isEmpty() || sc.equals("http") || sc.equals("https") || sc.equals("about") || sc.equals("data")
+                        || sc.equals("blob") || sc.equals("file") || sc.equals("javascript")) return false;
+                noteNav("refused to open another app: " + u);
+                main.post(() -> notice("Not opening another app (" + sc + ":); the page stays here."));
+                return true;
             }
 
             @Override
