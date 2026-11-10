@@ -1348,6 +1348,7 @@ final class Session {
         st.setUseWideViewPort(true);
         st.setLoadWithOverviewMode(true);
         st.setSupportZoom(true);
+        wv.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);   // no stretch or pull past the end of the page
         st.setBuiltInZoomControls(true);
         st.setDisplayZoomControls(false);
         CookieManager cookies = CookieManager.getInstance();
@@ -1625,7 +1626,7 @@ final class Session {
         return Hosts.rootDomain(host);
     }
 
-    private static String desktopUserAgent(String mobile) {
+    static String desktopUserAgent(String mobile) {
         Matcher m = Pattern.compile("Chrome/(\\d+)").matcher(mobile == null ? "" : mobile);
         String major = m.find() ? m.group(1) : "120";
         return "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/"
@@ -1647,7 +1648,7 @@ final class Session {
     }
 
     /** Client hints say "desktop Linux Chrome" too, since some sites read them instead of the UA string. */
-    private static String mobileUserAgent(String mobile) {
+    static String mobileUserAgent(String mobile) {
         // WebView's own string carries "; wv" and "Version/4.0", which sign-in pages read as "embedded browser".
         return (mobile == null ? "" : mobile).replace("; wv)", ")").replace("Version/4.0 ", "");
     }
