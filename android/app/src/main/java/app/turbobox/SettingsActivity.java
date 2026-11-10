@@ -492,6 +492,14 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
             Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show();
         });
         dbg.addView(copyCfg, Ui.lp(this, 4, 0));
+        Switch nw = Ui.toggle(this);
+        nw.setText("Follow links that open a new window");
+        nw.setTextColor(Ui.TEXT);
+        nw.setChecked(Prefs.newWindows(this));
+        nw.setOnCheckedChangeListener((b, on) -> Prefs.setNewWindows(this, on));
+        dbg.addView(nw, Ui.lp(this, 10, 4));
+        dbg.addView(Ui.hint(this, "A link that opens in a new tab, or window.open after a tap, loads in the same page. Off = the browser's own "
+                + "handling. Takes effect for pages opened afterwards."), Ui.lp(this, 0, 4));
         body.addView(dbg, Ui.lp(this, 12, 0));
 
         // Transcription
