@@ -101,6 +101,7 @@ final class WorkflowRunner {
         Context app = context.getApplicationContext();
         Workflow wf = WorkflowStore.find(app, workflowId);
         if (wf == null) return false;
+        if (!manual && !Prefs.workflowsOn(app)) return false;   // workflows are switched off: only "Run now" starts one
         if (manual && isRunning(workflowId)) return false;
         if (!isRunning(workflowId)) LOGS.put(workflowId, new ArrayList<String>());
         List<WorkflowParser.Step> steps;

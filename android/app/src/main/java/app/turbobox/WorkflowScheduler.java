@@ -65,6 +65,7 @@ final class WorkflowScheduler {
     static void schedule(Context c, Workflow wf) {
         AlarmManager am = c.getSystemService(AlarmManager.class);
         cancelAll(c, wf);
+        if (!Prefs.workflowsOn(c)) return;   // the master switch is off: nothing is planned
         if (wf.timed && wf.enabled) plan(c, am, wf.id, null, wf.hour, wf.minute, wf.days);
         for (java.util.Map.Entry<String, Workflow.PageSchedule> e : wf.pageSchedules.entrySet()) {
             Workflow.PageSchedule ps = e.getValue();
@@ -90,6 +91,7 @@ final class WorkflowScheduler {
 
     /** The soonest planned run, for the standby notification: {workflow name, epoch millis} or null. */
     static Object[] soonest(Context c) {
+        if (!Prefs.workflowsOn(c)) return null;
         long best = Long.MAX_VALUE;
         String name = null;
         long now = System.currentTimeMillis();

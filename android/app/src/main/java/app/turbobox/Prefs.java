@@ -28,6 +28,9 @@ final class Prefs {
     /** A page that opens a new window (a link that opens in a new tab, window.open) is followed in the same page. Off = the browser's own handling. */
     static boolean newWindows(Context c) { return sp(c).getBoolean("newWindows", true); }
     static void setNewWindows(Context c, boolean v) { sp(c).edit().putBoolean("newWindows", v).apply(); }
+    /** Master switch for workflows: off = none starts by itself (alarms, headset button, hotkeys, Mini window button, `run NAME`); Run now still works. */
+    static boolean workflowsOn(Context c) { return sp(c).getBoolean("workflowsOn", true); }
+    static void setWorkflowsOn(Context c, boolean v) { sp(c).edit().putBoolean("workflowsOn", v).apply(); }
     static boolean noCamera(Context c) { return sp(c).getBoolean("noCamera", false); }
     static void setNoCamera(Context c, boolean v) { sp(c).edit().putBoolean("noCamera", v).apply(); }
 
