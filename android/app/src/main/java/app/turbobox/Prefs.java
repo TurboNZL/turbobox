@@ -25,6 +25,9 @@ final class Prefs {
         sp(c).edit().putBoolean("noMic", v).apply();
         MicGuard.set(v);
     }
+    /** Pages behave as they did in 2026.11.3: none of the page-fitting, scroll and close changes made since then (for finding what broke a site). */
+    static boolean classic(Context c) { return sp(c).getBoolean("classicPages", false); }
+    static void setClassic(Context c, boolean v) { sp(c).edit().putBoolean("classicPages", v).apply(); }
     static boolean noCamera(Context c) { return sp(c).getBoolean("noCamera", false); }
     static void setNoCamera(Context c, boolean v) { sp(c).edit().putBoolean("noCamera", v).apply(); }
 

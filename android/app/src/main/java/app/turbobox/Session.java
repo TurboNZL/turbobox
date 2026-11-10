@@ -371,6 +371,10 @@ final class Session {
         if (active) reload();
     }
 
+    private boolean classic() {
+        return app != null && Prefs.classic(app);
+    }
+
     private int identity() {
         return mobile || pin == null ? 0 : pin.identity;
     }
@@ -393,7 +397,7 @@ final class Session {
         if (wv == null || !WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return;
         if (startScript != null) startScript.remove();
         startScript = WebViewCompat.addDocumentStartJavaScript(wv,
-                (mobile ? "window.__tbMobile=true;\n" : "") + (identity() > 0 ? "window.__tbWin=true;\n" : "") + sessionScript(), Collections.singleton("*"));
+                (mobile ? "window.__tbMobile=true;\n" : "") + (identity() > 0 ? "window.__tbWin=true;\n" : "") + (classic() ? "window.__tbClassic=true;\n" : "") + sessionScript(), Collections.singleton("*"));
     }
 
     /** Forces the page's area into a shape (an index into {@link Pin#ASPECTS}, 0 = fill the space); kept with the pin. */
@@ -1069,7 +1073,12 @@ final class Session {
         for (Session other : Sessions.all()) if (other != this) other.reapplyRoute();
         Sessions.refreshVolumes();
         if (webView != null) {
-            forceBlank();
+            if (classic()) {
+                webView.loadUrl("about:blank");
+                webView.clearHistory();
+            } else {
+                forceBlank();
+            }
             if (profileName != null && wipeProfile) main.post(this::discardWebView);   // everything an incognito page stored goes with it
         }
         for (Listener l : listeners) {
@@ -1371,7 +1380,7 @@ final class Session {
         st.setUseWideViewPort(true);
         st.setLoadWithOverviewMode(true);
         st.setSupportZoom(true);
-        wv.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);   // no stretch or pull past the end of the page
+        if (!classic()) wv.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);   // no stretch or pull past the end of the page
         st.setBuiltInZoomControls(true);
         st.setDisplayZoomControls(false);
         CookieManager cookies = CookieManager.getInstance();
@@ -1403,6 +1412,7 @@ final class Session {
             // "continue in the browser" choice is still there.
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
+                if (classic()) return false;
                 Uri u = request == null ? null : request.getUrl();
                 String sc = u == null || u.getScheme() == null ? "" : u.getScheme().toLowerCase(Locale.ROOT);
                 if (sc.isEmpty() || sc.equals("http") || sc.equals("https") || sc.equals("about") || sc.equals("data")
@@ -1468,6 +1478,7 @@ final class Session {
         wv.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onJsBeforeUnload(WebView view, String url, String message, android.webkit.JsResult result) {
+                if (classic()) return super.onJsBeforeUnload(view, url, message, result);
                 result.confirm();   // "Leave this page?" is always answered yes: closing a page must work
                 return true;
             }
