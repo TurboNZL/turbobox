@@ -1348,6 +1348,7 @@ final class Session {
         st.setUseWideViewPort(true);
         st.setLoadWithOverviewMode(true);
         st.setSupportZoom(true);
+        st.setSupportMultipleWindows(Prefs.newWindows(app));   // a page's new-window requests reach onCreateWindow below
         wv.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);   // no stretch or pull past the end of the page
         st.setBuiltInZoomControls(true);
         st.setDisplayZoomControls(false);
@@ -1425,9 +1426,19 @@ final class Session {
             }
 
             @Override
+            public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
+                if (request != null && request.isForMainFrame()) {
+                    noteNav("go " + request.getUrl() + (request.isRedirect() ? " (redirect)" : "") + (request.hasGesture() ? " (tap)" : "")
+                            + " " + request.getMethod());
+                }
+                return false;   // every address, including other schemes, is left to the browser as before
+            }
+
+            @Override
             public void onReceivedError(WebView view, android.webkit.WebResourceRequest request, android.webkit.WebResourceError error) {
                 if (request != null && request.isForMainFrame() && error != null) {
                     lastError = error.getErrorCode() + " " + error.getDescription() + " at " + request.getUrl();
+                    noteNav("FAILED " + error.getDescription() + " " + request.getUrl());
                 }
             }
 
@@ -1438,6 +1449,57 @@ final class Session {
             }
         });
         wv.setWebChromeClient(new WebChromeClient() {
+            /**
+             * A link that opens in a new tab or a script's window.open. Only after a tap (a page that opens windows by itself is
+             * an ad). The new window is a throwaway view whose first address is loaded in this page instead, in the same profile,
+             * so a launcher page's "continue in the browser" lands here.
+             */
+            @Override
+            public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, android.os.Message resultMsg) {
+                noteNav("new window requested" + (isUserGesture ? " (tap)" : " (no tap: refused)"));
+                if (!isUserGesture || resultMsg == null || !(resultMsg.obj instanceof WebView.WebViewTransport)) return false;
+                final WebView temp = new WebView(view.getContext());
+                try {
+                    if (profileName != null && WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+                        WebViewCompat.setProfile(temp, profileName);
+                    }
+                } catch (RuntimeException ignored) {
+                    // Falls back to the shared store; the address is loaded in this page anyway.
+                }
+                final boolean[] taken = {false};
+                temp.setWebViewClient(new WebViewClient() {
+                    private void take(String url) {
+                        if (taken[0] || url == null || url.isEmpty() || url.startsWith("about:")) return;
+                        taken[0] = true;
+                        noteNav("new window -> this page: " + url);
+                        main.post(() -> {
+                            if (webView == view) view.loadUrl(url);
+                            temp.destroy();
+                        });
+                    }
+
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView v, android.webkit.WebResourceRequest r) {
+                        take(r.getUrl().toString());
+                        return true;
+                    }
+
+                    @Override
+                    public void onPageStarted(WebView v, String url, android.graphics.Bitmap favicon) {
+                        take(url);
+                    }
+                });
+                main.postDelayed(() -> {
+                    if (!taken[0]) {
+                        taken[0] = true;
+                        temp.destroy();   // it never went anywhere
+                    }
+                }, 15000);
+                ((WebView.WebViewTransport) resultMsg.obj).setWebView(temp);
+                resultMsg.sendToTarget();
+                return true;
+            }
+
             @Override
             public boolean onJsBeforeUnload(WebView view, String url, String message, android.webkit.JsResult result) {
                 result.confirm();   // "Leave this page?" is always answered yes: closing a page must work
@@ -1602,7 +1664,8 @@ final class Session {
                             + "\ncalls open: " + o.optInt("calls")
                             + "\naudio: " + o.optString("audio")
                             + "\nads: " + (adsBlocked() ? blockedCount + " requests blocked on this page" + lastBlocked() : "blocking is off")
-                            + (lastError.isEmpty() ? "" : "\nlast page error: " + lastError);
+                            + (lastError.isEmpty() ? "" : "\nlast page error: " + lastError)
+                            + navTrail();
                     for (Listener l : listeners) l.onInfo(this, text);
                     break;
                 }
@@ -1646,6 +1709,22 @@ final class Session {
     private int blockedCount;     // requests answered with nothing on this page load, for Page info
     private final java.util.ArrayDeque<String> blockedLog = new java.util.ArrayDeque<>();   // the newest few blocked addresses, for Page info
     private volatile String lastError = "";   // the last main-page load failure, for Page info
+    private final java.util.ArrayDeque<String> navLog = new java.util.ArrayDeque<>();   // the newest main-frame navigations, for Page info
+
+    private void noteNav(String line) {
+        synchronized (navLog) {
+            navLog.addLast(line.length() > 200 ? line.substring(0, 200) + "..." : line);
+            while (navLog.size() > 20) navLog.removeFirst();
+        }
+    }
+
+    private String navTrail() {
+        synchronized (navLog) {
+            StringBuilder sb = new StringBuilder();
+            for (String l : navLog) sb.append("\n  ").append(l);
+            return sb.length() == 0 ? "" : "\nnavigation trail:" + sb;
+        }
+    }
 
     private void noteBlocked(String url) {
         String shown = url.length() > 110 ? url.substring(0, 110) + "..." : url;
