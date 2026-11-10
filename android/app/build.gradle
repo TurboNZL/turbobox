@@ -15,12 +15,12 @@ def versionCodeFor = { String v ->
 
 android {
     namespace 'app.turbobox'
-    compileSdk 34
+    compileSdk 35
 
     defaultConfig {
         applicationId 'app.turbobox'
         minSdk 26
-        targetSdk 34
+        targetSdk 35
         versionCode versionCodeFor(appVersion)
         versionName appVersion
         buildConfigField 'String', 'REPO_OWNER', '"TurboNZL"'

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 15+ draws apps edge to edge when they target 35; the app's screens are laid out inside the bars, so it opts out
+         (the opt-out is honoured at target 35 only). -->
+    <style name="Theme.TurboBox" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/tb_bg</item>
+        <item name="android:statusBarColor">@color/tb_bg</item>
+        <item name="android:navigationBarColor">@color/tb_bg</item>
+        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
+    </style>
+</resources>
