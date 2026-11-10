@@ -359,9 +359,26 @@ final class Session {
         if (active) reload();
     }
 
+    /** Desktop pages call themselves Microsoft Edge (kept with the pin). The page is loaded again to take it. */
+    void setEdgeIdentity(boolean value) {
+        if (pin != null) {
+            pin.edgeIdentity = value;
+            PinStore.put(app, pin);
+        }
+        if (webView == null) return;
+        applyMode(webView.getSettings());
+        if (active) reload();
+    }
+
+    private boolean edge() {
+        return !mobile && pin != null && pin.edgeIdentity;
+    }
+
     private void applyMode(WebSettings st) {
-        st.setUserAgentString(mobile ? mobileUserAgent(mobileUa) : desktopUserAgent(mobileUa));
-        applyClientHints(st, mobileUa, !mobile);
+        String ua = mobile ? mobileUserAgent(mobileUa) : desktopUserAgent(mobileUa);
+        if (edge()) ua = ua + " Edg/" + chromeMajor(mobileUa) + ".0.0.0";
+        st.setUserAgentString(ua);
+        applyClientHints(st, mobileUa, !mobile, edge());
         st.setLoadWithOverviewMode(true);
     }
 
@@ -1375,6 +1392,19 @@ final class Session {
         // (the script is idempotent).
         registerStartScript(wv);
         wv.setWebViewClient(new WebViewClient() {
+            // A page that tries to open another app (Teams' meeting launcher tries msteams:, others intent: or market:) must not be
+            // replaced by the browser's "unknown scheme" error page: the attempt is dropped and the page stays, so its own
+            // "continue in the browser" choice is still there.
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
+                Uri u = request == null ? null : request.getUrl();
+                String sc = u == null || u.getScheme() == null ? "" : u.getScheme().toLowerCase(Locale.ROOT);
+                if (sc.isEmpty() || sc.equals("http") || sc.equals("https") || sc.equals("about") || sc.equals("data")
+                        || sc.equals("blob") || sc.equals("file") || sc.equals("javascript")) return false;
+                main.post(() -> notice("Not opening another app (" + sc + ":); the page stays here."));
+                return true;
+            }
+
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 currentUrl = url == null ? "" : url;
@@ -1653,7 +1683,12 @@ final class Session {
         return (mobile == null ? "" : mobile).replace("; wv)", ")").replace("Version/4.0 ", "");
     }
 
-    private static void applyClientHints(WebSettings st, String mobileUa, boolean desktop) {
+    private static String chromeMajor(String ua) {
+        Matcher m = Pattern.compile("Chrome/(\\d+)").matcher(ua == null ? "" : ua);
+        return m.find() ? m.group(1) : "120";
+    }
+
+    private static void applyClientHints(WebSettings st, String mobileUa, boolean desktop, boolean edge) {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) return;
         Matcher m = Pattern.compile("Chrome/(\\d+)").matcher(mobileUa == null ? "" : mobileUa);
         String major = m.find() ? m.group(1) : "120";
@@ -1663,6 +1698,8 @@ final class Session {
                 .setBrand("Chromium").setMajorVersion(major).setFullVersion(full).build());
         brands.add(new UserAgentMetadata.BrandVersion.Builder()
                 .setBrand("Google Chrome").setMajorVersion(major).setFullVersion(full).build());
+        if (edge) brands.add(new UserAgentMetadata.BrandVersion.Builder()
+                .setBrand("Microsoft Edge").setMajorVersion(major).setFullVersion(full).build());
         brands.add(new UserAgentMetadata.BrandVersion.Builder()
                 .setBrand("Not_A Brand").setMajorVersion("24").setFullVersion("24.0.0.0").build());
         UserAgentMetadata md = new UserAgentMetadata.Builder()

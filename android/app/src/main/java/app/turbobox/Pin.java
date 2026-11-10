@@ -19,6 +19,7 @@ final class Pin {
     boolean cursorMode;     // drive the page with a pointer (trackpad style) instead of touching it directly
     boolean shrinkOnType = true; // typing shrinks the page area to the space the keyboard leaves
     boolean noAdblock;      // this page is exempt from ad blocking
+    boolean edgeIdentity;   // desktop pages say they are Microsoft Edge (Teams' meeting page turns other browsers away)
     boolean confirmClose;   // ask before closing this page (off by default)
     float volume = 1f;      // 0..2, gain on the page's audio
     int recordMode;         // recording when the page opens: 0 = follow the default in Settings, 1 = always, 2 = never
@@ -56,7 +57,7 @@ final class Pin {
         try {
             return new JSONObject().put("id", id).put("name", name).put("url", url)
                     .put("zoom", zoom).put("volume", volume).put("recordMode", recordMode)
-                    .put("allowMic", allowMic).put("allowCamera", allowCamera).put("aspect", aspect).put("zoomMini", zoomMini).put("aspectMini", aspectMini).put("mobile", mobile).put("pageWidth", pageWidth).put("confirmClose", confirmClose).put("noAdblock", noAdblock).put("shrinkOnType", shrinkOnType).put("cursorMode", cursorMode).put("allowDrm", allowDrm).put("profile", profileId).put("barOverlay", barOverlay).put("wfSize", wfSize).put("wfPageWidth", wfPageWidth).put("wfZoom", wfZoom).put("wfAspect", wfAspect);
+                    .put("allowMic", allowMic).put("allowCamera", allowCamera).put("aspect", aspect).put("zoomMini", zoomMini).put("aspectMini", aspectMini).put("mobile", mobile).put("pageWidth", pageWidth).put("confirmClose", confirmClose).put("noAdblock", noAdblock).put("edgeIdentity", edgeIdentity).put("shrinkOnType", shrinkOnType).put("cursorMode", cursorMode).put("allowDrm", allowDrm).put("profile", profileId).put("barOverlay", barOverlay).put("wfSize", wfSize).put("wfPageWidth", wfPageWidth).put("wfZoom", wfZoom).put("wfAspect", wfAspect);
         } catch (JSONException e) {
             throw new IllegalStateException(e);
         }
@@ -80,6 +81,7 @@ final class Pin {
         p.shrinkOnType = o.optBoolean("shrinkOnType", true);
         p.confirmClose = o.optBoolean("confirmClose", false);
         p.noAdblock = o.optBoolean("noAdblock", false);
+        p.edgeIdentity = o.optBoolean("edgeIdentity", false);
         p.cursorMode = o.optBoolean("cursorMode", false);
         p.allowDrm = o.optBoolean("allowDrm", true);
         p.profileId = o.optString("profile", Profiles.DEFAULT);
