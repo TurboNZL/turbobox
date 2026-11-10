@@ -41,6 +41,24 @@ public class WorkflowsActivity extends Activity {
         body.addView(Ui.hint(this, "A workflow opens one or more of your pinned pages and follows the steps you write: click this, "
                 + "type that, wait, record, hang up. It can start by itself at a time you choose, with the screen off."));
 
+        LinearLayout master = Ui.card(this);
+        Switch all = Ui.toggle(this);
+        all.setText("Workflows on");
+        all.setTextColor(Ui.TEXT);
+        all.setChecked(Prefs.workflowsOn(this));
+        all.setOnCheckedChangeListener((b, on) -> {
+            Prefs.setWorkflowsOn(this, on);
+            WorkflowScheduler.scheduleAll(this);   // plans every alarm again, or cancels them all
+            SessionService.refresh();
+            render();
+        });
+        master.addView(all);
+        master.addView(Ui.hint(this, Prefs.workflowsOn(this)
+                ? "Off stops every workflow from starting by itself: timed ones, the headphone button, hotkeys and the Mini window button. "
+                  + "Their times are kept, and \"Run now\" still works."
+                : "Off: no workflow starts by itself and no alarm is planned. Switch it on and every time comes back."), Ui.lp(this, 4, 0));
+        body.addView(master, Ui.lp(this, 10, 0));
+
         TextView add = Ui.pill(this, "New workflow", Ui.GREEN);
         add.setOnClickListener(v -> startActivity(new Intent(this, WorkflowEditActivity.class)));
         body.addView(add, Ui.lp(this, 12, 8));

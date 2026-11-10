@@ -359,9 +359,38 @@ final class Session {
         if (active) reload();
     }
 
+    /** What desktop pages say they are (see Pin.identity); kept with the pin. The page is loaded again to take it. */
+    void setIdentity(int value) {
+        if (pin != null) {
+            pin.identity = value;
+            PinStore.put(app, pin);
+        }
+        if (webView == null) return;
+        applyMode(webView.getSettings());
+        registerStartScript(webView);
+        if (active) reload();
+    }
+
+    private int identity() {
+        return mobile || pin == null ? 0 : pin.identity;
+    }
+
+    private static String chromeMajor(String ua) {
+        Matcher m = Pattern.compile("Chrome/(\\d+)").matcher(ua == null ? "" : ua);
+        return m.find() ? m.group(1) : "120";
+    }
+
     private void applyMode(WebSettings st) {
-        st.setUserAgentString(mobile ? mobileUserAgent(mobileUa) : desktopUserAgent(mobileUa));
-        applyClientHints(st, mobileUa, !mobile);
+        int id = identity();
+        String major = chromeMajor(mobileUa);
+        String ua;
+        if (mobile) ua = mobileUserAgent(mobileUa);
+        else if (id == 0) ua = desktopUserAgent(mobileUa);
+        else if (id == 3) ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + major + ".0.0.0 Safari/537.36";
+        else ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + major + ".0.0.0 Safari/537.36"
+                + (id == 2 ? " Edg/" + major + ".0.0.0" : "");
+        st.setUserAgentString(ua);
+        applyClientHints(st, mobileUa, !mobile, id);
         st.setLoadWithOverviewMode(true);
     }
 
@@ -370,7 +399,7 @@ final class Session {
         if (wv == null || !WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return;
         if (startScript != null) startScript.remove();
         startScript = WebViewCompat.addDocumentStartJavaScript(wv,
-                (mobile ? "window.__tbMobile=true;\n" : "") + sessionScript(), Collections.singleton("*"));
+                (mobile ? "window.__tbMobile=true;\n" : "") + (identity() > 0 ? "window.__tbOs=\"" + (identity() == 3 ? "mac" : "win") + "\";\n" : "") + sessionScript(), Collections.singleton("*"));
     }
 
     /** Forces the page's area into a shape (an index into {@link Pin#ASPECTS}, 0 = fill the space); kept with the pin. */
@@ -1768,7 +1797,8 @@ final class Session {
         return (mobile == null ? "" : mobile).replace("; wv)", ")").replace("Version/4.0 ", "");
     }
 
-    private static void applyClientHints(WebSettings st, String mobileUa, boolean desktop) {
+    private static void applyClientHints(WebSettings st, String mobileUa, boolean desktop, int identity) {
+        boolean win = identity == 1 || identity == 2, mac = identity == 3, edge = identity == 2;
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) return;
         Matcher m = Pattern.compile("Chrome/(\\d+)").matcher(mobileUa == null ? "" : mobileUa);
         String major = m.find() ? m.group(1) : "120";
@@ -1778,14 +1808,16 @@ final class Session {
                 .setBrand("Chromium").setMajorVersion(major).setFullVersion(full).build());
         brands.add(new UserAgentMetadata.BrandVersion.Builder()
                 .setBrand("Google Chrome").setMajorVersion(major).setFullVersion(full).build());
+        if (edge) brands.add(new UserAgentMetadata.BrandVersion.Builder()
+                .setBrand("Microsoft Edge").setMajorVersion(major).setFullVersion(full).build());
         brands.add(new UserAgentMetadata.BrandVersion.Builder()
                 .setBrand("Not_A Brand").setMajorVersion("24").setFullVersion("24.0.0.0").build());
         UserAgentMetadata md = new UserAgentMetadata.Builder()
                 .setBrandVersionList(brands)
                 .setFullVersion(full)
-                .setPlatform(desktop ? "Linux" : "Android")
-                .setPlatformVersion(desktop ? "6.5.0" : "14.0.0")
-                .setArchitecture(desktop ? "x86" : "")
+                .setPlatform(desktop ? (win ? "Windows" : mac ? "macOS" : "Linux") : "Android")
+                .setPlatformVersion(desktop ? (win ? "10.0.0" : mac ? "14.5.0" : "6.5.0") : "14.0.0")
+                .setArchitecture(desktop ? (mac ? "arm" : "x86") : "")
                 .setBitness(desktop ? 64 : 0)
                 .setModel("")
                 .setMobile(!desktop)
