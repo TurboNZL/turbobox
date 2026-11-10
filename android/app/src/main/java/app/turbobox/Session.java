@@ -1375,6 +1375,19 @@ final class Session {
         // (the script is idempotent).
         registerStartScript(wv);
         wv.setWebViewClient(new WebViewClient() {
+            // A page that tries to open another app (Teams' meeting launcher tries msteams:, others intent: or market:) must not be
+            // replaced by the browser's "unknown scheme" error page: the attempt is dropped and the page stays, so its own
+            // "continue in the browser" choice is still there.
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
+                Uri u = request == null ? null : request.getUrl();
+                String sc = u == null || u.getScheme() == null ? "" : u.getScheme().toLowerCase(Locale.ROOT);
+                if (sc.isEmpty() || sc.equals("http") || sc.equals("https") || sc.equals("about") || sc.equals("data")
+                        || sc.equals("blob") || sc.equals("file") || sc.equals("javascript")) return false;
+                main.post(() -> notice("Not opening another app (" + sc + ":); the page stays here."));
+                return true;
+            }
+
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 currentUrl = url == null ? "" : url;

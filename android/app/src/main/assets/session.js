@@ -169,6 +169,8 @@
   T.setViewPx = function (px) { px = Math.max(0, +px || 0); if (px === cfg.viewPx) return; cfg.viewPx = px; viewport(); setTimeout(viewport, 300); };
   T.setShape = function (r) { cfg.shape = Math.max(0, +r || 0); viewport(); };
   T.refit = function () {
+    // A mobile page keeps the viewport it declares itself: rewriting it (hiding the bar re-fits) pushed YouTube's Shorts player out of view.
+    if (!cfg.desktop) return;
     var m = document.querySelector('meta[name=viewport]');
     if (m) m.content = 'width=device-width, initial-scale=1';
     // At scale 1 the pixel ratio is the display's own (it moves with the page scale otherwise), so it is read again here.
@@ -1353,6 +1355,7 @@
   });
   T.turned = function () { return wasLandscape; };   // for the tests
   T.resized = function () {
+    if (!cfg.desktop) return;   // a mobile page lays itself out for its window; putting a scroll back fights its own feed (Shorts)
     var now = Date.now();
     if (keep && now < keep.until) { keep.until = now + 1600; return; }   // several resize steps in a row: same target
     var target = null;
