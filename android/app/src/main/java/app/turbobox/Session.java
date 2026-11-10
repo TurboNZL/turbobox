@@ -1414,6 +1414,7 @@ final class Session {
                 if (adsBlocked() && AdBlock.shouldBlock(request.getUrl().toString(), currentUrl, request.isForMainFrame(),
                         request.getRequestHeaders().get("Accept"))) {
                     blockedCount++;
+                    noteBlocked(request.getUrl().toString());
                     return new android.webkit.WebResourceResponse("text/plain", "utf-8", 200, "Blocked", Collections.<String, String>emptyMap(),
                             new java.io.ByteArrayInputStream(new byte[0]));
                 }
@@ -1421,6 +1422,13 @@ final class Session {
                     // A blocker problem must never break the page: let the request through.
                 }
                 return null;
+            }
+
+            @Override
+            public void onReceivedError(WebView view, android.webkit.WebResourceRequest request, android.webkit.WebResourceError error) {
+                if (request != null && request.isForMainFrame() && error != null) {
+                    lastError = error.getErrorCode() + " " + error.getDescription() + " at " + request.getUrl();
+                }
             }
 
             @Override
@@ -1593,7 +1601,8 @@ final class Session {
                             + "\nmic API: " + o.optString("mediaDevices")
                             + "\ncalls open: " + o.optInt("calls")
                             + "\naudio: " + o.optString("audio")
-                            + "\nads: " + (adsBlocked() ? blockedCount + " requests blocked on this page" : "blocking is off");
+                            + "\nads: " + (adsBlocked() ? blockedCount + " requests blocked on this page" + lastBlocked() : "blocking is off")
+                            + (lastError.isEmpty() ? "" : "\nlast page error: " + lastError);
                     for (Listener l : listeners) l.onInfo(this, text);
                     break;
                 }
@@ -1635,6 +1644,24 @@ final class Session {
 
     private volatile String currentUrl = "";   // the page's address, kept here because WebView.getUrl() may only be called on the main thread
     private int blockedCount;     // requests answered with nothing on this page load, for Page info
+    private final java.util.ArrayDeque<String> blockedLog = new java.util.ArrayDeque<>();   // the newest few blocked addresses, for Page info
+    private volatile String lastError = "";   // the last main-page load failure, for Page info
+
+    private void noteBlocked(String url) {
+        String shown = url.length() > 110 ? url.substring(0, 110) + "..." : url;
+        synchronized (blockedLog) {
+            blockedLog.addLast(shown);
+            while (blockedLog.size() > 25) blockedLog.removeFirst();
+        }
+    }
+
+    private String lastBlocked() {
+        synchronized (blockedLog) {
+            StringBuilder sb = new StringBuilder();
+            for (String u : blockedLog) sb.append("\n  blocked: ").append(u);
+            return sb.toString();
+        }
+    }
 
     /** Ad blocking applies to this page: the app switch is on and this page has not been exempted. */
     private boolean adsBlocked() {
