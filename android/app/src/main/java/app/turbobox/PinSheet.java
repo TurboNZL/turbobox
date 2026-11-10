@@ -92,13 +92,6 @@ final class PinSheet {
             Session s = Sessions.forPin(pin.id);
             if (s != null) s.setMobile(on);
         }), Ui.lp(act, 0, 4));
-        look.addView(Ui.label(act, "Desktop browser it says it is"), Ui.lp(act, 8, 4));
-        look.addView(Ui.segmented(act, new String[]{"Chrome, Linux", "Chrome, Windows", "Edge, Windows"}, pin.identity, BLUE, which -> {
-            change(act, pin, p -> p.identity = which);
-            Session s = Sessions.forPin(pin.id);
-            if (s != null) s.setIdentity(which);
-        }), Ui.lp(act, 0, 4));
-        look.addView(Ui.hint(act, "For a site that turns a browser away (a Teams meeting page, say). Desktop layout only; changing it reloads the page."), Ui.lp(act, 0, 8));
         look.addView(Ui.switchRow(act, "Cursor mode", "One finger moves a pointer, a tap clicks, two fingers scroll", pin.cursorMode, BLUE, (b, on) -> {
             change(act, pin, p -> p.cursorMode = on);
             Session s = Sessions.forPin(pin.id);

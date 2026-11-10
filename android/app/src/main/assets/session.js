@@ -18,8 +18,7 @@
 (function () {
   if (window.__turbobox) return;
   var T = window.__turbobox = {};
-  var cfg = { dsf: window.devicePixelRatio || 1, shape: 0, virtualDevices: true, pageWidth: 1280, muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, cameraAllowed: false, localMute: false, keepVisible: true, desktop: !window.__tbMobile, win: !!window.__tbWin };
-  var CLASSIC = !!window.__tbClassic;   // behave as 2026.11.3 did: no minimum scale, no refit on resize, no overscroll guard, no mobile exemptions
+  var cfg = { dsf: window.devicePixelRatio || 1, shape: 0, virtualDevices: true, pageWidth: 1280, muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, cameraAllowed: false, localMute: false, keepVisible: true, desktop: !window.__tbMobile };
   var tracks = [], pcs = [];
 
   function post(type, data) {
@@ -31,10 +30,10 @@
     // Only while the page is asked for as a desktop (the default); a page opened in mobile mode keeps the phone's own values.
     if (cfg.desktop) {
       var navProto = Object.getPrototypeOf(navigator);
-      Object.defineProperty(navProto, 'platform', { get: function () { return cfg.win ? 'Win32' : 'Linux x86_64'; }, configurable: true });
+      Object.defineProperty(navProto, 'platform', { get: function () { return 'Linux x86_64'; }, configurable: true });
       if (window.NavigatorUAData) {
         Object.defineProperty(window.NavigatorUAData.prototype, 'mobile', { get: function () { return false; }, configurable: true });
-        Object.defineProperty(window.NavigatorUAData.prototype, 'platform', { get: function () { return cfg.win ? 'Windows' : 'Linux'; }, configurable: true });
+        Object.defineProperty(window.NavigatorUAData.prototype, 'platform', { get: function () { return 'Linux'; }, configurable: true });
       }
     }
   } catch (e) { /* best effort */ }
@@ -115,14 +114,13 @@
     // The fitted scale is also the smallest the page can be pinched to: smaller would show empty space around the page, and a layout
     // whose scale drifted (rotation, hiding the bar) could be scrolled right off the page.
     var sc = (fit / w).toFixed(3);
-    var want = 'width=' + w + ', initial-scale=' + sc + (CLASSIC ? '' : ', minimum-scale=' + sc);
+    var want = 'width=' + w + ', initial-scale=' + sc + ', minimum-scale=' + sc;
     if (m.content !== want) m.content = want;
   }
   // Any real size change of the view (rotation, bar hidden or shown, a split) fits the page again from scratch once things settle, so a
   // scale left over from an earlier size cannot stay.
   var refitTimer = 0, lastInner = window.innerWidth + 'x' + window.innerHeight;
   window.addEventListener('resize', function () {
-    if (CLASSIC) return;
     var now = window.innerWidth + 'x' + window.innerHeight;
     if (now === lastInner) return;
     lastInner = now;
@@ -141,7 +139,7 @@
   })();
   // The page cannot be pulled past its own ends: no bounce or chaining to the document (Shorts-style feeds scroll an inner
   // element), and a document scroll that ended up beyond the content is put back.
-  if (!CLASSIC) (function () {
+  (function () {
     function style() {
       if (!document.head || document.getElementById('__tbNoOver')) return;
       var st = document.createElement('style');
@@ -172,7 +170,7 @@
   T.setShape = function (r) { cfg.shape = Math.max(0, +r || 0); viewport(); };
   T.refit = function () {
     // A mobile page keeps the viewport it declares itself: rewriting it (hiding the bar re-fits) pushed YouTube's Shorts player out of view.
-    if (!cfg.desktop && !CLASSIC) return;
+    if (!cfg.desktop) return;
     var m = document.querySelector('meta[name=viewport]');
     if (m) m.content = 'width=device-width, initial-scale=1';
     // At scale 1 the pixel ratio is the display's own (it moves with the page scale otherwise), so it is read again here.
@@ -1357,7 +1355,7 @@
   });
   T.turned = function () { return wasLandscape; };   // for the tests
   T.resized = function () {
-    if (!cfg.desktop && !CLASSIC) return;   // a mobile page lays itself out for its window; putting a scroll back fights its own feed (Shorts)
+    if (!cfg.desktop) return;   // a mobile page lays itself out for its window; putting a scroll back fights its own feed (Shorts)
     var now = Date.now();
     if (keep && now < keep.until) { keep.until = now + 1600; return; }   // several resize steps in a row: same target
     var target = null;
