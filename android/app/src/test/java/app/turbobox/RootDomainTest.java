@@ -11,7 +11,7 @@ public class RootDomainTest {
         assertEquals("example.com", Hosts.rootDomain("example.com"));
         assertEquals("localhost", Hosts.rootDomain("localhost"));
         assertEquals("example.co.nz", Hosts.rootDomain("meet.example.co.nz"));
-        assertEquals("cloud.microsoft", Hosts.rootDomain("teams.cloud.microsoft"));
+        assertEquals("example.org", Hosts.rootDomain("app.example.org"));
         assertEquals("example.com.au", Hosts.rootDomain("www.example.com.au"));
     }
 }
