@@ -40,7 +40,7 @@
     }
   } catch (e) { /* best effort */ }
 
-  // Sign-in pages (Google's, so YouTube's; Twitch's) turn away what looks like an embedded browser. A desktop Chrome has a
+  // Sign-in pages (Google's, and sites that use it) turn away what looks like an embedded browser. A desktop Chrome has a
   // window.chrome object and a built-in PDF viewer; WebView has neither.
   try {
     // The same members a normal page sees in desktop Chrome (no `runtime`: that is only there for extension pages).
@@ -587,7 +587,7 @@
   var media; // every media element that has played (filled by the local mute code below)
   var tap = { on: false, sp: null, quiet: null, nodes: [], pend: [], pendLen: 0, timer: 0 };
   function tapKnown(t) { return tap.nodes.some(function (n) { return n.track === t; }); }
-  // What the page makes audible: an element it muted or turned to volume 0 (Twitch keeps an ad's element silent while the
+  // What the page makes audible: an element it muted or turned to volume 0 (some streaming sites keep an ad's element silent while the
   // stream plays, and captureStream / a media source node ignore that) is not part of what the listener hears.
   function elAudible(el) {
     // what the page set: our own copy while local mute holds the real property at true, the real property otherwise
@@ -626,7 +626,7 @@
         return;
       }
       if (el.srcObject && typeof MediaStream !== 'undefined' && el.srcObject instanceof MediaStream) {
-        // a call's stream is known already (its tracks were added above); any other stream (Twitch plays its live stream
+        // a call's stream is known already (its tracks were added above); any other stream (some streaming sites play their live stream
         // like this) is tapped from its own tracks
         el.srcObject.getAudioTracks().forEach(function (t) { if (t.readyState === 'live' && !tapKnown(t)) tapAdd(t, el); });
         return;

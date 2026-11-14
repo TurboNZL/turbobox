@@ -188,7 +188,7 @@ final class Session {
         return pin == null ? "Page" : pin.name;
     }
 
-    /** "A | Snapchat" while more than one page is open, just "Snapchat" for a single page. */
+    /** "A | Name" while more than one page is open, just "Name" for a single page. */
     String label() {
         return Sessions.tag(this) + title();
     }
@@ -198,7 +198,7 @@ final class Session {
         return slot >= Sessions.PERMANENT;
     }
 
-    /** The label with its state in brackets: "A | Snapchat [muted] [recording] [hangs up in 42 min]". */
+    /** The label with its state in brackets: "A | Name [muted] [recording] [hangs up in 42 min]". */
     String statusLine() {
         StringBuilder sb = new StringBuilder(label());
         if (isMuted()) sb.append(" [muted]");
@@ -1462,7 +1462,7 @@ final class Session {
                     noteNav("go " + request.getUrl() + (request.isRedirect() ? " (redirect)" : "") + (request.hasGesture() ? " (tap)" : "")
                             + " " + request.getMethod());
                 }
-                // A page that tries to open another app (Teams' meeting launcher tries msteams://, others intent: or market:) must
+                // A page that tries to open another app (a launcher page trying a custom scheme such as appname://, others intent: or market:) must
                 // not be replaced by WebView's "unknown scheme" error page: the attempt is dropped and the page stays, so its own
                 // "continue on this browser" choice is still there.
                 Uri u = request == null ? null : request.getUrl();

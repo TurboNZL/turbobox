@@ -447,7 +447,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         // Privacy: this install never touches the microphone / camera
         LinearLayout pv = Ui.card(this);
         pv.addView(Ui.text(this, "Privacy", 17f, Ui.TEXT, "sans-serif-medium"));
-        pv.addView(Ui.hint(this, "For an install where the microphone or camera must never be used (a work profile, say). The app does not ask "
+        pv.addView(Ui.hint(this, "For an install where the microphone or camera must never be used (a managed profile, say). The app does not ask "
                 + "for the permission by itself, pages are refused, and everything else keeps working. Every microphone the app could open "
                 + "is refused in one place, whatever Android's permission says, and the Microphone log (under Live transcription) records any attempt."), Ui.lp(this, 4, 8));
         Switch nm = Ui.toggle(this);
@@ -495,7 +495,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         TextView probe = Ui.pill(this, "Test a site with each browser identity", 0);
         probe.setOnClickListener(v -> {
             final EditText address = new EditText(this);
-            address.setText("https://teams.cloud.microsoft/");
+            address.setText("https://example.com/");
             address.setSingleLine(true);
             new DimBuilder(this).setTitle("Which address?")
                     .setMessage("It is loaded once as each browser identity in a clean temporary profile (about two minutes). The result shows which "
