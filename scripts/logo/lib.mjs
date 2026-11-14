@@ -1,6 +1,6 @@
 // The TurboNZL logo family. One engine mark (a lit ring, a record, a six-bladed compressor wheel) that every app shares, and an
 // optional EMBLEM that an app lays over the centre (TurboMusic: a note). The engine mark alone is the TurboEngine logo.
-// Everything is computed from geometry (no picture is copied). Colours of the original mark come from the owner's avatar.
+// Everything is computed from geometry (no picture is copied). Colours of the original mark come from the original avatar.
 // Pure functions: nothing here touches the disk. `scripts/gen-icons.mjs` writes the files.
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';

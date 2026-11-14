@@ -36,7 +36,7 @@ final class Transcriber {
 
     private static final int RATE = 24000;
     private static final int MAX_FAILURES = 6;
-    /** A phrase that goes on this long (a lecture with no pauses) is cut here, so lines keep coming. */
+    /** A phrase that goes on this long (speech with no pauses) is cut here, so lines keep coming. */
     private static final long MAX_PHRASE_MS = 9000;
     /** Nothing at all from the recogniser for this long: start it again. */
     private static final long STALL_MS = 20000;

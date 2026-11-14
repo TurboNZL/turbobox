@@ -400,7 +400,7 @@ public class SessionActivity extends Activity implements Session.Listener {
             }
         }
         EditText name = new EditText(this);
-        name.setHint("Name (Lecture and notes, Four up, ...)");
+        name.setHint("Name (Notes, Four up, ...)");
         name.setSingleLine(true);
         new DimBuilder(this).setTitle("Save this arrangement").setView(name)
                 .setPositiveButton("Save", (d, w) -> {

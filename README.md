@@ -5,6 +5,9 @@ run two at once, keep them alive with the screen off, record what you missed, an
 
 It is built on the [TurboNZL/turboengine](https://github.com/TurboNZL/turboengine) base.
 
+## Privacy
+TurboBox has no server, no account, no analytics and no tracking. Everything stays on the phone: pages, sign-ins, recordings and captions. Optional AI features send text to a service only when the user adds a key and switches them on. The microphone and camera are used only when the user allows it, and a setting can forbid them for the whole install. This repository is public and must never contain details of any person who uses the app (see `CLAUDE.md`, "PRIVACY RULE").
+
 ## What it does
 - **Pinned pages** on the home screen (up to 8), shown with the page's own icon: one tap opens the page in a session. Each page has its own microphone and camera privacy switches. Long-press for an icon on the launcher's home screen, and the
   first four are also in the app icon's long-press menu.
