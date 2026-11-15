@@ -61,7 +61,9 @@ jobs:
           READ_MEDIA_VIDEO READ_MEDIA_AUDIO READ_MEDIA_VISUAL READ_MEDIA_AURAL READ_MEDIA_IMAGES_USER_SELECTED
           READ_MEDIA_VIDEO_USER_SELECTED READ_MEDIA_AUDIO_USER_SELECTED READ_MEDIA_VISUAL_USER_SELECTED
           READ_MEDIA_AURAL_USER_SELECTED REQUEST_INSTALL_PACKAGES RESTART_PACKAGES FOREGROUND_SERVICE_MICROPHONE
-          FOREGROUND_SERVICE_CAMERA FOREGROUND_SERVICE_LOCATION FOREGROUND_SERVICE_PHONE_CALL SYSTEM_ALERT_WINDOW""".split()
+          FOREGROUND_SERVICE_CAMERA FOREGROUND_SERVICE_LOCATION FOREGROUND_SERVICE_PHONE_CALL SYSTEM_ALERT_WINDOW
+          ANSWER_PHONE_CALLS ADD_VOICEMAIL USE_SIP ACCEPT_HANDOVER RECEIVE_WAP_PUSH RECEIVE_MMS ACTIVITY_RECOGNITION NEARBY_WIFI_DEVICES
+          UWB_RANGING HIGH_SAMPLING_RATE_SENSORS READ_CELL_BROADCASTS USE_CREDENTIALS READ_VOICEMAIL WRITE_VOICEMAIL ACCESS_GPS""".split()
           # The same names with the Google and Samsung prefixes the engine also declares
           extra = [l.split('"')[1] for l in open('Bcore/src/main/AndroidManifest.xml', encoding='utf-8').read().split('\n')
                    if 'uses-permission' in l and 'name="' in l and not l.strip().startswith('<!--')]
@@ -85,7 +87,12 @@ jobs:
         run: |
           AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | tail -1)
           "$AAPT" dump permissions sandbox-test.apk | tee perms.txt
-          if grep -E "CAMERA|RECORD_AUDIO|LOCATION|CONTACTS|SMS|CALL_LOG|READ_PHONE" perms.txt; then echo "A sensitive permission is still in the app"; exit 1; fi
+          # Every Android "dangerous" (runtime) permission, plus the special ones that expose the phone's data
+          BAD="CAMERA|RECORD_AUDIO|ACCESS_FINE_LOCATION|ACCESS_COARSE_LOCATION|ACCESS_BACKGROUND_LOCATION|ACCESS_MEDIA_LOCATION|READ_CONTACTS|WRITE_CONTACTS|GET_ACCOUNTS|READ_CALENDAR|WRITE_CALENDAR|READ_CALL_LOG|WRITE_CALL_LOG|PROCESS_OUTGOING_CALLS|CALL_PHONE|READ_PHONE_STATE|READ_PHONE_NUMBERS|ANSWER_PHONE_CALLS|ADD_VOICEMAIL|USE_SIP|READ_SMS|SEND_SMS|RECEIVE_SMS|RECEIVE_MMS|RECEIVE_WAP_PUSH|BODY_SENSORS|BODY_SENSORS_BACKGROUND|ACTIVITY_RECOGNITION|BLUETOOTH_CONNECT|BLUETOOTH_SCAN|BLUETOOTH_ADVERTISE|NEARBY_WIFI_DEVICES|READ_EXTERNAL_STORAGE|WRITE_EXTERNAL_STORAGE|MANAGE_EXTERNAL_STORAGE|READ_MEDIA_[A-Z_]+|SYSTEM_ALERT_WINDOW|REQUEST_INSTALL_PACKAGES"
+          if grep -E "uses-permission.*name='(android\.permission|com\.google\.android\.gms\.permission)\.($BAD)'" perms.txt; then
+            echo "A sensitive permission is still in the app"; exit 1
+          fi
+          echo "No camera, microphone, location, contacts, SMS, calls, sensors or storage permission is held."
       - uses: actions/upload-artifact@v4
         with: { name: sandbox, path: "sandbox-test.apk\nperms.txt", retention-days: 7 }
 
