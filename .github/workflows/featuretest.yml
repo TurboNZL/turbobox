@@ -120,9 +120,15 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "Feature test release: $tag"
           # The latest official TurboBox APK keeps its own version name (feature tests are pre-releases, so "latest" skips them).
+          # A release is created before its APK finishes building, so take the newest one that already has the file.
           mkdir official
-          gh release download --repo "$GITHUB_REPOSITORY" --pattern 'turbobox-*-android.apk' --dir official
+          for t in $(gh release list --repo "$GITHUB_REPOSITORY" --exclude-pre-releases --limit 10 --json tagName --jq '.[].tagName'); do
+            if gh release download "$t" --repo "$GITHUB_REPOSITORY" --pattern 'turbobox-*-android.apk' --dir official 2>/dev/null; then
+              echo "Official APK taken from $t"; break
+            fi
+          done
           ls official
+          [ -n "$(ls official)" ]
       - name: Publish the pre-release
         env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
         run: |
