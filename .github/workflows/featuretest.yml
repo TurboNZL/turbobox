@@ -1,5 +1,6 @@
-# Test builds, published as ONE pre-release tagged "featuretest" next to the official TurboBox APK. Not an update: the real
-# app only offers versions it can read as newer (see Releases.isNewer), and "featuretest" is not one.
+# Test builds, published as a pre-release with the next number in the normal version sequence, next to the latest official
+# TurboBox APK, which keeps its own version name. The app's updater reads the version from that APK's file name, so a feature
+# test is never offered as an update.
 #   1. engine-test.apk  : loads a page in Mozilla's GeckoView engine (own app id)
 #   2. sandbox-test.apk : an Apache-2.0 app-virtualization engine (upstream pinned below), built here with every sensitive
 #                         permission removed, so apps inside it cannot get the camera, microphone, location, contacts, ...
@@ -89,27 +90,48 @@ jobs:
     needs: [gecko, sandbox]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
       - uses: actions/download-artifact@v4
         with: { path: files, merge-multiple: true }
-      - name: Copy the latest official TurboBox APK
+      - name: Pick the version number and fetch the latest official APK
+        id: ver
         env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
         run: |
+          # Feature tests take the next number in the normal sequence (v2026.11.14), so the next real release continues after it.
+          # While the newest release is itself a feature test, a new push replaces it instead of using up another number.
+          prefix="v$(date -u +%Y.%-m)."
+          last=$(git tag -l "${prefix}*" | sed "s/^${prefix}//" | sort -n | tail -1)
+          if [ -n "$last" ] && gh release view "${prefix}${last}" --json body --jq .body | grep -q FEATURETEST; then
+            tag="${prefix}${last}"
+          else
+            tag="${prefix}$(( ${last:--1} + 1 ))"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Feature test release: $tag"
+          # The latest official TurboBox APK keeps its own version name (feature tests are pre-releases, so "latest" skips them).
           mkdir official
-          gh release download --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir official
-          cp official/*.apk files/
-          ls -la files
-      - name: Publish the "featuretest" pre-release
+          gh release download --repo "$GITHUB_REPOSITORY" --pattern 'turbobox-*-android.apk' --dir official
+          ls official
+      - name: Publish the pre-release
         env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
         run: |
-          gh release delete featuretest --repo "$GITHUB_REPOSITORY" --cleanup-tag -y || true
+          TAG='${{ steps.ver.outputs.tag }}'
+          gh release delete featuretest --repo "$GITHUB_REPOSITORY" --cleanup-tag -y 2>/dev/null || true
+          gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag -y 2>/dev/null || true
+          OFFICIAL=$(ls official/turbobox-*-android.apk | head -1)
           cat > notes.md <<'NOTES'
-          FEATURETEST. Test builds, not updates. The real TurboBox app ignores this release.
+          FEATURETEST. Test builds, kept in the normal version sequence so the next real release continues after this number.
 
-          - `turbobox-*-android.apk`: the latest official TurboBox, unchanged, for convenience.
+          - `turbobox-<version>-android.apk`: the latest official TurboBox, unchanged and still under its own version. This is the one the app's updater uses.
           - `engine-test.apk`: a throwaway app that loads one page in Mozilla's GeckoView engine instead of Android's WebView.
           - `sandbox-test.apk`: an app-virtualization engine (upstream: Apache-2.0, pinned commit) built with every sensitive permission removed. It is unaudited third-party code. `perms.txt` lists the permissions it really holds.
 
-          None of these apps are part of TurboBox, and none can use the camera or microphone.
+          None of the test apps are part of TurboBox, and none can use the camera or microphone.
           NOTES
-          gh release create featuretest --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "FEATURETEST" \
-            --prerelease --latest=false --notes-file notes.md files/*
+          # The official APK goes up first so it is the first .apk of the release.
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG FEATURETEST" \
+            --prerelease --latest=false --notes-file notes.md "$OFFICIAL"
+          for f in files/engine-test.apk files/sandbox-test.apk files/perms.txt; do
+            gh release upload "$TAG" "$f" --repo "$GITHUB_REPOSITORY"
+          done
