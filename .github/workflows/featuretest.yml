@@ -78,7 +78,7 @@ jobs:
         run: |
           AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | tail -1)
           "$AAPT" dump permissions sandbox-test.apk | tee perms.txt
-          ! grep -E "CAMERA|RECORD_AUDIO|LOCATION|CONTACTS|SMS|CALL_LOG|READ_PHONE" perms.txt
+          if grep -E "CAMERA|RECORD_AUDIO|LOCATION|CONTACTS|SMS|CALL_LOG|READ_PHONE" perms.txt; then echo "A sensitive permission is still in the app"; exit 1; fi
       - uses: actions/upload-artifact@v4
         with: { name: sandbox, path: "sandbox-test.apk\nperms.txt", retention-days: 7 }
 
