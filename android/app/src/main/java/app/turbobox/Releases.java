@@ -35,8 +35,10 @@ final class Releases {
     }
 
     /**
-     * The newest published (not draft) release that carries an .apk, pre-releases included, as {tag, asset API
-     * address}. GitHub lists newest first. Null when there is none.
+     * The newest published (not draft) release that carries a TurboBox app, pre-releases included, as {version, asset API
+     * address}. The version is read from the app's file name (turbobox-2026.11.13-android.apk), not from the release's tag:
+     * a test release can carry the previous real app under a newer tag, and then there is nothing to update to. Files with
+     * any other name (test apps) are never taken. GitHub lists newest first. Null when there is none.
      */
     static String[] newestWithApk(JSONArray releases) {
         for (int i = 0; i < releases.length(); i++) {
@@ -46,8 +48,11 @@ final class Releases {
             if (assets == null) continue;
             for (int j = 0; j < assets.length(); j++) {
                 JSONObject a = assets.optJSONObject(j);
-                if (a != null && a.optString("name").endsWith(".apk")) {
-                    return new String[]{r.optString("tag_name"), a.optString("url")};
+                if (a == null) continue;
+                String name = a.optString("name");
+                if (name.startsWith("turbobox-") && name.endsWith("-android.apk")) {
+                    String version = name.substring("turbobox-".length(), name.length() - "-android.apk".length());
+                    return new String[]{version, a.optString("url")};
                 }
             }
         }
