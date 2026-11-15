@@ -2,6 +2,8 @@
 # (android/app/src/main/java/app/turbobox/AppUpdater.java). Nothing to tag by hand.
 # The version is the year, the month and a counter: v2026.10.0, v2026.10.1, ... (the counter restarts each month).
 # Documentation-only changes do not release. "Run workflow" in the Actions tab releases the current main on demand.
+# A pull request from a branch (or with a title) containing "featuretest" is a feature test: instead of a TurboBox build it
+# publishes a pre-release with the test APKs and the latest official APK (see featuretest.yml).
 name: Release
 on:
   push:
@@ -14,7 +16,29 @@ concurrency:
   group: release
   cancel-in-progress: false
 jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      feature: ${{ steps.d.outputs.feature }}
+    steps:
+      - id: d
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          info=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '.[] | .head.ref + " " + .title' 2>/dev/null || true)
+          if echo "$HEAD_MSG $info" | grep -qi featuretest; then echo "feature=true" >> "$GITHUB_OUTPUT"; else echo "feature=false" >> "$GITHUB_OUTPUT"; fi
+
+  feature:
+    needs: detect
+    if: needs.detect.outputs.feature == 'true'
+    uses: ./.github/workflows/featuretest.yml
+    permissions:
+      contents: write
+
   release:
+    needs: detect
+    if: needs.detect.outputs.feature != 'true'
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.next.outputs.tag }}
