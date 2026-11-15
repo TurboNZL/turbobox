@@ -2,7 +2,7 @@
 
 A workflow opens one or more of your pinned pages and follows steps you write: click this, type that, wait, record, hang up. It can start **by itself at a time you choose, on the days you choose, with the screen off**, or when you tap **Run now**.
 
-A workflow does not belong to a page. Make it once, name it, and then in a **page's settings > Workflows** switch it on for that page and choose the days and time it runs there (a 2-hour lecture on one page, a morning check-in on another). The same links can be changed from the workflow itself (the pages it runs on), so use whichever is closer.
+A workflow does not belong to a page. Make it once, name it, and then in a **page's settings > Workflows** switch it on for that page and choose the days and time it runs there (a 2-hour video on one page, a morning check-in on another). The same links can be changed from the workflow itself (the pages it runs on), so use whichever is closer.
 
 Home > Workflows > **New workflow**. Give it a name, choose the pages (tap tiles in the same layout as the home screen; pick several to run the steps on each page at once), optionally switch on **Start by itself at a set time**, and write the steps.
 

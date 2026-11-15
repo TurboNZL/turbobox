@@ -181,7 +181,7 @@ final class SiteData {
         CookieManager cm = cookiesOf(s);
         String url = "https://" + s.host + "/";
         List<String> domains = hostAndParents(s.host);
-        // A cookie set for a path (Teams' /v2/ one, say) is not in the list for "/", so each address a page of this site has
+        // A cookie set for a path (an app's /v2/ one, say) is not in the list for "/", so each address a page of this site has
         // used is asked as well, and the cookies are expired for every folder along it.
         Set<String> probes = new java.util.LinkedHashSet<>();
         probes.add(url);

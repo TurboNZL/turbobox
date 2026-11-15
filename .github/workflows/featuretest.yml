@@ -1,0 +1,112 @@
+# Test builds, published as ONE pre-release tagged "featuretest" next to the official TurboBox APK. Not an update: the real
+# app only offers versions it can read as newer (see Releases.isNewer), and "featuretest" is not one.
+#   1. engine-test.apk  : loads a page in Mozilla's GeckoView engine (own app id)
+#   2. sandbox-test.apk : an Apache-2.0 app-virtualization engine (upstream pinned below), built here with every sensitive
+#                         permission removed, so apps inside it cannot get the camera, microphone, location, contacts, ...
+#   3. the latest official TurboBox APK, copied from the latest release
+name: Feature test
+on:
+  push:
+    branches: [claude/engine-spike]
+  workflow_dispatch:
+permissions:
+  contents: write
+env:
+  UPSTREAM_REPO: ALEX5402/NewBlackbox
+  UPSTREAM_SHA: 89b59836c66f173756a4ae258cf379a957649820
+jobs:
+  gecko:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build
+        run: |
+          cd android && chmod +x gradlew
+          ./gradlew --no-daemon :engine-test:assembleRelease
+          cp engine-test/build/outputs/apk/release/engine-test-release.apk ../engine-test.apk
+      - uses: actions/upload-artifact@v4
+        with: { name: gecko, path: engine-test.apk, retention-days: 7 }
+
+  sandbox:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ env.UPSTREAM_SHA }}
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - name: Android SDK and NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.13846066" "platforms;android-35" "build-tools;35.0.0" >/dev/null
+      - name: Remove every sensitive permission from the app (the engine's own manifests declare camera, microphone, SMS, ...)
+        run: |
+          python3 - <<'PY'
+          import re
+          p = 'app/src/main/AndroidManifest.xml'
+          s = open(p, encoding='utf-8').read()
+          names = """CAMERA RECORD_AUDIO ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION ACCESS_BACKGROUND_LOCATION ACCESS_MEDIA_LOCATION
+          READ_CONTACTS WRITE_CONTACTS GET_ACCOUNTS AUTHENTICATE_ACCOUNTS MANAGE_ACCOUNTS READ_CALENDAR WRITE_CALENDAR
+          READ_CALL_LOG WRITE_CALL_LOG PROCESS_OUTGOING_CALLS CALL_PHONE READ_PHONE_STATE READ_PHONE_NUMBERS READ_PRECISE_PHONE_STATE
+          READ_SMS SEND_SMS RECEIVE_SMS WRITE_SMS BODY_SENSORS BODY_SENSORS_BACKGROUND BLUETOOTH BLUETOOTH_ADMIN BLUETOOTH_ADVERTISE
+          BLUETOOTH_CONNECT BLUETOOTH_SCAN READ_EXTERNAL_STORAGE WRITE_EXTERNAL_STORAGE MANAGE_EXTERNAL_STORAGE READ_MEDIA_IMAGES
+          READ_MEDIA_VIDEO READ_MEDIA_AUDIO READ_MEDIA_VISUAL READ_MEDIA_AURAL READ_MEDIA_IMAGES_USER_SELECTED
+          READ_MEDIA_VIDEO_USER_SELECTED READ_MEDIA_AUDIO_USER_SELECTED READ_MEDIA_VISUAL_USER_SELECTED
+          READ_MEDIA_AURAL_USER_SELECTED REQUEST_INSTALL_PACKAGES RESTART_PACKAGES FOREGROUND_SERVICE_MICROPHONE
+          FOREGROUND_SERVICE_CAMERA FOREGROUND_SERVICE_LOCATION FOREGROUND_SERVICE_PHONE_CALL SYSTEM_ALERT_WINDOW""".split()
+          # The same names with the Google and Samsung prefixes the engine also declares
+          extra = [l.split('"')[1] for l in open('Bcore/src/main/AndroidManifest.xml', encoding='utf-8').read().split('\n')
+                   if 'uses-permission' in l and 'name="' in l and not l.strip().startswith('<!--')]
+          bad = {n for n in extra if n.rsplit('.', 1)[-1] in names or n.startswith(('com.google.android.gms.permission', 'com.samsung'))}
+          bad |= {'android.permission.' + n for n in names}
+          rm = ''.join('    <uses-permission android:name="%s" tools:node="remove" />\n' % n for n in sorted(bad))
+          s = re.sub(r'(<manifest[^>]*>)', lambda m: m.group(1) + '\n' + rm, s, count=1)
+          open(p, 'w', encoding='utf-8').write(s)
+          print(len(bad), 'permissions removed')
+          PY
+      - name: Build
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:assembleRelease
+          APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
+          cp "$APK" sandbox-test.apk
+      - name: Prove the camera and microphone are not in the app
+        run: |
+          AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | tail -1)
+          "$AAPT" dump permissions sandbox-test.apk | tee perms.txt
+          if grep -E "CAMERA|RECORD_AUDIO|LOCATION|CONTACTS|SMS|CALL_LOG|READ_PHONE" perms.txt; then echo "A sensitive permission is still in the app"; exit 1; fi
+      - uses: actions/upload-artifact@v4
+        with: { name: sandbox, path: "sandbox-test.apk\nperms.txt", retention-days: 7 }
+
+  publish:
+    needs: [gecko, sandbox]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: files, merge-multiple: true }
+      - name: Copy the latest official TurboBox APK
+        env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
+        run: |
+          mkdir official
+          gh release download --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir official
+          cp official/*.apk files/
+          ls -la files
+      - name: Publish the "featuretest" pre-release
+        env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
+        run: |
+          gh release delete featuretest --repo "$GITHUB_REPOSITORY" --cleanup-tag -y || true
+          cat > notes.md <<'NOTES'
+          FEATURETEST. Test builds, not updates. The real TurboBox app ignores this release.
+
+          - `turbobox-*-android.apk`: the latest official TurboBox, unchanged, for convenience.
+          - `engine-test.apk`: a throwaway app that loads one page in Mozilla's GeckoView engine instead of Android's WebView.
+          - `sandbox-test.apk`: an app-virtualization engine (upstream: Apache-2.0, pinned commit) built with every sensitive permission removed. It is unaudited third-party code. `perms.txt` lists the permissions it really holds.
+
+          None of these apps are part of TurboBox, and none can use the camera or microphone.
+          NOTES
+          gh release create featuretest --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "FEATURETEST" \
+            --prerelease --latest=false --notes-file notes.md files/*

@@ -94,7 +94,7 @@ await page.evaluate(() => window.__turbobox.setLocalMute(false));
 check('local mute restores the element', (await page.evaluate(() => document.getElementById('a').muted)) === false);
 await page.evaluate(() => window.__turbobox.setTap(false));
 
-// an element the page keeps silent (muted, or volume 0: Twitch does this to an ad while the stream plays) is not recorded,
+// an element the page keeps silent (muted, or volume 0: some streaming sites do this to an ad while the stream plays) is not recorded,
 // with or without local mute
 for (const [name, away, silence, restore] of [
   ['muted by the page', false, a => { a.muted = true; }, a => { a.muted = false; }],
@@ -142,7 +142,7 @@ wposts.length = 0;
 await pw.waitForTimeout(1500);
 const both = peakOf(wposts);
 check('with both kinds of sound present they are not added together', both > 8000 && both < 17000, both);
-// an element playing a MediaStream that is not a call (Twitch plays its live stream like this) is recorded; on a page of its
+// an element playing a MediaStream that is not a call (some streaming sites play a live stream like this) is recorded; on a page of its
 // own, so nothing else can make the sound
 const sp = await b.newPage();
 const sposts = [];

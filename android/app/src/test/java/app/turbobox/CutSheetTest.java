@@ -48,7 +48,7 @@ public class CutSheetTest {
         List<Vtt.Cue> cues = new ArrayList<>();
         for (int i = 0; i < 1440; i++) cues.add(new Vtt.Cue(i * 10_000L, i * 10_000L + 9000, "one two three four five six seven eight nine ten eleven twelve"));
         long total = 1440 * 10_000L;   // 4 hours
-        List<CutSheet.Part> parts = CutSheet.parts("Lecture", total, cues, new ArrayList<long[]>(), 4500);
+        List<CutSheet.Part> parts = CutSheet.parts("Recording", total, cues, new ArrayList<long[]>(), 4500);
         assertTrue(parts.size() >= 3);
         assertEquals(0, parts.get(0).startMs);
         assertEquals(total, parts.get(parts.size() - 1).endMs);

@@ -577,7 +577,7 @@ final class BufferRecorder {
     }
 
     /**
-     * Feeds the AAC encoder from the page's PCM. When the page sends nothing (a silent lecture, a throttled
+     * Feeds the AAC encoder from the page's PCM. When the page sends nothing (a silent stretch, a throttled
      * page) silence is fed instead, by the clock, so the audio never falls behind the pictures; when the page's
      * sound arrives in a burst far ahead of the clock it is dropped, so the two never drift apart.
      */

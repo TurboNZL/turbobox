@@ -27,10 +27,10 @@ public class RecapTextTest {
 
     @Test
     public void promptsCarryTheirInputs() {
-        String p = RecapText.notesPrompt("Lecture", 7_200_000, 0, 1_800_000, "[0:05] hello");
+        String p = RecapText.notesPrompt("Recording", 7_200_000, 0, 1_800_000, "[0:05] hello");
         assertTrue(p.contains("0:00 to 30:00"));
         assertTrue(p.contains("[0:05] hello"));
-        assertTrue(RecapText.finalPrompt("Lecture", 7_200_000, "- [1:00] a").contains("## Important stuff (TL;DR)"));
+        assertTrue(RecapText.finalPrompt("Recording", 7_200_000, "- [1:00] a").contains("## Important stuff (TL;DR)"));
         assertTrue(p.contains("\n"));
     }
 

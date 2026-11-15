@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * The prompts that turn a lecture's captions into a recap (a title, "important stuff" at the top, chapters, notes, and the stretches worth
+ * The prompts that turn a recording's captions into a recap (a title, "important stuff" at the top, chapters, notes, and the stretches worth
  * watching as a short video), and the reading of the finished recap. No Android classes, so it is tested on the JVM.
  */
 final class RecapText {
@@ -13,7 +13,7 @@ final class RecapText {
     }
 
     static String notesPrompt(String name, long totalMs, long fromMs, long toMs, String body) {
-        return "You are taking notes on one part of a recording called \"" + (name.isEmpty() ? "Recording" : name) + "\" (a lecture, talk or meeting), "
+        return "You are taking notes on one part of a recording called \"" + (name.isEmpty() ? "Recording" : name) + "\" (a talk, video or meeting), "
                 + "from its transcript. Times are m:ss or h:mm:ss from the start of the whole recording, which is " + CutSheet.clock(totalMs) + " long. "
                 + "This part covers " + CutSheet.clock(fromMs) + " to " + CutSheet.clock(toMs) + ".\n"
                 + "Write short notes as lines like `- [12:30] the point`. Put `!` right after the time on anything that really matters: deadlines, assignments, "

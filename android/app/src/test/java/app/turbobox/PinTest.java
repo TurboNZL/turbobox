@@ -22,7 +22,7 @@ public class PinTest {
 
     @Test
     public void workflowSizeAndBarSettingsRoundTrip() {
-        Pin p = Pin.create("Lecture", "https://video.example.com/live");
+        Pin p = Pin.create("Example", "https://video.example.com/live");
         assertTrue(!p.wfSize && !p.barOverlay);
         p.wfSize = true;
         p.wfPageWidth = 1920;

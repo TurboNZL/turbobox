@@ -18,7 +18,7 @@ final class Prefs {
         return sp(c);
     }
 
-    // ---- this install never uses the microphone / camera (a work profile, say) ----
+    // ---- this install never uses the microphone / camera (a managed profile, say) ----
     /** No microphone at all: pages are refused it, it is never asked for, and nothing in the app needs it to work. */
     static boolean noMic(Context c) { return sp(c).getBoolean("noMic", false); }
     static void setNoMic(Context c, boolean v) {
