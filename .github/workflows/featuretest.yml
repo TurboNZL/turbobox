@@ -63,6 +63,9 @@ jobs:
                    if 'uses-permission' in l and 'name="' in l and not l.strip().startswith('<!--')]
           bad = {n for n in extra if n.rsplit('.', 1)[-1] in names or n.startswith(('com.google.android.gms.permission', 'com.samsung'))}
           bad |= {'android.permission.' + n for n in names}
+          # The app's own manifest may already declare some of them: drop those declarations first (a duplicate fails the merge)
+          for n in bad:
+              s = re.sub(r'<uses-permission[^>]*android:name="' + re.escape(n) + r'"[^>]*/>', '', s)
           rm = ''.join('    <uses-permission android:name="%s" tools:node="remove" />\n' % n for n in sorted(bad))
           s = re.sub(r'(<manifest[^>]*>)', lambda m: m.group(1) + '\n' + rm, s, count=1)
           open(p, 'w', encoding='utf-8').write(s)
