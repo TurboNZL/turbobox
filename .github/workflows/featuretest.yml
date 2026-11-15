@@ -12,6 +12,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+concurrency:
+  group: featuretest
+  cancel-in-progress: true
 env:
   UPSTREAM_REPO: ALEX5402/NewBlackbox
   UPSTREAM_SHA: 89b59836c66f173756a4ae258cf379a957649820
