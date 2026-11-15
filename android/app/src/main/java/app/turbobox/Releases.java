@@ -42,6 +42,8 @@ final class Releases {
         for (int i = 0; i < releases.length(); i++) {
             JSONObject r = releases.optJSONObject(i);
             if (r == null || r.optBoolean("draft")) continue;
+            // Only releases named like a version (v2026.11.3) count: a test release with another name is never an update.
+            if (!r.optString("tag_name").matches("v?\\d+(\\.\\d+)*.*")) continue;
             JSONArray assets = r.optJSONArray("assets");
             if (assets == null) continue;
             for (int j = 0; j < assets.length(); j++) {

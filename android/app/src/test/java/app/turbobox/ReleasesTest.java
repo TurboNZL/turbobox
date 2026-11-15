@@ -26,4 +26,11 @@ public class ReleasesTest {
         assertArrayEquals(new String[]{"v1", "u1"}, Releases.newestWithApk(list));
         assertNull(Releases.newestWithApk(new JSONArray("[]")));
     }
+
+    @Test
+    public void releasesNotNamedLikeAVersionAreNeverUpdates() throws Exception {
+        JSONArray list = new JSONArray("[{\"tag_name\":\"testing\",\"prerelease\":true,\"assets\":[{\"name\":\"t.apk\",\"url\":\"ut\"}]},"
+                + "{\"tag_name\":\"v2026.1.2\",\"assets\":[{\"name\":\"a.apk\",\"url\":\"ua\"}]}]");
+        assertArrayEquals(new String[]{"v2026.1.2", "ua"}, Releases.newestWithApk(list));
+    }
 }
