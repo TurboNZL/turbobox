@@ -19,18 +19,23 @@ public class ReleasesTest {
     }
 
     @Test
-    public void newestReleaseWithAnApkWinsAndDraftsAreSkipped() throws Exception {
-        JSONArray list = new JSONArray("[{\"tag_name\":\"v3\",\"draft\":true,\"assets\":[{\"name\":\"a.apk\",\"url\":\"u3\"}]},"
+    public void newestReleaseWithTheAppWinsAndDraftsAreSkipped() throws Exception {
+        JSONArray list = new JSONArray("[{\"tag_name\":\"v3\",\"draft\":true,\"assets\":[{\"name\":\"turbobox-3-android.apk\",\"url\":\"u3\"}]},"
                 + "{\"tag_name\":\"v2\",\"assets\":[]},"
                 + "{\"tag_name\":\"v1\",\"prerelease\":true,\"assets\":[{\"name\":\"x.txt\",\"url\":\"ux\"},{\"name\":\"turbobox-1-android.apk\",\"url\":\"u1\"}]}]");
-        assertArrayEquals(new String[]{"v1", "u1"}, Releases.newestWithApk(list));
+        assertArrayEquals(new String[]{"1", "u1"}, Releases.newestWithApk(list));
         assertNull(Releases.newestWithApk(new JSONArray("[]")));
     }
 
     @Test
-    public void releasesNotNamedLikeAVersionAreNeverUpdates() throws Exception {
-        JSONArray list = new JSONArray("[{\"tag_name\":\"testing\",\"prerelease\":true,\"assets\":[{\"name\":\"t.apk\",\"url\":\"ut\"}]},"
-                + "{\"tag_name\":\"v2026.1.2\",\"assets\":[{\"name\":\"a.apk\",\"url\":\"ua\"}]}]");
-        assertArrayEquals(new String[]{"v2026.1.2", "ua"}, Releases.newestWithApk(list));
+    public void aTestReleaseCarryingTheOldAppOffersNothingNewer() throws Exception {
+        // v2026.11.14 is a feature test: it holds the test apps and the previous real app, still named 2026.11.13.
+        JSONArray list = new JSONArray("[{\"tag_name\":\"v2026.11.14\",\"prerelease\":true,\"assets\":["
+                + "{\"name\":\"turbobox-2026.11.13-android.apk\",\"url\":\"uo\"},{\"name\":\"sandbox-test.apk\",\"url\":\"us\"}]},"
+                + "{\"tag_name\":\"v2026.11.13\",\"assets\":[{\"name\":\"turbobox-2026.11.13-android.apk\",\"url\":\"uo2\"}]}]");
+        String[] found = Releases.newestWithApk(list);
+        assertArrayEquals(new String[]{"2026.11.13", "uo"}, found);
+        assertFalse(Releases.isNewer(found[0], "2026.11.13"));
+        assertTrue(Releases.isNewer(found[0], "2026.11.12"));
     }
 }
