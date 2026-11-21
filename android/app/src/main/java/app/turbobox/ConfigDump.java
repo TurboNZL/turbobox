@@ -54,6 +54,29 @@ final class ConfigDump {
             sb.append("  ").append(k).append(" = ").append(shown).append('\n');
         }
         sb.append("\nPinned pages, sign-ins and workflows are not included.\n");
+        audioRoute(c, sb);
         return sb.toString();
+    }
+
+    /** Where the phone sends sound right now and what the volumes are, for a volume that does nothing. */
+    private static void audioRoute(Context c, StringBuilder sb) {
+        try {
+            android.media.AudioManager am = (android.media.AudioManager) c.getSystemService(Context.AUDIO_SERVICE);
+            sb.append("\nAudio route\n");
+            sb.append("  mode ").append(am.getMode()).append(" (0 normal, 3 in communication), volume fixed: ").append(am.isVolumeFixed()).append('\n');
+            sb.append("  media volume ").append(am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)).append('/')
+                    .append(am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)).append(", call volume ")
+                    .append(am.getStreamVolume(android.media.AudioManager.STREAM_VOICE_CALL)).append('/')
+                    .append(am.getStreamMaxVolume(android.media.AudioManager.STREAM_VOICE_CALL)).append('\n');
+            if (Build.VERSION.SDK_INT >= 31) {
+                android.media.AudioDeviceInfo cd = am.getCommunicationDevice();
+                sb.append("  communication device: ").append(cd == null ? "none" : "type " + cd.getType()).append('\n');
+            }
+            StringBuilder outs = new StringBuilder();
+            for (android.media.AudioDeviceInfo d : am.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)) outs.append(' ').append(d.getType());
+            sb.append("  output device types:").append(outs).append(" (7 Bluetooth call, 8 Bluetooth media, 26 Bluetooth LE, 2 speaker)\n");
+        } catch (RuntimeException e) {
+            sb.append("Audio route: not available (").append(e.getMessage()).append(")\n");
+        }
     }
 }

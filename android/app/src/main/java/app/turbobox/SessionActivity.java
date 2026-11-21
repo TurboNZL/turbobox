@@ -136,6 +136,7 @@ public class SessionActivity extends Activity implements Session.Listener {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        Prefs.setStopped(this, false);
         setVolumeControlStream(AudioManager.STREAM_MUSIC);
         getWindow().setStatusBarColor(Ui.BG);
         getWindow().setNavigationBarColor(Ui.BG);

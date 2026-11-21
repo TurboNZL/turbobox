@@ -8,6 +8,7 @@ import android.content.Intent;
 public class WorkflowReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
+        if (Prefs.stopped(context)) return;   // stopped from Settings: stays off until the app is opened by hand
         String action = intent.getAction();
         if (WorkflowScheduler.ACTION_RUN.equals(action)) {
             String id = intent.getStringExtra(WorkflowScheduler.EXTRA_ID);

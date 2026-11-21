@@ -525,6 +525,29 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
                     }).setNegativeButton("Cancel", null).show();
         });
         dbg.addView(probe, Ui.lp(this, 8, 0));
+        TextView check = Ui.pill(this, "Check what a page sees", 0);
+        check.setOnClickListener(v -> {
+            try {
+                String address = RequestCheck.start(this);
+                startActivity(new Intent(this, SessionActivity.class).setAction(SessionActivity.ACTION_OPEN_URL)
+                        .putExtra(SessionActivity.EXTRA_URL, address));
+            } catch (java.io.IOException e) {
+                Toast.makeText(this, "Could not start the check: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        });
+        dbg.addView(check, Ui.lp(this, 8, 0));
+        dbg.addView(Ui.hint(this, "Opens a page served by this phone itself, as a normal page (with the default identity). It lists the request "
+                + "headers it received (user agent, client hints) and what a site's script can read: touch, screen, connection type, media queries. "
+                + "Tap Copy on it to share the result; nothing leaves the phone."), Ui.lp(this, 4, 4));
+        Switch ht = Ui.toggle(this);
+        ht.setText("Hide the touch screen from pages");
+        ht.setTextColor(Ui.TEXT);
+        ht.setChecked(Prefs.hideTouch(this));
+        ht.setOnCheckedChangeListener((b, on) -> Prefs.setHideTouch(this, on));
+        dbg.addView(ht, Ui.lp(this, 10, 4));
+        dbg.addView(Ui.hint(this, "For a site that tells a phone from a desktop by more than the user agent. Desktop pages then report no touch points, "
+                + "no phone orientation, a mouse as the pointer and no connection type (use the check above to see the difference). A page that sets "
+                + "touch handlers on its elements loses them; scrolling and taps still work. Applies to pages opened afterwards."), Ui.lp(this, 0, 4));
         Switch nw = Ui.toggle(this);
         nw.setText("Follow links that open a new window");
         nw.setTextColor(Ui.TEXT);
@@ -595,6 +618,44 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
 
         body.addView(Ui.hint(this, "TurboBox is MIT licensed and built on TurboNZL/turboengine. The pinned pages, the microphone "
                 + "handling and the mute lock come from Tether's web session."), Ui.lp(this, 16, 0));
+
+        // Stop everything
+        LinearLayout stop = Ui.card(this);
+        stop.addView(Ui.text(this, "Stop TurboBox", 17f, Ui.TEXT, "sans-serif-medium"));
+        stop.addView(Ui.hint(this, "Closes every page, cancels the planned workflow alarms and ends the app's process, so nothing of it runs "
+                + "until you open TurboBox yourself. Recordings in progress are finished first. Your pages, workflows and settings are kept."), Ui.lp(this, 4, 8));
+        TextView stopBtn = Ui.pill(this, "Stop TurboBox", Ui.RED);
+        stopBtn.setOnClickListener(v -> new DimBuilder(this).setTitle("Stop TurboBox?")
+                .setMessage("Every open page is closed, scheduled workflows will not run, and the app ends. It stays off until you open it again.")
+                .setPositiveButton("Stop", (stopDialog, stopWhich) -> stopEverything())
+                .setNegativeButton("Cancel", null).show());
+        stop.addView(stopBtn, Ui.lp(this, 4, 0));
+        body.addView(stop, Ui.lp(this, 12, 0));
+    }
+
+    /** Closes the pages, cancels the alarms, waits for a recording being written, then ends the process. Stays off until an activity is opened. */
+    private void stopEverything() {
+        final android.content.Context app = getApplicationContext();
+        Prefs.setStopped(app, true);
+        for (Workflow w : WorkflowStore.load(app)) WorkflowScheduler.cancelAll(app, w);
+        for (Session s : new java.util.ArrayList<>(Sessions.active())) s.close("TurboBox was stopped");
+        app.stopService(new android.content.Intent(app, SessionService.class));
+        android.app.NotificationManager nm = app.getSystemService(android.app.NotificationManager.class);
+        if (nm != null) nm.cancelAll();
+        finishAndRemoveTask();
+        final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+        final long until = System.currentTimeMillis() + 8000;
+        h.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                // A recording piece that is still being written is given a few seconds to close.
+                if ((BufferRecorder.busy() || RecordingTranscribe.busy()) && System.currentTimeMillis() < until) {
+                    h.postDelayed(this, 300);
+                    return;
+                }
+                android.os.Process.killProcess(android.os.Process.myPid());
+            }
+        }, 600);
     }
 
     private static final int REQ_ACCOUNT = 41;

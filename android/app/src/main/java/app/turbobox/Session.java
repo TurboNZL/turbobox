@@ -402,7 +402,7 @@ final class Session {
         if (wv == null || !WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return;
         if (startScript != null) startScript.remove();
         startScript = WebViewCompat.addDocumentStartJavaScript(wv,
-                (mobile ? "window.__tbMobile=true;\n" : "") + (identity() > 0 ? "window.__tbOs=\"" + (identity() == 3 ? "mac" : "win") + "\";\n" : "") + sessionScript(), Collections.singleton("*"));
+                (mobile ? "window.__tbMobile=true;\n" : "") + (Prefs.hideTouch(app) ? "window.__tbHideTouch=true;\n" : "") + (identity() > 0 ? "window.__tbOs=\"" + (identity() == 3 ? "mac" : "win") + "\";\n" : "") + sessionScript(), Collections.singleton("*"));
     }
 
     /** Forces the page's area into a shape (an index into {@link Pin#ASPECTS}, 0 = fill the space); kept with the pin. */
@@ -1683,8 +1683,7 @@ final class Session {
                     break;
                 }
                 case "fsrestore":
-                    if (!"1".equals(data)) notice("Tap the video's full screen button to continue in full screen.");
-                    break;
+                    break;   // asked again for full screen; a refusal is silent (the video simply keeps playing in the page)
                 case "media":
                     mediaPlaying = "1".equals(data);
                     main.post(SessionService::refresh);

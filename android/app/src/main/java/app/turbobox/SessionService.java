@@ -47,6 +47,7 @@ public class SessionService extends Service {
 
     /** Does anything need the process kept alive? */
     static boolean needed(Context c) {
+        if (Prefs.stopped(c)) return false;
         // A recording that has just been stopped is still being written: the process must not be left to the system until it is done.
         return Sessions.anyActive() || WorkflowRunner.anyRunning() || BufferRecorder.busy() || RecordingTranscribe.busy() || DigestMaker.busy() || Prefs.standby(c);
     }

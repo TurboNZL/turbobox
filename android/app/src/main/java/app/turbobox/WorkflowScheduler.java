@@ -65,7 +65,7 @@ final class WorkflowScheduler {
     static void schedule(Context c, Workflow wf) {
         AlarmManager am = c.getSystemService(AlarmManager.class);
         cancelAll(c, wf);
-        if (!Prefs.workflowsOn(c)) return;   // the master switch is off: nothing is planned
+        if (!Prefs.workflowsOn(c) || Prefs.stopped(c)) return;   // the master switch is off, or the app was stopped: nothing is planned
         if (wf.timed && wf.enabled) plan(c, am, wf.id, null, wf.hour, wf.minute, wf.days);
         for (java.util.Map.Entry<String, Workflow.PageSchedule> e : wf.pageSchedules.entrySet()) {
             Workflow.PageSchedule ps = e.getValue();
