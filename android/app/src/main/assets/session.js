@@ -36,7 +36,36 @@
         Object.defineProperty(window.NavigatorUAData.prototype, 'platform', { get: function () { return cfg.os === 'win' ? 'Windows' : cfg.os === 'mac' ? 'macOS' : 'Linux'; }, configurable: true });
       }
       // A desktop identity other than the default also has no touch screen, as far as a page can count.
-      if (cfg.os !== 'linux') Object.defineProperty(navProto, 'maxTouchPoints', { get: function () { return 0; }, configurable: true });
+      if (cfg.os !== 'linux' || window.__tbHideTouch) Object.defineProperty(navProto, 'maxTouchPoints', { get: function () { return 0; }, configurable: true });
+    }
+    // Optional (Settings > Debugging, "Hide the touch screen from pages"): everything else a script can read that only a phone or tablet has,
+    // so a site that tells phones from desktops by more than the user agent sees a desktop. Pages that set touch handlers on elements lose
+    // them (the browser still scrolls and turns taps into clicks), which is why it is off unless asked for.
+    if (cfg.desktop && window.__tbHideTouch) {
+      try { delete window.orientation; } catch (e) { /* kept */ }
+      ['ontouchstart', 'ontouchend', 'ontouchmove', 'ontouchcancel'].forEach(function (n) {
+        [window.Window, window.Document, window.HTMLElement, window.SVGElement].forEach(function (C) {
+          try { if (C && C.prototype) delete C.prototype[n]; } catch (e) { /* kept */ }
+        });
+        try { delete window[n]; } catch (e) { /* kept */ }
+      });
+      try {
+        if (window.NetworkInformation) Object.defineProperty(window.NetworkInformation.prototype, 'type', { get: function () { return undefined; }, configurable: true });
+      } catch (e) { /* kept */ }
+      try {
+        // A mouse and hover, as a desktop has: a pointer or hover feature in a query is replaced by one that is always true or always false.
+        var realMatchMedia = window.matchMedia;
+        window.matchMedia = function (q) {
+          return realMatchMedia.call(window, String(q).replace(/\(\s*(?:any-)?(pointer|hover)\s*:\s*(\w+)\s*\)/gi, function (m, f, v) {
+            v = v.toLowerCase();
+            return (f.toLowerCase() === 'pointer' ? v === 'fine' : v === 'hover') ? '(min-width: 0px)' : '(max-width: -1px)';
+          }));
+        };
+      } catch (e) { /* kept */ }
+      // The touch handlers can come back after the document starts: take them off again once it is up.
+      document.addEventListener('DOMContentLoaded', function () {
+        ['ontouchstart', 'ontouchend', 'ontouchmove', 'ontouchcancel'].forEach(function (n) { try { delete window[n]; } catch (e) { /* kept */ } });
+      });
     }
   } catch (e) { /* best effort */ }
 

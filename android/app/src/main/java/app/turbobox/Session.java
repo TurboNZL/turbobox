@@ -402,7 +402,7 @@ final class Session {
         if (wv == null || !WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return;
         if (startScript != null) startScript.remove();
         startScript = WebViewCompat.addDocumentStartJavaScript(wv,
-                (mobile ? "window.__tbMobile=true;\n" : "") + (identity() > 0 ? "window.__tbOs=\"" + (identity() == 3 ? "mac" : "win") + "\";\n" : "") + sessionScript(), Collections.singleton("*"));
+                (mobile ? "window.__tbMobile=true;\n" : "") + (Prefs.hideTouch(app) ? "window.__tbHideTouch=true;\n" : "") + (identity() > 0 ? "window.__tbOs=\"" + (identity() == 3 ? "mac" : "win") + "\";\n" : "") + sessionScript(), Collections.singleton("*"));
     }
 
     /** Forces the page's area into a shape (an index into {@link Pin#ASPECTS}, 0 = fill the space); kept with the pin. */

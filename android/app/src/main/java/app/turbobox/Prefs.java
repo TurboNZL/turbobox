@@ -71,6 +71,10 @@ final class Prefs {
     static boolean keepPlaying(Context c) { return ps(c).getBoolean("keepPlaying", true); }
     static void setKeepPlaying(Context c, boolean v) { ps(c).edit().putBoolean("keepPlaying", v).apply(); }
 
+    /** Desktop pages also hide the phone-only properties a script can read (touch points, orientation, pointer media queries, connection type). Off by default. */
+    static boolean hideTouch(Context c) { return sp(c).getBoolean("hideTouch", false); }
+    static void setHideTouch(Context c, boolean v) { sp(c).edit().putBoolean("hideTouch", v).apply(); }
+
     /** TurboBox was stopped from Settings: no alarm, boot event or service starts anything until the person opens the app again. */
     static boolean stopped(Context c) { return sp(c).getBoolean("stopped", false); }
     static void setStopped(Context c, boolean v) { sp(c).edit().putBoolean("stopped", v).apply(); }

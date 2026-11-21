@@ -525,6 +525,29 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
                     }).setNegativeButton("Cancel", null).show();
         });
         dbg.addView(probe, Ui.lp(this, 8, 0));
+        TextView check = Ui.pill(this, "Check what a page sees", 0);
+        check.setOnClickListener(v -> {
+            try {
+                String address = RequestCheck.start(this);
+                startActivity(new Intent(this, SessionActivity.class).setAction(SessionActivity.ACTION_OPEN_URL)
+                        .putExtra(SessionActivity.EXTRA_URL, address));
+            } catch (java.io.IOException e) {
+                Toast.makeText(this, "Could not start the check: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        });
+        dbg.addView(check, Ui.lp(this, 8, 0));
+        dbg.addView(Ui.hint(this, "Opens a page served by this phone itself, as a normal page (with the default identity). It lists the request "
+                + "headers it received (user agent, client hints) and what a site's script can read: touch, screen, connection type, media queries. "
+                + "Tap Copy on it to share the result; nothing leaves the phone."), Ui.lp(this, 4, 4));
+        Switch ht = Ui.toggle(this);
+        ht.setText("Hide the touch screen from pages");
+        ht.setTextColor(Ui.TEXT);
+        ht.setChecked(Prefs.hideTouch(this));
+        ht.setOnCheckedChangeListener((b, on) -> Prefs.setHideTouch(this, on));
+        dbg.addView(ht, Ui.lp(this, 10, 4));
+        dbg.addView(Ui.hint(this, "For a site that tells a phone from a desktop by more than the user agent. Desktop pages then report no touch points, "
+                + "no phone orientation, a mouse as the pointer and no connection type (use the check above to see the difference). A page that sets "
+                + "touch handlers on its elements loses them; scrolling and taps still work. Applies to pages opened afterwards."), Ui.lp(this, 0, 4));
         Switch nw = Ui.toggle(this);
         nw.setText("Follow links that open a new window");
         nw.setTextColor(Ui.TEXT);

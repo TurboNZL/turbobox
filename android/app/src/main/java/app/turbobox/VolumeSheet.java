@@ -21,7 +21,10 @@ final class VolumeSheet {
                 (v, fromUser) -> {
                     if (fromUser) NativeVolume.setMedia(act, v);
                 }, Ui::pct));
-        phone.addView(Ui.sliderRow(act, "Call volume", Ui.pct(NativeVolume.getCall(act)), 1f, NativeVolume.getCall(act), PinSheet.BLUE,
+        // The call volume only means something while Android routes sound as a call (a chosen Bluetooth microphone); otherwise it is hidden.
+        boolean callRoute = android.os.Build.VERSION.SDK_INT >= 31
+                && ((android.media.AudioManager) act.getSystemService(android.content.Context.AUDIO_SERVICE)).getCommunicationDevice() != null;
+        if (callRoute) phone.addView(Ui.sliderRow(act, "Call volume", Ui.pct(NativeVolume.getCall(act)), 1f, NativeVolume.getCall(act), PinSheet.BLUE,
                 (v, fromUser) -> {
                     if (fromUser) NativeVolume.setCall(act, v);
                 }, Ui::pct), Ui.lp(act, 12, 0));

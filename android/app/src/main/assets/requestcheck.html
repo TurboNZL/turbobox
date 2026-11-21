@@ -1,0 +1,51 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>What a page sees</title>
+<style>body{font:14px/1.4 monospace;background:#111;color:#ddd;margin:12px}h2{font:600 15px sans-serif;margin:16px 0 4px;color:#a6e22e}pre{white-space:pre-wrap;word-break:break-all;margin:0}button{font:600 15px sans-serif;padding:10px 16px;margin:8px 8px 0 0}</style></head>
+<body><button id="copy">Copy</button><span id="note"></span><pre id="out">Collecting...</pre>
+<script>
+(async function () {
+  var served = /*HEADERS*/null, out = [];
+  function sec(t) { out.push('\n## ' + t); }
+  function line(k, v) { out.push(k + ': ' + (typeof v === 'string' ? v : JSON.stringify(v))); }
+  function safe(f) { try { return f(); } catch (e) { return 'error: ' + e.message; } }
+  sec('Request headers the server received (page load)');
+  Object.keys(served || {}).forEach(function (k) { if (k !== ':request') line(k, served[k]); });
+  try {
+    var again = await (await fetch('/again', { cache: 'no-store' })).json();
+    sec('Second request (after the server asked for more client hints)');
+    Object.keys(again).forEach(function (k) { if (/^(sec-ch|device-memory|dpr|viewport|save-data|ect|rtt|downlink)/.test(k)) line(k, again[k]); });
+  } catch (e) { line('second request', 'failed: ' + e.message); }
+  sec('navigator');
+  ['userAgent', 'platform', 'vendor', 'language', 'languages', 'maxTouchPoints', 'hardwareConcurrency', 'deviceMemory', 'webdriver', 'pdfViewerEnabled', 'cookieEnabled', 'onLine'].forEach(function (k) { line(k, safe(function () { return navigator[k]; })); });
+  line('plugins', safe(function () { return navigator.plugins.length; }));
+  var uad = navigator.userAgentData;
+  if (uad) {
+    line('userAgentData.mobile', uad.mobile); line('userAgentData.platform', uad.platform); line('userAgentData.brands', uad.brands);
+    try { line('userAgentData high entropy', await uad.getHighEntropyValues(['architecture', 'bitness', 'model', 'platformVersion', 'uaFullVersion', 'wow64', 'formFactors'])); } catch (e) { line('userAgentData high entropy', 'error: ' + e.message); }
+  } else line('userAgentData', 'absent');
+  sec('screen and window');
+  line('screen', { w: screen.width, h: screen.height, availW: screen.availWidth, availH: screen.availHeight, depth: screen.colorDepth, orientation: screen.orientation && screen.orientation.type });
+  line('window', { innerW: innerWidth, innerH: innerHeight, outerW: outerWidth, outerH: outerHeight, dpr: devicePixelRatio, visualViewportScale: window.visualViewport && visualViewport.scale });
+  line("'orientation' in window", 'orientation' in window); line('window.orientation', window.orientation === undefined ? 'undefined' : window.orientation);
+  sec('touch and pointer');
+  line("'ontouchstart' in window", 'ontouchstart' in window); line('typeof TouchEvent', typeof TouchEvent);
+  ['(pointer: coarse)', '(pointer: fine)', '(any-pointer: coarse)', '(any-pointer: fine)', '(hover: none)', '(hover: hover)', '(any-hover: none)', '(any-hover: hover)', '(prefers-color-scheme: dark)'].forEach(function (q) { line(q, matchMedia(q).matches); });
+  sec('network information');
+  var c = navigator.connection; line('navigator.connection', c ? { type: c.type, effectiveType: c.effectiveType, downlink: c.downlink, rtt: c.rtt, saveData: c.saveData } : 'absent');
+  sec('desktop-only and mobile-only APIs');
+  ['showOpenFilePicker', 'showSaveFilePicker', 'chrome', 'webkitRequestFileSystem', 'DeviceOrientationEvent', 'DeviceMotionEvent', 'Gyroscope', 'AbsoluteOrientationSensor', 'BatteryManager', 'Notification', 'RTCPeerConnection', 'RTCRtpScriptTransform', 'MediaStreamTrackProcessor', 'VideoEncoder', 'AudioWorklet', 'SharedArrayBuffer'].forEach(function (k) { line(k, safe(function () { return typeof window[k]; })); });
+  ['getBattery', 'keyboard', 'serial', 'hid', 'usb', 'bluetooth', 'wakeLock', 'share', 'vibrate', 'contacts', 'mediaSession', 'getInstalledRelatedApps'].forEach(function (k) { line('navigator.' + k, safe(function () { return typeof navigator[k]; })); });
+  line('mediaDevices.getDisplayMedia', safe(function () { return typeof navigator.mediaDevices.getDisplayMedia; }));
+  try { var d = await navigator.mediaDevices.enumerateDevices(); line('enumerateDevices', d.map(function (x) { return x.kind; }).join(',')); } catch (e) { line('enumerateDevices', 'error: ' + e.message); }
+  sec('graphics');
+  try { var g = document.createElement('canvas').getContext('webgl'), x = g.getExtension('WEBGL_debug_renderer_info'); line('webgl', x ? { vendor: g.getParameter(x.UNMASKED_VENDOR_WEBGL), renderer: g.getParameter(x.UNMASKED_RENDERER_WEBGL) } : 'no debug info'); } catch (e) { line('webgl', 'error: ' + e.message); }
+  sec('other');
+  line('timeZone', safe(function () { return Intl.DateTimeFormat().resolvedOptions().timeZone; }));
+  line('isSecureContext', isSecureContext);
+  document.getElementById('out').textContent = out.join('\n');
+  document.getElementById('copy').onclick = function () {
+    navigator.clipboard.writeText(document.getElementById('out').textContent).then(function () { document.getElementById('note').textContent = ' copied'; }, function (e) { document.getElementById('note').textContent = ' could not copy: ' + e.message; });
+  };
+})();
+</script></body></html>
