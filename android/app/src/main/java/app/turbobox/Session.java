@@ -1846,7 +1846,7 @@ final class Session {
                 .setBrand("Microsoft Edge").setMajorVersion(major).setFullVersion(full).build());
         brands.add(new UserAgentMetadata.BrandVersion.Builder()
                 .setBrand("Not_A Brand").setMajorVersion("24").setFullVersion("24.0.0.0").build());
-        UserAgentMetadata md = new UserAgentMetadata.Builder()
+        UserAgentMetadata.Builder mdb = new UserAgentMetadata.Builder()
                 .setBrandVersionList(brands)
                 .setFullVersion(full)
                 .setPlatform(desktop ? (win ? "Windows" : mac ? "macOS" : "Linux") : "Android")
@@ -1854,8 +1854,11 @@ final class Session {
                 .setArchitecture(desktop ? (mac ? "arm" : "x86") : "")
                 .setBitness(desktop ? 64 : 0)
                 .setModel("")
-                .setMobile(!desktop)
-                .build();
-        WebSettingsCompat.setUserAgentMetadata(st, md);
+                .setMobile(!desktop);
+        // Without this the form-factor hint still says "Mobile" next to a desktop platform, which no real desktop browser sends.
+        if (desktop && WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA_FORM_FACTORS)) {
+            mdb.setFormFactors(Collections.singletonList(UserAgentMetadata.FORM_FACTOR_DESKTOP));
+        }
+        WebSettingsCompat.setUserAgentMetadata(st, mdb.build());
     }
 }

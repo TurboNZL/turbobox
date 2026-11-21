@@ -79,7 +79,7 @@ tasks.matching { it.name == 'preBuild' }.configureEach { dependsOn 'copyGuides' 
 
 dependencies {
     implementation 'androidx.core:core:1.13.1'
-    implementation 'androidx.webkit:webkit:1.12.1'
+    implementation 'androidx.webkit:webkit:1.16.0'
 
     testImplementation 'junit:junit:4.13.2'
     // android.jar's org.json is a stub in unit tests; the real one lets the pure classes run on the JVM.
