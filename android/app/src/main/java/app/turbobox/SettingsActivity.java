@@ -627,7 +627,7 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
         TextView stopBtn = Ui.pill(this, "Stop TurboBox", Ui.RED);
         stopBtn.setOnClickListener(v -> new DimBuilder(this).setTitle("Stop TurboBox?")
                 .setMessage("Every open page is closed, scheduled workflows will not run, and the app ends. It stays off until you open it again.")
-                .setPositiveButton("Stop", (d, w) -> stopEverything())
+                .setPositiveButton("Stop", (stopDialog, stopWhich) -> stopEverything())
                 .setNegativeButton("Cancel", null).show());
         stop.addView(stopBtn, Ui.lp(this, 4, 0));
         body.addView(stop, Ui.lp(this, 12, 0));
