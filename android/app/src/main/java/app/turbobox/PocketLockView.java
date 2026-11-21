@@ -9,7 +9,8 @@ import android.view.MotionEvent;
 import android.view.View;
 
 /**
- * The pocket lock's face: black, with two dots. Touch and hold both dots at the same time for a moment to unlock. A
+ * The pocket lock's face: black, with two dots (or, as the visible lock, clear: the page stays in view, under a light veil with
+ * brighter circles and words, so a video can be watched while nothing on it can be touched). Touch and hold both dots at the same time for a moment to unlock. A
  * knock, a bump or fabric pressing on the glass does not hit two exact spots and stay there, and two fingers that mean
  * to do it manage it at once, so nothing else on the screen can be triggered while it is in a pocket.
  */
@@ -23,6 +24,7 @@ final class PocketLockView extends View {
     private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint band = new Paint();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final OnUnlock onUnlock;
     private float radius;
@@ -31,18 +33,23 @@ final class PocketLockView extends View {
     private long heldSince;   // when both dots were first down together, 0 = not both
     private boolean done;
 
-    PocketLockView(Context c, OnUnlock onUnlock) {
+    private final boolean visible;
+
+    PocketLockView(Context c, boolean visible, OnUnlock onUnlock) {
         super(c);
+        this.visible = visible;
         this.onUnlock = onUnlock;
         baseRadius = Ui.dpf(c, 44);
         radius = baseRadius;
-        setBackgroundColor(0xFF000000);
+        setBackgroundColor(visible ? 0x22000000 : 0xFF000000);
         ring.setStyle(Paint.Style.STROKE);
         ring.setStrokeWidth(Ui.dpf(c, 3));
-        ring.setColor(0xFF3A3A44);
+        ring.setColor(visible ? 0xB0FFFFFF : 0xFF3A3A44);
         fill.setStyle(Paint.Style.FILL);
         fill.setColor(Ui.withAlpha(Ui.GREEN, 0.55f));
-        text.setColor(0xFF4A4A56);
+        text.setColor(visible ? 0xFFFFFFFF : 0xFF4A4A56);
+        band.setColor(0x66000000);
+        if (visible) text.setShadowLayer(Ui.dpf(c, 3), 0, 0, 0xFF000000);   // readable on a bright picture too
         text.setTextAlign(Paint.Align.CENTER);
         text.setTextSize(Ui.dpf(c, 14));
     }
@@ -115,6 +122,11 @@ final class PocketLockView extends View {
     @Override
     protected void onDraw(Canvas c) {
         float progress = heldSince == 0 ? 0f : Math.min(1f, (System.currentTimeMillis() - heldSince) / (float) HOLD_MS);
+        if (visible) {
+            // A darker band behind the words and circles, so they read over any picture.
+            float top = getHeight() * 0.42f - Ui.dpf(getContext(), 26);
+            c.drawRect(0, top, getWidth(), cy() + radius + Ui.dpf(getContext(), 16), band);
+        }
         for (int d = 0; d < 2; d++) {
             c.drawCircle(cx(d), cy(), radius, ring);
             if (held[d]) {

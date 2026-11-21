@@ -84,9 +84,27 @@
     }
     post('fsratio', String(r));
   }
+  var lastFsEl = null;
   ['fullscreenchange', 'webkitfullscreenchange'].forEach(function (n) {
-    document.addEventListener(n, function () { reportFullscreenShape(); setTimeout(reportFullscreenShape, 700); }, true);
+    document.addEventListener(n, function () {
+      var fe = document.fullscreenElement || document.webkitFullscreenElement;
+      if (fe) lastFsEl = fe;
+      reportFullscreenShape(); setTimeout(reportFullscreenShape, 700);
+    }, true);
   });
+  // The screen went away while a video was full screen (the native side took the video back into the page so it keeps playing):
+  // ask for full screen again. Browsers only allow that after a tap, so this may be refused; the app then says what to tap.
+  T.reFullscreen = function () {
+    var el = lastFsEl;
+    lastFsEl = null;
+    if (!el || !el.isConnected || document.fullscreenElement || document.webkitFullscreenElement) return;
+    var go = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (!go) { post('fsrestore', '0'); return; }
+    try {
+      var r = go.call(el);
+      if (r && r.then) r.then(function () { post('fsrestore', '1'); }, function () { post('fsrestore', '0'); }); else post('fsrestore', '1');
+    } catch (e) { post('fsrestore', '0'); }
+  };
   document.addEventListener('resize', function (e) {
     if (e.target && e.target.tagName === 'VIDEO' && (document.fullscreenElement || document.webkitFullscreenElement)) reportFullscreenShape();
   }, true);
@@ -851,6 +869,7 @@
   }
   var stepping = false;
   T.step = function (s) {
+    lastGesture = Date.now();   // a workflow's step is a person's action, as far as the playback guard goes
     stepping = true;
     setTimeout(function () { stepping = false; }, 600);   // a field a step focuses must not open the keyboard
     function ok(msg) { return { ok: true, msg: msg || '' }; }
@@ -1445,6 +1464,167 @@
   }
   T.realMuted = function (el) { return mutedDesc.get.call(el); }; // for the tests
 
+  // ---- live-stream ad breaks -----------------------------------------------------------------------------
+  // Some live streams stitch their ads into the stream's own playlist, so no request can be blocked. When a playlist marks an
+  // ad break, the player is handed a clean copy of the same stream instead (asked for the way an embedded player asks), and if
+  // there is none the ad segments are cut out of the playlist. Only on sites with the `live-stream-ads` scriptlet (the lists
+  // in Settings > Ad blocking, assets/adblock_builtin.txt). The hook is plain, self-contained code so it can also run
+  // inside the player's own worker, where the playlists are fetched.
+  function liveAdHook(scope, shareTemplate) {
+    var MARK = /stitched-ad|X-TV-TWITCH-AD|twitch-maf-ad|twitch-ad-quartile/i;
+    var BACKUPS = ['embed', 'popout', 'autoplay'];
+    var realFetch = scope.fetch;
+    if (typeof realFetch !== 'function' || scope.__tbLiveAd) return;
+    scope.__tbLiveAd = true;
+    var template = null;        // the page's own request for a playback token, replayed with another player type
+    var master = null;          // { url, variants: [{ url, res }] } of the stream being played
+    var backup = null;          // { type, master } of the last clean copy found
+    function urlOf(input) { return typeof input === 'string' ? input : (input && input.url) || ''; }
+    function parseMaster(text, url) {
+      var lines = text.split('\n'), variants = [];
+      for (var i = 0; i < lines.length - 1; i++) {
+        var l = lines[i].trim(), next = lines[i + 1].trim();
+        if (l.indexOf('#EXT-X-STREAM-INF') !== 0 || !next || next.charAt(0) === '#') continue;
+        var m = /RESOLUTION=(\d+x\d+)/.exec(l);
+        variants.push({ url: next, res: m ? m[1] : '' });
+      }
+      return { url: url, variants: variants };
+    }
+    // Cuts the ad segments out: a segment whose title is not "live" while the rest are, and the prefetch hints that come with them.
+    function stripAds(text) {
+      var lines = text.split('\n'), out = [], drop = false, kept = 0;
+      for (var i = 0; i < lines.length; i++) {
+        var l = lines[i];
+        if (l.indexOf('#EXT-X-DATERANGE') === 0 && MARK.test(l)) continue;
+        if (l.indexOf('#EXTINF') === 0) { var t = l.slice(l.indexOf(',') + 1).trim(); drop = t !== '' && t !== 'live'; if (!drop) kept++; }
+        if (l.indexOf('#EXT-X-TWITCH-PREFETCH') === 0 && MARK.test(text)) continue;
+        if (drop) { if (l.charAt(0) !== '#' && l.trim()) drop = false; continue; }
+        out.push(l);
+      }
+      return kept > 0 ? out.join('\n') : text;   // nothing left would stall the player: show the ad instead
+    }
+    function text(url, init) { return realFetch.call(scope, url, init).then(function (r) { return r.ok ? r.text() : Promise.reject(new Error('http ' + r.status)); }); }
+    // A master playlist for the same stream from another player type: its token comes from replaying the page's own request.
+    function backupMaster(type) {
+      if (!template || !master) return Promise.reject(new Error('nothing to replay'));
+      var body = String(template.body).replace(/"playerType"\s*:\s*"[^"]*"/g, '"playerType":"' + type + '"');
+      return realFetch.call(scope, template.url, { method: 'POST', headers: template.headers, body: body }).then(function (r) { return r.json(); }).then(function (j) {
+        var d = j && j.data, tok = d && (d.streamPlaybackAccessToken || d.videoPlaybackAccessToken);
+        if (!tok || !tok.value || !tok.signature) throw new Error('no token');
+        var u = new URL(master.url, scope.location ? scope.location.href : undefined);
+        u.searchParams.set('token', tok.value);
+        u.searchParams.set('sig', tok.signature);
+        return text(u.href).then(function (t) { return parseMaster(t, u.href); });
+      });
+    }
+    function pickVariant(m, wanted, index) {
+      if (!m.variants.length) return null;
+      for (var i = 0; i < m.variants.length; i++) if (wanted && m.variants[i].res === wanted) return m.variants[i];
+      return m.variants[Math.min(index, m.variants.length - 1)];
+    }
+    function cleanCopy(mediaUrl) {
+      var index = 0, wanted = '';
+      if (master) for (var i = 0; i < master.variants.length; i++) if (master.variants[i].url === mediaUrl) { index = i; wanted = master.variants[i].res; }
+      function from(m) {
+        var v = pickVariant(m, wanted, index);
+        if (!v) return Promise.reject(new Error('no variant'));
+        return text(v.url).then(function (t) { return MARK.test(t) ? Promise.reject(new Error('ads here too')) : t; });
+      }
+      var first = backup ? from(backup.master).catch(function () { backup = null; return Promise.reject(); }) : Promise.reject();
+      return first.catch(function () {
+        var chain = Promise.reject();
+        BACKUPS.forEach(function (type) {
+          chain = chain.catch(function () { return backupMaster(type).then(function (m) { return from(m).then(function (t) { backup = { type: type, master: m }; return t; }); }); });
+        });
+        return chain;
+      });
+    }
+    scope.fetch = function (input, init) {
+      var url = urlOf(input), path = url.split('#')[0].split('?')[0];
+      var body = init && init.body;
+      if (typeof body === 'string' && body.indexOf('PlaybackAccessToken') >= 0 && /"playerType"/.test(body)) {
+        var hdrs = {};
+        try { new Headers((init && init.headers) || (input && input.headers) || {}).forEach(function (v, k) { hdrs[k] = v; }); } catch (e) { /* none */ }
+        template = { url: url, body: body, headers: hdrs };
+        if (shareTemplate) shareTemplate(template);
+      }
+      var p = realFetch.apply(scope, arguments);
+      if (!/\.m3u8$/i.test(path)) return p;
+      return p.then(function (res) {
+        if (!res.ok) return res;
+        return res.clone().text().then(function (t) {
+          if (t.indexOf('#EXT-X-STREAM-INF') >= 0) { master = parseMaster(t, url); return res; }
+          if (!MARK.test(t)) return res;
+          var answer = function (txt) { return new Response(txt, { status: 200, statusText: 'OK', headers: res.headers }); };
+          return cleanCopy(url).then(answer, function () { return answer(stripAds(t)); });
+        });
+      });
+    };
+    if (scope.addEventListener) scope.addEventListener('message', function (e) {
+      var d = e.data;
+      if (d && d.__tbLiveAdTemplate) { template = d.__tbLiveAdTemplate; e.stopImmediatePropagation(); }
+    });
+    scope.__tbLiveAdTest = { parseMaster: parseMaster, stripAds: stripAds };
+  }
+  var liveAdOn = false;
+  function installLiveAds() {
+    if (liveAdOn) return;
+    liveAdOn = true;
+    try {
+      var workers = [], last = null;
+      var RealWorker = window.Worker;
+      var share = function (tpl) { last = tpl; workers.forEach(function (w) { try { w.postMessage({ __tbLiveAdTemplate: tpl }); } catch (e) { /* gone */ } }); };
+      liveAdHook(window, share);
+      if (typeof RealWorker === 'function') {
+        var Wrapped = function (url, opts) {
+          if (opts && opts.type === 'module') return new RealWorker(url, opts);   // importScripts does not work in those
+          var abs;
+          try { abs = new URL(String(url), location.href).href; } catch (e) { return new RealWorker(url, opts); }
+          var src = '(' + liveAdHook.toString() + ')(self);importScripts(' + JSON.stringify(abs) + ');';
+          var w = new RealWorker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })), opts);
+          workers.push(w);
+          if (last) try { w.postMessage({ __tbLiveAdTemplate: last }); } catch (e) { /* gone */ }
+          return w;
+        };
+        Wrapped.prototype = RealWorker.prototype;
+        window.Worker = Wrapped;
+      }
+    } catch (e) { liveAdOn = false; }
+  }
+  try { if (window.TurboBoxBridge && window.TurboBoxBridge.adScriptlets && JSON.parse(window.TurboBoxBridge.adScriptlets(location.hostname) || '[]').indexOf('live-stream-ads') >= 0) installLiveAds(); } catch (e) { /* bridge not there yet: configure() asks again */ }
+  T.liveAdHook = liveAdHook; // for the tests
+
+  // ---- playback nobody else may stop ---------------------------------------------------------------------
+  // Another app starting to play (a video app, a call) takes the phone's audio focus, and the browser engine then pauses
+  // every playing element by itself. A page that plays should not be stopped by an app we do not control: a pause that
+  // nothing on the page, no tap and no button of ours asked for is undone. cfg.keepVisible false (Settings: keep pages
+  // playing) turns it off.
+  var lastGesture = 0, lastPlaying = new WeakMap(), resuming = new WeakMap();
+  ['pointerdown', 'keydown', 'touchstart', 'mousedown'].forEach(function (n) {
+    window.addEventListener(n, function (e) { if (e.isTrusted) lastGesture = Date.now(); }, true);
+  });
+  var mediaToggleReal = T.mediaToggle;
+  T.mediaToggle = function () { lastGesture = Date.now(); return mediaToggleReal(); };
+  function wantsPause(el) {
+    return !cfg.keepVisible || el.ended || Date.now() - lastGesture < 2500 || !lastPlaying.get(el) || Date.now() - lastPlaying.get(el) > 4000;
+  }
+  document.addEventListener('playing', function (e) { if (e.target && e.target.tagName) lastPlaying.set(e.target, Date.now()); }, true);
+  document.addEventListener('timeupdate', function (e) { var el = e.target; if (el && el.tagName && !el.paused) lastPlaying.set(el, Date.now()); }, true);
+  document.addEventListener('pause', function (e) {
+    var el = e.target;
+    if (!el || (el.tagName !== 'VIDEO' && el.tagName !== 'AUDIO') || wantsPause(el) || resuming.get(el)) return;
+    // Never a loop on a page that pauses itself over and over: a few tries, spaced out, then it is left alone.
+    var tries = 0;
+    resuming.set(el, true);
+    (function again() {
+      if (!el.paused || el.ended || !cfg.keepVisible || Date.now() - lastGesture < 2500 || tries >= 6) { resuming.set(el, false); return; }
+      tries++;
+      var p = el.play();
+      var next = function () { setTimeout(again, 400 * tries); };
+      if (p && p.then) p.then(function () { setTimeout(function () { resuming.set(el, false); }, 1500); }, next); else next();
+    })();
+  }, true);
+
   // ---- misc ----------------------------------------------------------------------------------------
   T.configure = function (o) {
     if (!o) return;
@@ -1470,6 +1650,7 @@
     if ('tap' in o) T.setTap(o.tap);
     if ('keepVisible' in o) cfg.keepVisible = !!o.keepVisible;
     if ('desktop' in o) cfg.desktop = !!o.desktop;
+    if (o.scriptlets && o.scriptlets.indexOf('live-stream-ads') >= 0) installLiveAds();
   };
   // For "Page info": who is making sound on this page and which tap hears it (found by looking, not guessing)
   function audioReport() {

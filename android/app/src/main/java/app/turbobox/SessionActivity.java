@@ -1693,7 +1693,7 @@ public class SessionActivity extends Activity implements Session.Listener {
                     pane.getLocationOnScreen(at);
                 }
                 final Session locked = s;
-                PocketLockView face = new PocketLockView(this, () -> {
+                PocketLockView face = new PocketLockView(this, Prefs.visibleLock(this), () -> {
                     locked.setLocked(false);
                     updateLocks();
                     updateControls();

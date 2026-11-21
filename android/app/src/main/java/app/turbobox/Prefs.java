@@ -71,6 +71,10 @@ final class Prefs {
     static boolean keepPlaying(Context c) { return ps(c).getBoolean("keepPlaying", true); }
     static void setKeepPlaying(Context c, boolean v) { ps(c).edit().putBoolean("keepPlaying", v).apply(); }
 
+    /** The page lock leaves the page in view (under a light veil) instead of covering it in black. On by default. */
+    static boolean visibleLock(Context c) { return ps(c).getBoolean("visibleLock", true); }
+    static void setVisibleLock(Context c, boolean v) { ps(c).edit().putBoolean("visibleLock", v).apply(); }
+
     // ---- the session screen ----
     /** The options bar is put away, leaving a small button. */
     static boolean barHidden(Context c) { return ps(c).getBoolean("barHidden", false); }

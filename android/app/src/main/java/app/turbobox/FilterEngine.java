@@ -11,7 +11,8 @@ import java.util.Set;
 /**
  * A request blocker that reads the filter lists uBlock Origin and Adblock Plus use (EasyList, EasyPrivacy, uBlock filters):
  * network rules (||domain^, wildcards, $third-party, $script, $domain=..., @@ exceptions, $important) and element hiding
- * (##selector, domain##selector, #@# exceptions). Rules that need a full content blocker (scriptlets, procedural selectors,
+ * (##selector, domain##selector, #@# exceptions) and named page scriptlets (domain##+js(name)): only the names the app
+ * implements are acted on, see {@link #scriptlets}. Rules that need a full content blocker (procedural selectors,
  * header and CSP rewriting) are skipped. Pure Java, no Android classes, so it is tested on the JVM.
  *
  * Network rules are indexed by the longest whole word in their pattern, so a request is checked against a handful of
@@ -50,6 +51,8 @@ final class FilterEngine {
     private final Map<String, List<Cosmetic>> hideByDomain = new HashMap<>();
     private final Map<String, List<Cosmetic>> unhideByDomain = new HashMap<>();
     private final Set<String> genericUnhide = new HashSet<>();
+    private final Map<String, List<Cosmetic>> scriptByDomain = new HashMap<>();
+    private final Map<String, List<Cosmetic>> unscriptByDomain = new HashMap<>();
     private int networkRules;
     private int cosmeticRules;
 
@@ -98,7 +101,12 @@ final class FilterEngine {
         else if (line.startsWith("##", hash)) marker = "##";
         else return;   // scripts, style injection and procedural filters are not supported
         String selector = line.substring(hash + marker.length()).trim();
-        if (selector.isEmpty() || selector.startsWith("+js(") || unsupportedSelector(selector)) return;
+        boolean script = selector.startsWith("+js(");
+        if (script) {
+            selector = scriptletName(selector);
+            if (selector == null) return;
+        }
+        if (selector.isEmpty() || (!script && unsupportedSelector(selector))) return;
         Cosmetic c = new Cosmetic();
         c.selector = selector;
         String domains = line.substring(0, hash).trim();
@@ -115,6 +123,13 @@ final class FilterEngine {
             c.exclude = out.isEmpty() ? null : out.toArray(new String[0]);
         }
         boolean unhide = marker.equals("#@#");
+        if (script) {
+            // A scriptlet always belongs to named sites (a global one would run on every page).
+            if (c.include == null) return;
+            Map<String, List<Cosmetic>> into = unhide ? unscriptByDomain : scriptByDomain;
+            for (String d : c.include) into.computeIfAbsent(d, k -> new ArrayList<>()).add(c);
+            return;
+        }
         cosmeticRules++;
         if (unhide) {
             if (c.include == null) genericUnhide.add(selector);
@@ -124,6 +139,16 @@ final class FilterEngine {
         } else {
             for (String d : c.include) hideByDomain.computeIfAbsent(d, k -> new ArrayList<>()).add(c);
         }
+    }
+
+    /** The name in {@code +js(name, arguments...)}, without a ".js" ending; null when it is not that form. */
+    private static String scriptletName(String selector) {
+        if (!selector.startsWith("+js(") || !selector.endsWith(")")) return null;
+        String inner = selector.substring(4, selector.length() - 1).trim();
+        int comma = inner.indexOf(',');
+        String name = (comma < 0 ? inner : inner.substring(0, comma)).trim().toLowerCase(Locale.ROOT);
+        if (name.endsWith(".js")) name = name.substring(0, name.length() - 3);
+        return name.isEmpty() ? null : name;
     }
 
     private static boolean unsupportedSelector(String s) {
@@ -485,6 +510,23 @@ final class FilterEngine {
             if (unhide.contains(c.selector)) continue;
             out.add(c.selector);
             taken++;
+        }
+        return out;
+    }
+
+    /** The names of the page scriptlets that run on a page of this host (exceptions removed), in the order they were read. */
+    List<String> scriptlets(String pageHost) {
+        String host = pageHost == null ? "" : pageHost.toLowerCase(Locale.ROOT);
+        Set<String> off = new HashSet<>();
+        for (String h = host; h != null && !h.isEmpty(); h = parent(h)) {
+            List<Cosmetic> u = unscriptByDomain.get(h);
+            if (u != null) for (Cosmetic c : u) if (appliesHere(c, host)) off.add(c.selector);
+        }
+        List<String> out = new ArrayList<>();
+        for (String h = host; h != null && !h.isEmpty(); h = parent(h)) {
+            List<Cosmetic> list = scriptByDomain.get(h);
+            if (list == null) continue;
+            for (Cosmetic c : list) if (appliesHere(c, host) && !off.contains(c.selector) && !out.contains(c.selector)) out.add(c.selector);
         }
         return out;
     }

@@ -277,6 +277,14 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
             }
         });
         screen.addView(keep, Ui.lp(this, 8, 2));
+        Switch vlock = Ui.toggle(this);
+        vlock.setText("The page lock shows the page");
+        vlock.setTextColor(Ui.TEXT);
+        vlock.setChecked(Prefs.visibleLock(this));
+        vlock.setOnCheckedChangeListener((b, on) -> Prefs.setVisibleLock(this, on));
+        screen.addView(vlock, Ui.lp(this, 8, 2));
+        screen.addView(Ui.hint(this, "On: a locked page stays in view (a video can be watched) with the two circles over it. Off: a locked page "
+                + "goes black, for a pocket. Either way touches do nothing until both circles are held. Takes effect the next time you lock."), Ui.lp(this, 2, 2));
         Switch pd = Ui.toggle(this);
         pd.setText("Pages live on a private display");
         pd.setChecked(Prefs.privateDisplay(this));

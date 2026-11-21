@@ -150,6 +150,7 @@ final class Session {
     private boolean locked;           // page lock: the screen covers this page until it is unlocked
     private float fullscreenRatio;    // shape of the full-screen video, 0 = not known
     private View customView;          // the page's full-screen view while it is full screen
+    private boolean fullscreenResume; // it was full screen when the screen went away: ask for full screen again when it is back
     private WebChromeClient.CustomViewCallback customCallback;
     private OffscreenHost pdisplay;   // private display mode: the page lives here for good, whatever the screen does
     private OffscreenHost keepHost;   // the page on a private display while no screen shows it and it is not recording
@@ -1123,8 +1124,23 @@ final class Session {
     /** The visible activity's window, which is where the recorder takes its pictures from; null when none shows. */
     void setFrameWindow(Window w) {
         frameWindow = w;
+        if (w == null && customView != null && app != null && Prefs.keepPlaying(app)) {
+            // The page's full-screen view lives in the screen's window and stops playing when that window goes (screen off, another
+            // app in front). The video goes back into the page, which is kept playing on a private display; full screen is offered
+            // again when a screen shows the page.
+            fullscreenResume = true;
+            exitFullscreen();
+        }
         if (recorder != null) recorder.setSource(w, webView);
-        if (w != null) leaveHost(); else hostWithoutScreen();
+        if (w != null) {
+            leaveHost();
+            if (fullscreenResume) {
+                fullscreenResume = false;
+                main.postDelayed(() -> js("__turbobox.reFullscreen()"), 700);
+            }
+        } else {
+            hostWithoutScreen();
+        }
     }
 
     /** Like {@link #setFrameWindow} but does not take the page off its private display (it is not on screen, just open). */
@@ -1616,6 +1632,10 @@ final class Session {
                     .put("micGain", micGain).put("micLabel", micLabel())
                     .put("tap", isRecording()).put("micAllowed", micAllowed).put("cameraAllowed", cameraAllowed).put("localMute", frozen)
                     .put("keepVisible", Prefs.keepPlaying(app)).put("desktop", !mobile);
+            if (adsBlocked()) {
+                // The same answer as the bridge gives at document start, for a page whose script ran before the bridge was there.
+                settings.put("scriptlets", new org.json.JSONArray(AdBlock.scriptletsJson(FilterEngine.hostOf(currentUrl.toLowerCase(java.util.Locale.ROOT)))));
+            }
             if (viewCssWidth > 0) settings.put("viewWidth", viewCssWidth);
             settings.put("dsf", app.getResources().getDisplayMetrics().density);   // the density the WebView was created with: what its CSS pixels are
             if (webView != null && webView.getWidth() > 0) settings.put("viewPx", webView.getWidth());
@@ -1631,6 +1651,16 @@ final class Session {
         @JavascriptInterface
         public void post(final String type, final String data) {
             main.post(() -> dispatch(type, data));
+        }
+
+        /** Which page scriptlets (see assets/adblock_builtin.txt) the page script should run on this host, as a JSON array. */
+        @JavascriptInterface
+        public String adScriptlets(String host) {
+            try {
+                return adsBlocked() ? AdBlock.scriptletsJson(host) : "[]";
+            } catch (RuntimeException e) {
+                return "[]";
+            }
         }
     }
 
@@ -1652,6 +1682,9 @@ final class Session {
                     }
                     break;
                 }
+                case "fsrestore":
+                    if (!"1".equals(data)) notice("Tap the video's full screen button to continue in full screen.");
+                    break;
                 case "media":
                     mediaPlaying = "1".equals(data);
                     main.post(SessionService::refresh);

@@ -107,4 +107,21 @@ public class FilterEngineTest {
         System.out.println("2000 checks in " + (System.nanoTime() - t) / 1_000_000 + " ms, blocked " + blocked);
         assertTrue(e.hideSelectors("example.com", 5000).size() > 100);
     }
+
+    @Test
+    public void scriptletsApplyToTheNamedSiteAndItsSubdomainsUnlessExcepted() {
+        FilterEngine e = with("example.com##+js(live-stream-ads)", "example.org##+js(Other-Thing.js, a, b)", "www.example.com#@#+js(live-stream-ads)");
+        assertTrue(e.scriptlets("example.com").contains("live-stream-ads"));
+        assertTrue(e.scriptlets("player.example.com").contains("live-stream-ads"));
+        assertFalse(e.scriptlets("www.example.com").contains("live-stream-ads"));
+        assertTrue(e.scriptlets("example.org").contains("other-thing"));
+        assertTrue(e.scriptlets("unrelated.net").isEmpty());
+    }
+
+    @Test
+    public void aScriptletWithoutASiteIsIgnoredAndNeverHidesAnything() {
+        FilterEngine e = with("##+js(live-stream-ads)");
+        assertTrue(e.scriptlets("example.com").isEmpty());
+        assertTrue(e.hideSelectors("example.com", 100).isEmpty());
+    }
 }
