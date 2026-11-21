@@ -395,9 +395,11 @@ posts.length = 0;
 const mc = await page.evaluate(async () => {
   const old = document.getElementById('fsv'); if (old) { old.pause(); old.remove(); }
   const a = document.getElementById('a');
-  a.pause(); a.currentTime = 0;
   const T = window.__turbobox;
+  T.configure({ keepVisible: false });   // the page's own pause here is the test's set-up, not something to undo
+  a.pause(); a.currentTime = 0;
   await new Promise(r => setTimeout(r, 400));
+  T.configure({ keepVisible: true });
   T.mediaToggle();
   await new Promise(r => setTimeout(r, 400));
   const playing = !a.paused;
@@ -412,6 +414,26 @@ const mc = await page.evaluate(async () => {
 await page.waitForTimeout(300);
 const said = posts.filter(p => p[0] === 'media').map(p => p[1]).join();
 check('media toggle plays and pauses, seek jumps, and the state is reported', mc.playing && mc.jumped > 0.8 && mc.pausedAfter && said.split(',').pop() === '0', { mc, said });
+
+// playback nobody else may stop: a pause nothing on the page asked for (another app taking the audio focus) is undone;
+// a pause right after a tap, a toggle from the app, or at the end of the media is left alone
+const guard = await page.evaluate(async () => {
+  const a = document.getElementById('a');
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+  const T = window.__turbobox;
+  T.configure({ keepVisible: true });
+  await wait(2700);                              // past the last toggle's grace period
+  a.loop = true; a.currentTime = 0;
+  await a.play(); await wait(1200);             // playing for a while
+  a.pause(); await wait(900);                   // paused by "the system"
+  const resumed = !a.paused;
+  T.mediaToggle(); await wait(300);             // paused from the app
+  const stays = a.paused;
+  await wait(1500);
+  return { resumed, stays, stillPaused: a.paused };
+});
+check('a pause nobody on the page asked for is undone, a deliberate one is not', guard.resumed && guard.stays && guard.stillPaused, guard);
+await page.evaluate(() => { const a = document.getElementById('a'); a.pause(); });
 
 console.log(fails ? `${fails} FAILED` : 'all ok');
 await b.close();

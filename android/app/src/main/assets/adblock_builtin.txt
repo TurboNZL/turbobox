@@ -1,0 +1,5 @@
+! Rules the app ships with and applies on top of the downloaded lists. Page scriptlets are named: the page script
+! (session.js) implements each one itself.
+! live-stream-ads: removes mid-roll ad breaks that are stitched into a live stream's own playlist, by playing a clean
+! copy of the same stream instead (and by cutting the ad segments out when no clean copy exists).
+twitch.tv##+js(live-stream-ads)

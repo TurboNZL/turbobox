@@ -111,6 +111,12 @@ final class AdBlock {
                     e.addList(new String(readAll(new java.io.FileInputStream(f)), StandardCharsets.UTF_8));
                     lists++;
                 }
+                // Rules that ship with the app and that the downloaded lists do not carry (page scriptlets the app implements itself).
+                try (InputStream in = app.getAssets().open("adblock_builtin.txt")) {
+                    e.addList(new String(readAll(in), StandardCharsets.UTF_8));
+                } catch (IOException ignored) {
+                    // Nothing built in.
+                }
                 if (lists == 0) {
                     try (InputStream in = app.getAssets().open("adblock_seed.txt")) {
                         e.addList(new String(readAll(in), StandardCharsets.UTF_8));
@@ -212,6 +218,13 @@ final class AdBlock {
         if (e == null || mainFrame) return false;
         String pageHost = pageUrl == null ? "" : FilterEngine.hostOf(pageUrl.toLowerCase(java.util.Locale.ROOT));
         return e.shouldBlock(url, pageHost, typeOf(false, url, accept));
+    }
+
+    /** The page scriptlets to run on a page of this host, as a JSON array of names ("[]" when none or the engine is not built yet). */
+    static String scriptletsJson(String pageHost) {
+        FilterEngine e = engine;
+        if (e == null || pageHost == null) return "[]";
+        return new org.json.JSONArray(e.scriptlets(pageHost)).toString();
     }
 
     /** JavaScript that hides the page's ad elements, or null when there is nothing to do. */
