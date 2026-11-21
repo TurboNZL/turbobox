@@ -595,6 +595,44 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
 
         body.addView(Ui.hint(this, "TurboBox is MIT licensed and built on TurboNZL/turboengine. The pinned pages, the microphone "
                 + "handling and the mute lock come from Tether's web session."), Ui.lp(this, 16, 0));
+
+        // Stop everything
+        LinearLayout stop = Ui.card(this);
+        stop.addView(Ui.text(this, "Stop TurboBox", 17f, Ui.TEXT, "sans-serif-medium"));
+        stop.addView(Ui.hint(this, "Closes every page, cancels the planned workflow alarms and ends the app's process, so nothing of it runs "
+                + "until you open TurboBox yourself. Recordings in progress are finished first. Your pages, workflows and settings are kept."), Ui.lp(this, 4, 8));
+        TextView stopBtn = Ui.pill(this, "Stop TurboBox", Ui.RED);
+        stopBtn.setOnClickListener(v -> new DimBuilder(this).setTitle("Stop TurboBox?")
+                .setMessage("Every open page is closed, scheduled workflows will not run, and the app ends. It stays off until you open it again.")
+                .setPositiveButton("Stop", (d, w) -> stopEverything())
+                .setNegativeButton("Cancel", null).show());
+        stop.addView(stopBtn, Ui.lp(this, 4, 0));
+        body.addView(stop, Ui.lp(this, 12, 0));
+    }
+
+    /** Closes the pages, cancels the alarms, waits for a recording being written, then ends the process. Stays off until an activity is opened. */
+    private void stopEverything() {
+        final android.content.Context app = getApplicationContext();
+        Prefs.setStopped(app, true);
+        for (Workflow w : WorkflowStore.load(app)) WorkflowScheduler.cancelAll(app, w);
+        for (Session s : new java.util.ArrayList<>(Sessions.active())) s.close("TurboBox was stopped");
+        app.stopService(new android.content.Intent(app, SessionService.class));
+        android.app.NotificationManager nm = app.getSystemService(android.app.NotificationManager.class);
+        if (nm != null) nm.cancelAll();
+        finishAndRemoveTask();
+        final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+        final long until = System.currentTimeMillis() + 8000;
+        h.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                // A recording piece that is still being written is given a few seconds to close.
+                if ((BufferRecorder.busy() || RecordingTranscribe.busy()) && System.currentTimeMillis() < until) {
+                    h.postDelayed(this, 300);
+                    return;
+                }
+                android.os.Process.killProcess(android.os.Process.myPid());
+            }
+        }, 600);
     }
 
     private static final int REQ_ACCOUNT = 41;

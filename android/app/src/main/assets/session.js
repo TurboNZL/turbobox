@@ -1472,7 +1472,7 @@
   // inside the player's own worker, where the playlists are fetched.
   function liveAdHook(scope, shareTemplate) {
     var MARK = /stitched-ad|X-TV-TWITCH-AD|twitch-maf-ad|twitch-ad-quartile/i;
-    var BACKUPS = ['embed', 'popout', 'autoplay'];
+    var BACKUPS = ['autoplay', 'picture-by-picture', 'embed'];   // the order the community ad-swap scripts use
     var realFetch = scope.fetch;
     if (typeof realFetch !== 'function' || scope.__tbLiveAd) return;
     scope.__tbLiveAd = true;

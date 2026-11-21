@@ -1683,8 +1683,7 @@ final class Session {
                     break;
                 }
                 case "fsrestore":
-                    if (!"1".equals(data)) notice("Tap the video's full screen button to continue in full screen.");
-                    break;
+                    break;   // asked again for full screen; a refusal is silent (the video simply keeps playing in the page)
                 case "media":
                     mediaPlaying = "1".equals(data);
                     main.post(SessionService::refresh);

@@ -71,6 +71,10 @@ final class Prefs {
     static boolean keepPlaying(Context c) { return ps(c).getBoolean("keepPlaying", true); }
     static void setKeepPlaying(Context c, boolean v) { ps(c).edit().putBoolean("keepPlaying", v).apply(); }
 
+    /** TurboBox was stopped from Settings: no alarm, boot event or service starts anything until the person opens the app again. */
+    static boolean stopped(Context c) { return sp(c).getBoolean("stopped", false); }
+    static void setStopped(Context c, boolean v) { sp(c).edit().putBoolean("stopped", v).apply(); }
+
     /** The page lock leaves the page in view (under a light veil) instead of covering it in black. On by default. */
     static boolean visibleLock(Context c) { return ps(c).getBoolean("visibleLock", true); }
     static void setVisibleLock(Context c, boolean v) { ps(c).edit().putBoolean("visibleLock", v).apply(); }
