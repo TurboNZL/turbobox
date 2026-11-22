@@ -18,7 +18,7 @@
 (function () {
   if (window.__turbobox) return;
   var T = window.__turbobox = {};
-  var cfg = { dsf: window.devicePixelRatio || 1, shape: 0, virtualDevices: true, pageWidth: 1280, muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, cameraAllowed: false, localMute: false, keepVisible: true, desktop: !window.__tbMobile, os: window.__tbOs || 'linux' };
+  var cfg = { dsf: window.devicePixelRatio || 1, shape: 0, virtualDevices: true, pageWidth: 1280, muted: false, volume: 1, aec: true, zoom: 1, micGain: 1, viewW: 0, micAllowed: true, cameraAllowed: false, localMute: false, keepVisible: true, holdPlayback: false, desktop: !window.__tbMobile, os: window.__tbOs || 'linux' };
   var tracks = [], pcs = [];
 
   function post(type, data) {
@@ -1626,8 +1626,8 @@
   // ---- playback nobody else may stop ---------------------------------------------------------------------
   // Another app starting to play (a video app, a call) takes the phone's audio focus, and the browser engine then pauses
   // every playing element by itself. A page that plays should not be stopped by an app we do not control: a pause that
-  // nothing on the page, no tap and no button of ours asked for is undone. cfg.keepVisible false (Settings: keep pages
-  // playing) turns it off.
+  // nothing on the page, no tap and no button of ours asked for is undone. Off unless Settings > "Keep playing when another
+  // app starts" is on (cfg.holdPlayback): resuming takes the audio focus back, which pauses the other app.
   var lastGesture = 0, lastPlaying = new WeakMap(), resuming = new WeakMap();
   ['pointerdown', 'keydown', 'touchstart', 'mousedown'].forEach(function (n) {
     window.addEventListener(n, function (e) { if (e.isTrusted) lastGesture = Date.now(); }, true);
@@ -1635,7 +1635,7 @@
   var mediaToggleReal = T.mediaToggle;
   T.mediaToggle = function () { lastGesture = Date.now(); return mediaToggleReal(); };
   function wantsPause(el) {
-    return !cfg.keepVisible || el.ended || Date.now() - lastGesture < 2500 || !lastPlaying.get(el) || Date.now() - lastPlaying.get(el) > 4000;
+    return !cfg.holdPlayback || el.ended || Date.now() - lastGesture < 2500 || !lastPlaying.get(el) || Date.now() - lastPlaying.get(el) > 4000;
   }
   document.addEventListener('playing', function (e) { if (e.target && e.target.tagName) lastPlaying.set(e.target, Date.now()); }, true);
   document.addEventListener('timeupdate', function (e) { var el = e.target; if (el && el.tagName && !el.paused) lastPlaying.set(el, Date.now()); }, true);
@@ -1646,7 +1646,7 @@
     var tries = 0;
     resuming.set(el, true);
     (function again() {
-      if (!el.paused || el.ended || !cfg.keepVisible || Date.now() - lastGesture < 2500 || tries >= 6) { resuming.set(el, false); return; }
+      if (!el.paused || el.ended || !cfg.holdPlayback || Date.now() - lastGesture < 2500 || tries >= 6) { resuming.set(el, false); return; }
       tries++;
       var p = el.play();
       var next = function () { setTimeout(again, 400 * tries); };
@@ -1678,6 +1678,7 @@
     if ('localMute' in o) T.setLocalMute(o.localMute);
     if ('tap' in o) T.setTap(o.tap);
     if ('keepVisible' in o) cfg.keepVisible = !!o.keepVisible;
+    if ('holdPlayback' in o) cfg.holdPlayback = !!o.holdPlayback;
     if ('desktop' in o) cfg.desktop = !!o.desktop;
     if (o.scriptlets && o.scriptlets.indexOf('live-stream-ads') >= 0) installLiveAds();
   };
