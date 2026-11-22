@@ -79,6 +79,10 @@ final class Prefs {
     static boolean stopped(Context c) { return sp(c).getBoolean("stopped", false); }
     static void setStopped(Context c, boolean v) { sp(c).edit().putBoolean("stopped", v).apply(); }
 
+    /** Undo a pause that another app caused by taking the audio focus (it takes the focus back, which pauses that app). Off by default. */
+    static boolean holdPlayback(Context c) { return sp(c).getBoolean("holdPlayback", false); }
+    static void setHoldPlayback(Context c, boolean v) { sp(c).edit().putBoolean("holdPlayback", v).apply(); }
+
     /** The page lock leaves the page in view (under a light veil) instead of covering it in black. On by default. */
     static boolean visibleLock(Context c) { return ps(c).getBoolean("visibleLock", true); }
     static void setVisibleLock(Context c, boolean v) { ps(c).edit().putBoolean("visibleLock", v).apply(); }

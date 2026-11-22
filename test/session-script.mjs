@@ -421,7 +421,7 @@ const guard = await page.evaluate(async () => {
   const a = document.getElementById('a');
   const wait = (ms) => new Promise(r => setTimeout(r, ms));
   const T = window.__turbobox;
-  T.configure({ keepVisible: true });
+  T.configure({ keepVisible: true, holdPlayback: true });
   await wait(2700);                              // past the last toggle's grace period
   a.loop = true; a.currentTime = 0;
   await a.play(); await wait(1200);             // playing for a while

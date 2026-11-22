@@ -1185,6 +1185,11 @@ final class Session {
         if (frameWindow == null) hostWithoutScreen();
     }
 
+    /** Tells the page the "keep playing when another app starts" setting again after it changed. */
+    void refreshHoldPlayback() {
+        js("__turbobox.configure({holdPlayback:" + Prefs.holdPlayback(app) + "})");
+    }
+
     /** The page's permanent private display (private display mode), or null. */
     OffscreenHost privateDisplay() {
         return pdisplay;
@@ -1631,7 +1636,7 @@ final class Session {
                     .put("muted", silenced()).put("volume", effectiveVolume()).put("aec", aec).put("virtualDevices", Prefs.virtualDevices(app)).put("privateDisplay", pdisplay != null).put("shape", Pin.ASPECTS[effectiveAspect()]).put("pageWidth", effectivePageWidth()).put("cursorMode", cursorMode).put("zoom", effectiveZoom())
                     .put("micGain", micGain).put("micLabel", micLabel())
                     .put("tap", isRecording()).put("micAllowed", micAllowed).put("cameraAllowed", cameraAllowed).put("localMute", frozen)
-                    .put("keepVisible", Prefs.keepPlaying(app)).put("desktop", !mobile);
+                    .put("keepVisible", Prefs.keepPlaying(app)).put("holdPlayback", Prefs.holdPlayback(app)).put("desktop", !mobile);
             if (adsBlocked()) {
                 // The same answer as the bridge gives at document start, for a page whose script ran before the bridge was there.
                 settings.put("scriptlets", new org.json.JSONArray(AdBlock.scriptletsJson(FilterEngine.hostOf(currentUrl.toLowerCase(java.util.Locale.ROOT)))));

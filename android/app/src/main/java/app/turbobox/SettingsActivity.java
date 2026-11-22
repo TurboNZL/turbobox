@@ -277,6 +277,17 @@ public class SettingsActivity extends Activity implements AppUpdater.Listener {
             }
         });
         screen.addView(keep, Ui.lp(this, 8, 2));
+        Switch hold = Ui.toggle(this);
+        hold.setText("Keep playing when another app starts");
+        hold.setTextColor(Ui.TEXT);
+        hold.setChecked(Prefs.holdPlayback(this));
+        hold.setOnCheckedChangeListener((b, on) -> {
+            Prefs.setHoldPlayback(this, on);
+            for (Session s : Sessions.active()) s.refreshHoldPlayback();
+        });
+        screen.addView(hold, Ui.lp(this, 8, 2));
+        screen.addView(Ui.hint(this, "Off: another app that starts playing (a video app, say) can pause your page, as on any phone. On: TurboBox "
+                + "starts the page again, which takes the sound back and pauses the other app. A pause you ask for yourself is never undone."), Ui.lp(this, 2, 2));
         Switch vlock = Ui.toggle(this);
         vlock.setText("The page lock shows the page");
         vlock.setTextColor(Ui.TEXT);
